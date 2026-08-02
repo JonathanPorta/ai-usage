@@ -1147,30 +1147,45 @@ def terminate_provider_process(
     """Bound cleanup and terminate descendants that inherited provider pipes."""
 
     if process_group is not None and os.name == "posix":
+        def signal_group(provider_signal: int) -> bool:
+            try:
+                os.killpg(process_group, provider_signal)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                # Darwin can report EPERM while an exited group leader remains
+                # unreaped.  Reap our direct child and retry the group once.
+                if process.poll() is None:
+                    raise
+                try:
+                    os.killpg(process_group, provider_signal)
+                    return True
+                except ProcessLookupError:
+                    return False
+
+        # Reap a provider that exited on its own before signalling descendants.
+        process.poll()
+        signal_group(signal.SIGTERM)
         try:
-            os.killpg(process_group, signal.SIGTERM)
-        except ProcessLookupError:
+            process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
             pass
+
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
-            try:
-                os.killpg(process_group, 0)
-            except ProcessLookupError:
+            if not signal_group(0):
                 break
             time.sleep(0.02)
         else:
+            signal_group(signal.SIGKILL)
+
+        if process.poll() is None:
             try:
-                os.killpg(process_group, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process_group, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait(timeout=1)
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                signal_group(signal.SIGKILL)
+                process.wait(timeout=1)
         return
 
     if process.poll() is None:
@@ -1270,12 +1285,12 @@ def query_codex_app_server(
         return responses.get(101), responses.get(102)
     finally:
         if process is not None:
+            terminate_provider_process(process, process_group)
             if process.stdin is not None:
                 try:
                     process.stdin.close()
                 except OSError:
                     pass
-            terminate_provider_process(process, process_group)
             if process.stdout is not None:
                 process.stdout.close()
         stderr_file.close()
@@ -2425,12 +2440,12 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
         return billing["result"]
     finally:
         if process is not None:
+            terminate_provider_process(process, process_group)
             if process.stdin is not None:
                 try:
                     process.stdin.close()
                 except OSError:
                     pass
-            terminate_provider_process(process, process_group)
             if process.stdout is not None:
                 process.stdout.close()
         stderr_file.close()
