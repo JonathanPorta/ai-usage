@@ -44,12 +44,16 @@ The installer:
    state/cache files;
 4. attaches the Antigravity status-line callback only when `agy` exists and no
    custom `statusLine` is already configured; and
-5. loads `~/Library/LaunchAgents/codes.porta.ai-usage.plist`.
+5. records exactly which files and provider fields it owns; and
+6. loads `~/Library/LaunchAgents/codes.porta.ai-usage.plist` only after every
+   filesystem mutation is ready to roll back.
 
 It does not require `sudo`. If an older collector used `~/.ai-usage` as a file,
-the installer preserves it beside the new directory with a `.legacy-*` suffix.
-An incompatible existing CSV is also moved aside rather than appended to with
-the wrong schema.
+move that file explicitly before installing; the installer fails before making
+changes instead of guessing ownership. An incompatible existing CSV is moved
+aside transactionally rather than appended to with the wrong schema. A failed
+`launchctl` transition restores prior files and settings or reports the exact
+recovery-artifact directory if the prior service cannot be restarted.
 
 To write the files without starting `launchd`:
 
@@ -123,6 +127,10 @@ The installed config contains all advanced source paths, timeouts, and local
 scan budgets. Set a provider's `executable` to an absolute path if normal `PATH`
 discovery finds the wrong installation.
 
+The four configured paths and their derived lock/journal paths must resolve to
+distinct filesystem objects. Collisions—including symlink aliases—fail during
+config loading before logs, CSV, or state are mutated.
+
 `monthly_subscription_usd` is intentionally manual: consumer billing metadata
 generally does not expose the price on your receipt. It is recorded once per
 calendar month, and again only if you change the configured value.
@@ -149,7 +157,10 @@ private `~/.ai-usage` directory.
 
 ## CSV semantics
 
-The CSV is long-form. Important columns include `provider`, `category`,
+The CSV is long-form. `transaction_id` and `transaction_index` bind every row
+to the durable state transition that consumed its source event. If the process
+stops after CSV fsync but before state replacement, the next run completes the
+pending transaction without duplicating rows. Important columns include `provider`, `category`,
 `metric`, `record_kind`, `scope`, `period_start`, `period_end`, `value`, `unit`,
 `resets_at`, `source`, and `status`.
 
@@ -194,17 +205,23 @@ Relevant primary documentation:
 ~/.ai-usage/collector.py uninstall
 ```
 
-This unloads and removes the LaunchAgent, removes only provider settings that
-exactly match integrations managed by this collector, and preserves config,
-CSV data, logs, and raw caches. If a provider settings file cannot be inspected
-safely, hook files are preserved rather than leaving a broken command behind.
+This first verifies a successful `launchctl bootout`, then removes only files
+and provider fields recorded in `install-ownership.json` and still matching
+their installed values. Preexisting identical settings are explicitly unowned
+and remain untouched. Config, CSV data, logs, and raw caches are preserved. If
+ownership or provider settings cannot be inspected safely, uninstall fails
+closed before deleting dependent files.
 
 ## Tests
 
 ```bash
-python3 -m unittest -v
+make help
+make test
+make check
 ```
 
 The fixture suite uses fake provider binaries and asserts that only the Codex
-account methods and Grok billing method are sent. It does not contact any AI
-provider.
+account methods and Grok billing method are sent. It also exercises crash
+recovery, rotation tails, path aliases, concurrent collection, process-tree
+timeouts, install ownership, and every `launchctl` rollback stage. It does not
+contact any AI provider.

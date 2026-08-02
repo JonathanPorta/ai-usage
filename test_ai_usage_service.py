@@ -9,19 +9,31 @@ local-file collectors do not merely *claim* to avoid executing provider CLIs.
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager, ExitStack
+import importlib.util
 import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import stat
 import subprocess
 import sys
 import tempfile
 import time
+from typing import Optional
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("ai_usage_service.py").resolve()
+WORKFLOW = SCRIPT.parent / ".github" / "workflows" / "tests.yml"
+
+SPEC = importlib.util.spec_from_file_location("ai_usage_service_under_test", SCRIPT)
+assert SPEC and SPEC.loader
+SERVICE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = SERVICE
+SPEC.loader.exec_module(SERVICE)
 
 
 class IsolatedHome:
@@ -41,6 +53,7 @@ class IsolatedHome:
         self.cache = self.data / "cache"
         self.tripwire = self.root / "tripwire.log"
         self.trace = self.root / "rpc-trace.jsonl"
+        self.child_exit = self.root / "child-exit.log"
 
     def close(self) -> None:
         self._temporary.cleanup()
@@ -53,6 +66,7 @@ class IsolatedHome:
         )
         environment["TEST_TRIPWIRE"] = str(self.tripwire)
         environment["TEST_TRACE"] = str(self.trace)
+        environment["TEST_CHILD_EXIT"] = str(self.child_exit)
         return environment
 
     def provider_config(self, enabled: str, **settings: object) -> dict[str, object]:
@@ -75,7 +89,7 @@ class IsolatedHome:
     def write_config(self, value: dict[str, object]) -> None:
         self.config.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
-    def write_executable(self, name: str, body: str | None = None) -> Path:
+    def write_executable(self, name: str, body: Optional[str] = None) -> Path:
         path = self.bin / name
         if body is None:
             body = (
@@ -90,8 +104,9 @@ class IsolatedHome:
     def run(
         self,
         *arguments: str,
-        input_text: str | None = None,
+        input_text: Optional[str] = None,
         check: bool = True,
+        timeout_seconds: float = 20,
     ) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             [sys.executable, str(SCRIPT), *arguments],
@@ -99,7 +114,7 @@ class IsolatedHome:
             text=True,
             capture_output=True,
             env=self.environment(),
-            timeout=20,
+            timeout=timeout_seconds,
             check=False,
         )
         if check and result.returncode != 0:
@@ -127,6 +142,37 @@ class CollectorBlackBoxTests(unittest.TestCase):
             for row in self.case.rows()
             if all(row.get(key) == value for key, value in expected.items())
         ]
+
+    @contextmanager
+    def patched_service_install_paths(self):
+        root = self.case.home / ".ai-usage"
+        plist_path = (
+            self.case.home
+            / "Library"
+            / "LaunchAgents"
+            / "codes.porta.ai-usage.plist"
+        )
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(SERVICE, "DEFAULT_ROOT", root))
+            stack.enter_context(
+                mock.patch.object(SERVICE, "DEFAULT_CONFIG_PATH", root / "config.json")
+            )
+            stack.enter_context(
+                mock.patch.object(SERVICE, "DEFAULT_INSTALLED_SCRIPT", root / "collector.py")
+            )
+            stack.enter_context(mock.patch.object(SERVICE, "DEFAULT_PLIST_PATH", plist_path))
+            stack.enter_context(mock.patch.dict(os.environ, {"HOME": str(self.case.home)}))
+            yield root, plist_path
+
+    def assert_child_was_terminated(self, elapsed: float) -> None:
+        self.assertLess(elapsed, 4.0, "provider timeout cleanup exceeded its bound")
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not self.case.child_exit.exists():
+            time.sleep(0.02)
+        self.assertTrue(
+            self.case.child_exit.exists(),
+            "provider descendant did not receive process-group termination",
+        )
 
     def test_missing_binaries_are_skipped(self) -> None:
         providers = {
@@ -435,6 +481,176 @@ for line in sys.stdin:
         ]
         self.assertEqual(values, ["1", "2", "3"])
 
+    def test_rotation_drains_an_unread_tail_from_the_previous_inode(self) -> None:
+        telemetry = self.case.cache / "gemini.jsonl"
+        telemetry.parent.mkdir(parents=True)
+        events = [
+            {
+                "name": "gemini_cli.api_response",
+                "model": "gemini-rotation",
+                "input_token_count": value,
+            }
+            for value in (1, 2, 3)
+        ]
+        second_line = json.dumps(events[1])
+        split_at = len(second_line) // 2
+        telemetry.write_text(
+            json.dumps(events[0]) + "\n" + second_line[:split_at],
+            encoding="utf-8",
+        )
+        self.case.write_config(
+            self.case.provider_config("gemini_cli", telemetry_file=str(telemetry))
+        )
+        self.case.run("once", "--config", str(self.case.config))
+
+        rotated = telemetry.with_suffix(".jsonl.1")
+        telemetry.replace(rotated)
+        with rotated.open("a", encoding="utf-8") as handle:
+            handle.write(second_line[split_at:] + "\n")
+        telemetry.write_text(json.dumps(events[2]) + "\n", encoding="utf-8")
+
+        self.case.run("once", "--config", str(self.case.config))
+
+        values = [
+            row["value"]
+            for row in self.rows_matching(
+                provider="gemini_cli", category="usage", metric="input_tokens"
+            )
+        ]
+        self.assertEqual(values, ["1", "2", "3"])
+
+    def test_missing_rotated_inode_emits_detectable_data_loss(self) -> None:
+        telemetry = self.case.cache / "gemini.jsonl"
+        telemetry.parent.mkdir(parents=True)
+        partial = json.dumps(
+            {
+                "name": "gemini_cli.api_response",
+                "model": "gemini-loss",
+                "input_token_count": 1,
+            }
+        )
+        telemetry.write_text(partial[: len(partial) // 2], encoding="utf-8")
+        self.case.write_config(
+            self.case.provider_config("gemini_cli", telemetry_file=str(telemetry))
+        )
+        self.case.run("once", "--config", str(self.case.config))
+
+        rotated = telemetry.with_suffix(".jsonl.1")
+        telemetry.replace(rotated)
+        telemetry.write_text(
+            json.dumps(
+                {
+                    "name": "gemini_cli.api_response",
+                    "model": "gemini-loss",
+                    "input_token_count": 2,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        rotated.unlink()
+        self.case.run("once", "--config", str(self.case.config), check=False)
+
+        loss_rows = self.rows_matching(
+            provider="gemini_cli",
+            category="collection",
+            metric="rotation_data_loss",
+        )
+        self.assertEqual(len(loss_rows), 1)
+        self.assertEqual(loss_rows[0]["status"], "error")
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires POSIX process groups")
+    def test_codex_cleanup_terminates_descendants_that_inherit_stdout(self) -> None:
+        fake = self.case.write_executable(
+            "codex",
+            """#!/usr/bin/python3
+import json, os, signal, sys, time
+child = os.fork()
+if child == 0:
+    def stop(_signal, _frame):
+        with open(os.environ["TEST_CHILD_EXIT"], "a", encoding="utf-8") as handle:
+            handle.write("codex-child-terminated\\n")
+        os._exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    while True:
+        time.sleep(1)
+for line in sys.stdin:
+    message = json.loads(line)
+    ident = message.get("id")
+    if ident == 100:
+        response = {"id": 100, "result": {}}
+    elif ident == 101:
+        response = {"id": 101, "result": {"summary": {}}}
+    elif ident == 102:
+        response = {"id": 102, "result": {"rateLimitsByLimitId": {}}}
+    else:
+        continue
+    print(json.dumps(response), flush=True)
+""",
+        )
+        self.case.write_config(
+            self.case.provider_config("codex", executable=str(fake), timeout_seconds=5)
+        )
+
+        started = time.monotonic()
+        self.case.run(
+            "once",
+            "--config",
+            str(self.case.config),
+            timeout_seconds=8,
+        )
+        self.assert_child_was_terminated(time.monotonic() - started)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires POSIX process groups")
+    def test_grok_cleanup_terminates_descendants_that_inherit_stdout(self) -> None:
+        fake = self.case.write_executable(
+            "grok",
+            """#!/usr/bin/python3
+import json, os, signal, sys, time
+child = os.fork()
+if child == 0:
+    def stop(_signal, _frame):
+        with open(os.environ["TEST_CHILD_EXIT"], "a", encoding="utf-8") as handle:
+            handle.write("grok-child-terminated\\n")
+        os._exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    while True:
+        time.sleep(1)
+for line in sys.stdin:
+    message = json.loads(line)
+    ident = message.get("id")
+    if ident == 1:
+        response = {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1}}
+    elif ident == 2:
+        response = {"jsonrpc": "2.0", "id": 2, "result": {"creditUsagePercent": 1}}
+    else:
+        continue
+    print(json.dumps(response), flush=True)
+""",
+        )
+        grok_home = self.case.root / "grok-timeout-home"
+        grok_home.mkdir()
+        (grok_home / "auth.json").write_text("{}\n", encoding="utf-8")
+        self.case.write_config(
+            self.case.provider_config(
+                "grok",
+                executable=str(fake),
+                grok_home=str(grok_home),
+                auth_file=str(grok_home / "auth.json"),
+                billing_cache_file=str(grok_home / "missing.jsonl"),
+                timeout_seconds=5,
+            )
+        )
+
+        started = time.monotonic()
+        self.case.run(
+            "once",
+            "--config",
+            str(self.case.config),
+            timeout_seconds=8,
+        )
+        self.assert_child_was_terminated(time.monotonic() - started)
+
     def test_grok_session_logs_and_fresh_billing_cache_avoid_cli(self) -> None:
         fake = self.case.write_executable("grok")
         grok_home = self.case.root / "grok-home"
@@ -623,11 +839,11 @@ for line in sys.stdin:
         self.assertTrue(plist["KeepAlive"])
         self.assertEqual(plist["ProcessType"], "Background")
         self.assertEqual(
-            plist["ProgramArguments"][1:],
-            [str(installed), "daemon", "--config", str(config)],
+            [str(Path(value).resolve()) if index in {0, 3} else value for index, value in enumerate(plist["ProgramArguments"][1:])],
+            [str(installed.resolve()), "daemon", "--config", str(config.resolve())],
         )
-        self.assertEqual(plist["StandardOutPath"], str(log))
-        self.assertEqual(plist["StandardErrorPath"], str(log))
+        self.assertEqual(Path(plist["StandardOutPath"]).resolve(), log.resolve())
+        self.assertEqual(Path(plist["StandardErrorPath"]).resolve(), log.resolve())
 
         antigravity_settings = json.loads(
             (self.case.home / ".gemini" / "antigravity-cli" / "settings.json").read_text()
@@ -647,7 +863,10 @@ for line in sys.stdin:
         self.assertEqual(telemetry["target"], "local")
         self.assertFalse(telemetry["logPrompts"])
         self.assertFalse(telemetry["traces"])
-        self.assertEqual(telemetry["outfile"], str(root / "cache" / "gemini-telemetry.log"))
+        self.assertEqual(
+            Path(telemetry["outfile"]).resolve(),
+            (root / "cache" / "gemini-telemetry.log").resolve(),
+        )
 
     def test_uninstall_detaches_only_managed_hooks_and_preserves_data(self) -> None:
         self.case.write_executable("agy")
@@ -690,6 +909,221 @@ for line in sys.stdin:
         )
         self.assertNotIn("statusLine", antigravity_settings)
         self.assertNotIn("telemetry", gemini_settings)
+
+    def test_preexisting_identical_integrations_remain_unowned(self) -> None:
+        self.case.write_executable("agy")
+        self.case.write_executable("gemini")
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        root.mkdir(parents=True)
+        config.write_text(
+            json.dumps({"providers": {"gemini_cli": {"configure_telemetry": True}}})
+            + "\n",
+            encoding="utf-8",
+        )
+        wrapper = root / "antigravity-statusline"
+        antigravity_settings = self.case.home / ".gemini" / "antigravity-cli" / "settings.json"
+        antigravity_settings.parent.mkdir(parents=True)
+        original_status = {"type": "command", "command": str(wrapper)}
+        antigravity_settings.write_text(
+            json.dumps({"statusLine": original_status}) + "\n", encoding="utf-8"
+        )
+        gemini_settings = self.case.home / ".gemini" / "settings.json"
+        gemini_settings.parent.mkdir(parents=True, exist_ok=True)
+        original_telemetry = {
+            "enabled": True,
+            "target": "local",
+            "outfile": str(root / "cache" / "gemini-telemetry.log"),
+            "logPrompts": False,
+            "traces": False,
+        }
+        gemini_settings.write_text(
+            json.dumps({"telemetry": original_telemetry}) + "\n", encoding="utf-8"
+        )
+
+        self.case.run("install", "--config", str(config), "--no-start")
+        ownership = json.loads((root / "install-ownership.json").read_text(encoding="utf-8"))
+        self.assertFalse(ownership["integrations"]["antigravity"]["owned"])
+        self.assertFalse(ownership["integrations"]["gemini_cli"]["owned"])
+        self.assertFalse(wrapper.exists(), "installer created a wrapper for an unowned hook")
+
+        self.case.run("uninstall", "--config", str(config))
+
+        self.assertEqual(
+            json.loads(antigravity_settings.read_text(encoding="utf-8"))["statusLine"],
+            original_status,
+        )
+        self.assertEqual(
+            json.loads(gemini_settings.read_text(encoding="utf-8"))["telemetry"],
+            original_telemetry,
+        )
+
+    def test_preexisting_nonidentical_integrations_are_never_replaced_or_removed(self) -> None:
+        self.case.write_executable("agy")
+        self.case.write_executable("gemini")
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        root.mkdir(parents=True)
+        config.write_text(
+            json.dumps({"providers": {"gemini_cli": {"configure_telemetry": True}}})
+            + "\n",
+            encoding="utf-8",
+        )
+        antigravity_settings = self.case.home / ".gemini" / "antigravity-cli" / "settings.json"
+        antigravity_settings.parent.mkdir(parents=True)
+        custom_status = {"type": "command", "command": "/usr/local/bin/custom-status"}
+        antigravity_settings.write_text(
+            json.dumps({"statusLine": custom_status}) + "\n", encoding="utf-8"
+        )
+        gemini_settings = self.case.home / ".gemini" / "settings.json"
+        gemini_settings.parent.mkdir(parents=True, exist_ok=True)
+        custom_telemetry = {
+            "enabled": True,
+            "target": "local",
+            "outfile": "/tmp/custom-gemini.log",
+            "logPrompts": True,
+        }
+        gemini_settings.write_text(
+            json.dumps({"telemetry": custom_telemetry}) + "\n", encoding="utf-8"
+        )
+
+        self.case.run("install", "--config", str(config), "--no-start")
+        self.case.run("uninstall", "--config", str(config))
+
+        self.assertEqual(
+            json.loads(antigravity_settings.read_text(encoding="utf-8"))["statusLine"],
+            custom_status,
+        )
+        self.assertEqual(
+            json.loads(gemini_settings.read_text(encoding="utf-8"))["telemetry"],
+            custom_telemetry,
+        )
+
+    def test_launchctl_failures_roll_back_install_transaction(self) -> None:
+        config = self.case.provider_config(
+            "codex", executable_names=["definitely-missing-codex"]
+        )
+        self.case.write_config(config)
+
+        with self.patched_service_install_paths() as (root, plist_path):
+            SERVICE.install_service(self.case.config, no_start=True)
+            tracked = [
+                root / "collector.py",
+                root / "install-ownership.json",
+                plist_path,
+            ]
+            baseline = {path: path.read_bytes() for path in tracked}
+
+            failure_sets = {
+                "bootout": {"bootout"},
+                "bootstrap-and-load": {"bootstrap", "load"},
+                "enable": {"enable"},
+                "kickstart": {"kickstart"},
+            }
+            for label, failures in failure_sets.items():
+                with self.subTest(stage=label):
+                    def fake_launchctl(arguments: list[str], check: bool = False):
+                        command = arguments[0]
+                        returncode = 0 if command == "print" else int(command in failures)
+                        result = subprocess.CompletedProcess(
+                            ["launchctl", *arguments], returncode, "", f"{command} failed"
+                        )
+                        if check and returncode:
+                            raise RuntimeError(f"{command} failed")
+                        return result
+
+                    with ExitStack() as stack:
+                        stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
+                        stack.enter_context(
+                            mock.patch.object(
+                                SERVICE, "find_launchctl", return_value=Path("/bin/true")
+                            )
+                        )
+                        stack.enter_context(
+                            mock.patch.object(
+                                SERVICE, "run_launchctl", side_effect=fake_launchctl
+                            )
+                        )
+                        with self.assertRaises(RuntimeError):
+                            SERVICE.install_service(self.case.config, no_start=False)
+                    self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
+
+            def bootstrap_fallback(arguments: list[str], check: bool = False):
+                command = arguments[0]
+                returncode = int(command == "bootstrap")
+                result = subprocess.CompletedProcess(
+                    ["launchctl", *arguments], returncode, "", "bootstrap unavailable"
+                )
+                if check and returncode:
+                    raise RuntimeError("bootstrap unavailable")
+                return result
+
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
+                stack.enter_context(
+                    mock.patch.object(
+                        SERVICE, "find_launchctl", return_value=Path("/bin/true")
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        SERVICE, "run_launchctl", side_effect=bootstrap_fallback
+                    )
+                )
+                SERVICE.install_service(self.case.config, no_start=False)
+            self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
+
+    def test_bootout_failure_aborts_uninstall_before_deleting_files(self) -> None:
+        config = self.case.provider_config(
+            "codex", executable_names=["definitely-missing-codex"]
+        )
+        self.case.write_config(config)
+        with self.patched_service_install_paths() as (root, plist_path):
+            SERVICE.install_service(self.case.config, no_start=True)
+            installed = root / "collector.py"
+
+            def fake_launchctl(arguments: list[str], check: bool = False):
+                command = arguments[0]
+                returncode = 1 if command == "bootout" else 0
+                result = subprocess.CompletedProcess(
+                    ["launchctl", *arguments], returncode, "", "bootout failed"
+                )
+                if check and returncode:
+                    raise RuntimeError("bootout failed")
+                return result
+
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
+                stack.enter_context(
+                    mock.patch.object(
+                        SERVICE, "find_launchctl", return_value=Path("/bin/true")
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(SERVICE, "run_launchctl", side_effect=fake_launchctl)
+                )
+                with self.assertRaisesRegex(RuntimeError, "bootout failed"):
+                    SERVICE.uninstall_service(self.case.config)
+
+            self.assertTrue(installed.exists())
+            self.assertTrue(plist_path.exists())
+            self.assertTrue((root / "install-ownership.json").exists())
+
+    def test_install_start_preflight_mutates_nothing_off_macos(self) -> None:
+        if sys.platform == "darwin":
+            self.skipTest("non-macOS preflight control")
+        config = self.case.home / ".ai-usage" / "config.json"
+        result = self.case.run("install", "--config", str(config), check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse((self.case.home / ".ai-usage").exists())
+        self.assertFalse(
+            (
+                self.case.home
+                / "Library"
+                / "LaunchAgents"
+                / "codes.porta.ai-usage.plist"
+            ).exists()
+        )
 
     def test_incompatible_csv_is_preserved_before_schema_upgrade(self) -> None:
         self.case.csv.write_text(
@@ -735,6 +1169,164 @@ for line in sys.stdin:
         self.assertTrue(all(row["record_kind"] == "monthly_rate" for row in rows))
         self.assertTrue(all(row["period_start"] for row in rows))
         self.assertTrue(all(row["period_end"] for row in rows))
+
+    def test_malformed_state_fails_closed_without_overwriting_or_appending(self) -> None:
+        self.case.state.write_text("{ definitely not json\n", encoding="utf-8")
+        original = self.case.state.read_bytes()
+        self.case.write_config(
+            self.case.provider_config(
+                "codex", executable_names=["definitely-missing-codex"]
+            )
+        )
+
+        result = self.case.run(
+            "once", "--config", str(self.case.config), check=False
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("state file", result.stderr)
+        self.assertEqual(self.case.state.read_bytes(), original)
+        self.assertFalse(self.case.csv.exists())
+
+    def test_csv_commit_recovers_exactly_once_after_state_save_failure(self) -> None:
+        self.case.write_config(
+            self.case.provider_config(
+                "codex", executable_names=["definitely-missing-codex"]
+            )
+        )
+        known_row = SERVICE.metric_row(
+            "2026-08-02T00:00:00Z",
+            "test-provider",
+            "usage",
+            "source_event",
+            record_kind="event_total",
+            value=1,
+            unit="events",
+            source="test-fixture",
+        )
+
+        def first_collection(
+            _config: object, *, include_history: bool, state: dict[str, object]
+        ) -> list[dict[str, object]]:
+            del include_history
+            state["fixture_offset"] = 1
+            return [known_row]
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(SERVICE, "collect_snapshot", side_effect=first_collection)
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    SERVICE, "save_state", side_effect=OSError("state unavailable")
+                )
+            )
+            with self.assertRaisesRegex(OSError, "state unavailable"):
+                SERVICE.run_once(self.case.config)
+
+        pending = self.case.state.with_name(f"{self.case.state.name}.pending")
+        self.assertTrue(pending.is_file())
+        persisted = self.case.csv.read_bytes()
+        self.case.csv.write_bytes(persisted[:-5])
+        with mock.patch.object(SERVICE, "collect_snapshot", return_value=[]):
+            SERVICE.run_once(self.case.config)
+
+        rows = [
+            row
+            for row in self.case.rows()
+            if row["provider"] == "test-provider" and row["metric"] == "source_event"
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["transaction_id"])
+        self.assertEqual(rows[0]["transaction_index"], "0")
+        self.assertFalse(pending.exists())
+        self.assertEqual(json.loads(self.case.state.read_text())["fixture_offset"], 1)
+
+    def test_path_role_collisions_and_symlink_aliases_fail_before_output(self) -> None:
+        collisions: list[tuple[str, str]] = []
+        collisions.append((str(self.case.csv), str(self.case.csv)))
+        collisions.append((str(self.case.csv), f"{self.case.csv}.lock"))
+        alias_target = self.case.data / "shared.json"
+        alias_target.write_text("{}\n", encoding="utf-8")
+        alias = self.case.data / "state-alias.json"
+        alias.symlink_to(alias_target)
+        collisions.append((str(alias_target), str(alias)))
+
+        for usage_path, state_path in collisions:
+            with self.subTest(usage_path=usage_path, state_path=state_path):
+                config = self.case.provider_config(
+                    "codex", executable_names=["definitely-missing-codex"]
+                )
+                config["paths"]["usage_csv"] = usage_path
+                config["paths"]["state_file"] = state_path
+                self.case.write_config(config)
+                started = time.monotonic()
+                result = self.case.run(
+                    "once",
+                    "--config",
+                    str(self.case.config),
+                    check=False,
+                    timeout_seconds=4,
+                )
+                self.assertLess(time.monotonic() - started, 2)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("path role collision", result.stderr)
+                self.assertFalse(self.case.log.exists())
+
+        config = self.case.provider_config(
+            "gemini_cli", telemetry_file=str(self.case.csv)
+        )
+        self.case.write_config(config)
+        result = self.case.run(
+            "once", "--config", str(self.case.config), check=False
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("path role collision", result.stderr)
+        self.assertFalse(self.case.log.exists())
+
+    def test_concurrent_valid_collectors_record_each_source_event_once(self) -> None:
+        telemetry = self.case.cache / "gemini.jsonl"
+        telemetry.parent.mkdir(parents=True)
+        telemetry.write_text(
+            json.dumps(
+                {
+                    "name": "gemini_cli.api_response",
+                    "model": "concurrency",
+                    "input_token_count": 7,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.case.write_config(
+            self.case.provider_config("gemini_cli", telemetry_file=str(telemetry))
+        )
+        command = [
+            sys.executable,
+            str(SCRIPT),
+            "once",
+            "--config",
+            str(self.case.config),
+        ]
+        processes = [
+            subprocess.Popen(command, env=self.case.environment(), text=True) for _ in range(2)
+        ]
+        self.assertEqual([process.wait(timeout=20) for process in processes], [0, 0])
+        usage_rows = self.rows_matching(
+            provider="gemini_cli", category="usage", metric="input_tokens"
+        )
+        self.assertEqual([row["value"] for row in usage_rows], ["7"])
+
+    def test_workflow_and_make_surface_are_immutable_and_canonical(self) -> None:
+        makefile = SCRIPT.with_name("Makefile").read_text(encoding="utf-8")
+        self.assertRegex(makefile, r"(?m)^test:")
+        self.assertRegex(makefile, r"(?m)^check:")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        references = re.findall(r"(?m)^\s*uses:\s*[^@\s]+@([^\s#]+)", workflow)
+        self.assertTrue(references)
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in references))
+        self.assertIn("macos-14", workflow)
+        self.assertIn('python: ["3.9", "3.14"]', workflow)
 
 
 if __name__ == "__main__":

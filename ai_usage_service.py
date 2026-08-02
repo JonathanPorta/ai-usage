@@ -27,12 +27,14 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional, Union
+import uuid
 
 
 VERSION = "2.0.0"
@@ -45,6 +47,8 @@ DEFAULT_PLIST_PATH = (
 )
 
 CSV_FIELDS = [
+    "transaction_id",
+    "transaction_index",
     "collected_at",
     "provider",
     "category",
@@ -168,7 +172,7 @@ def timestamp_to_iso(value: Any) -> str:
     return iso_utc(converted)
 
 
-def expand_path(value: str | Path) -> Path:
+def expand_path(value: Union[str, Path]) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(str(value)))).resolve()
 
 
@@ -193,6 +197,12 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("config root must be a JSON object")
     config = deep_merge(DEFAULT_CONFIG, loaded)
     validate_config(config)
+    config_canonical = path.resolve(strict=False)
+    for role, configured_path, _expected_type in configured_path_roles(config):
+        if configured_path.resolve(strict=False) == config_canonical:
+            raise ValueError(
+                f"path role collision: config file and {role} both resolve to {config_canonical}"
+            )
     return config
 
 
@@ -211,10 +221,102 @@ def validate_config(config: Mapping[str, Any]) -> None:
     for key in ("usage_csv", "log_file", "state_file", "cache_dir"):
         if not isinstance(paths.get(key), str) or not paths[key].strip():
             raise ValueError(f"paths.{key} must be a non-empty string")
-
     providers = config.get("providers")
     if not isinstance(providers, Mapping):
         raise ValueError("providers must be an object")
+    validate_configured_paths(config)
+
+
+def pending_state_path(state_path: Path) -> Path:
+    return state_path.with_name(f"{state_path.name}.pending")
+
+
+def configured_path_roles(
+    config: Mapping[str, Any]
+) -> list[tuple[str, Path, str]]:
+    paths = config["paths"]
+    providers = config["providers"]
+    usage_path = expand_path(str(paths["usage_csv"]))
+    log_path = expand_path(str(paths["log_file"]))
+    state_path = expand_path(str(paths["state_file"]))
+    cache_path = expand_path(str(paths["cache_dir"]))
+    roles: list[tuple[str, Path, str]] = [
+        ("paths.usage_csv", usage_path, "file"),
+        ("paths.log_file", log_path, "file"),
+        ("paths.state_file", state_path, "file"),
+        ("paths.cache_dir", cache_path, "directory"),
+        ("usage CSV lock", usage_path.with_name(f"{usage_path.name}.lock"), "file"),
+        (
+            "state transaction lock",
+            state_path.with_name(f"{state_path.name}.lock"),
+            "file",
+        ),
+        ("pending state journal", pending_state_path(state_path), "file"),
+    ]
+    provider_paths = (
+        ("providers.claude.stats_file", "claude", "stats_file", "file"),
+        ("providers.antigravity.cache_file", "antigravity", "cache_file", "file"),
+        ("providers.antigravity.events_file", "antigravity", "events_file", "file"),
+        (
+            "providers.antigravity.settings_file",
+            "antigravity",
+            "settings_file",
+            "file",
+        ),
+        (
+            "providers.gemini_cli.telemetry_file",
+            "gemini_cli",
+            "telemetry_file",
+            "file",
+        ),
+        (
+            "providers.gemini_cli.settings_file",
+            "gemini_cli",
+            "settings_file",
+            "file",
+        ),
+        ("providers.grok.grok_home", "grok", "grok_home", "directory"),
+        ("providers.grok.auth_file", "grok", "auth_file", "file"),
+        (
+            "providers.grok.billing_cache_file",
+            "grok",
+            "billing_cache_file",
+            "file",
+        ),
+    )
+    for role, provider_name, setting_name, expected_type in provider_paths:
+        provider = providers.get(provider_name)
+        if not isinstance(provider, Mapping):
+            raise ValueError(f"providers.{provider_name} must be an object")
+        value = provider.get(setting_name)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{role} must be a non-empty string")
+        roles.append((role, expand_path(value), expected_type))
+    return roles
+
+
+def validate_configured_paths(config: Mapping[str, Any]) -> None:
+    """Reject aliases, derived-lock collisions, and wrong path roles pre-mutation."""
+
+    canonical_roles: dict[Path, str] = {}
+    roles = configured_path_roles(config)
+    for role, path, _expected_type in roles:
+        canonical = path.resolve(strict=False)
+        previous = canonical_roles.get(canonical)
+        if previous is not None:
+            raise ValueError(
+                f"path role collision: {previous} and {role} both resolve to {canonical}"
+            )
+        canonical_roles[canonical] = role
+
+    for role, path, expected_type in roles:
+        if path.exists():
+            if expected_type == "file" and not path.is_file():
+                raise ValueError(f"{role} must be a regular file when it exists: {path}")
+            if expected_type == "directory" and not path.is_dir():
+                raise ValueError(f"{role} must be a directory when it exists: {path}")
+        if path.parent.exists() and not path.parent.is_dir():
+            raise ValueError(f"parent of {role} must be a directory: {path.parent}")
 
 
 def atomic_write_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
@@ -230,9 +332,19 @@ def atomic_write_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, mode)
         os.replace(temporary_path, path)
+        fsync_directory(path.parent)
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
+
+
+def fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def write_default_config(path: Path) -> None:
@@ -250,14 +362,22 @@ def state_path_for(config: Mapping[str, Any]) -> Path:
 
 
 def load_state(path: Path) -> dict[str, Any]:
-    if not path.is_file():
+    if not path.exists():
         return {}
+    if not path.is_file():
+        raise ValueError(f"state file is not a regular file: {path}")
     try:
         with path.open("r", encoding="utf-8") as handle:
             state = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return state if isinstance(state, dict) else {}
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"state file is malformed and was preserved unchanged: {path}: {error}"
+        ) from error
+    if not isinstance(state, dict):
+        raise ValueError(
+            f"state file root is not an object and was preserved unchanged: {path}"
+        )
+    return state
 
 
 def save_state(path: Path, state: Mapping[str, Any]) -> None:
@@ -523,7 +643,81 @@ def ensure_csv(path: Path) -> Optional[Path]:
         return ensure_csv_unlocked(path)
 
 
-def append_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+def transaction_rows(
+    transaction_id: str, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        item = dict(row)
+        item["transaction_id"] = transaction_id
+        item["transaction_index"] = index
+        prepared.append(item)
+    return prepared
+
+
+def write_pending_transaction(
+    state_path: Path,
+    transaction_id: str,
+    rows: list[dict[str, Any]],
+    candidate_state: Mapping[str, Any],
+) -> Path:
+    journal_path = pending_state_path(state_path)
+    if journal_path.exists():
+        raise ValueError(
+            f"pending state journal already exists and must be recovered first: {journal_path}"
+        )
+    payload = {
+        "schema_version": 1,
+        "transaction_id": transaction_id,
+        "rows": rows,
+        "state": candidate_state,
+    }
+    content = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    atomic_write_bytes(journal_path, content.encode("utf-8"), mode=0o600)
+    return journal_path
+
+
+def load_pending_transaction(state_path: Path) -> Optional[dict[str, Any]]:
+    journal_path = pending_state_path(state_path)
+    if not journal_path.exists():
+        return None
+    if not journal_path.is_file():
+        raise ValueError(f"pending state journal is not a regular file: {journal_path}")
+    try:
+        with journal_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"pending state journal is malformed and was preserved: {journal_path}: {error}"
+        ) from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise ValueError(f"pending state journal has an unsupported schema: {journal_path}")
+    transaction_id = payload.get("transaction_id")
+    rows = payload.get("rows")
+    state = payload.get("state")
+    if not isinstance(transaction_id, str) or not transaction_id:
+        raise ValueError(f"pending state journal has no transaction id: {journal_path}")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"pending state journal rows are invalid: {journal_path}")
+    if not isinstance(state, dict):
+        raise ValueError(f"pending state journal state is invalid: {journal_path}")
+    for index, row in enumerate(rows):
+        if row.get("transaction_id") != transaction_id or row.get(
+            "transaction_index"
+        ) != index:
+            raise ValueError(
+                f"pending state journal row provenance is invalid: {journal_path}"
+            )
+    return payload
+
+
+def append_transaction_rows(
+    path: Path,
+    transaction_id: str,
+    rows: list[dict[str, Any]],
+    *,
+    recovering: bool,
+) -> None:
     if not rows:
         return
     lock_path = path.with_name(f"{path.name}.lock")
@@ -534,14 +728,108 @@ def append_rows(path: Path, rows: list[dict[str, Any]]) -> None:
                 "moved incompatible usage CSV to %s before creating current schema",
                 backup,
             )
-        with path.open("a", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(
-                handle, fieldnames=CSV_FIELDS, extrasaction="ignore"
-            )
+        if recovering:
+            rewrite_transaction_rows_unlocked(path, transaction_id, rows)
+            return
+        if rows:
+            with path.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle, fieldnames=CSV_FIELDS, extrasaction="ignore"
+                )
+                writer.writerows(rows)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(path, 0o600)
+
+
+def rewrite_transaction_rows_unlocked(
+    path: Path, transaction_id: str, rows: list[dict[str, Any]]
+) -> None:
+    """Atomically replace every pending transaction row during recovery."""
+
+    retained: list[dict[str, Any]] = []
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != CSV_FIELDS:
+            raise ValueError(f"usage CSV schema changed during recovery: {path}")
+        for existing in reader:
+            if existing.get("transaction_id") == transaction_id:
+                continue
+            if None in existing or any(existing.get(field) is None for field in CSV_FIELDS):
+                raise ValueError(
+                    f"usage CSV has an unrelated partial row; preserved for recovery: {path}"
+                )
+            retained.append({field: existing.get(field, "") for field in CSV_FIELDS})
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.recover-", dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            writer.writerows(retained)
             writer.writerows(rows)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(path, 0o600)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def remove_pending_transaction(state_path: Path) -> None:
+    journal_path = pending_state_path(state_path)
+    journal_path.unlink()
+    fsync_directory(journal_path.parent)
+
+
+def recover_pending_transaction(
+    state_path: Path, usage_path: Path, current_state: Mapping[str, Any]
+) -> dict[str, Any]:
+    payload = load_pending_transaction(state_path)
+    if payload is None:
+        return dict(current_state)
+    transaction_id = str(payload["transaction_id"])
+    rows = list(payload["rows"])
+    candidate_state = dict(payload["state"])
+    append_transaction_rows(
+        usage_path,
+        transaction_id,
+        rows,
+        recovering=True,
+    )
+    save_state(state_path, candidate_state)
+    remove_pending_transaction(state_path)
+    LOGGER.warning("recovered pending collection transaction %s", transaction_id)
+    return candidate_state
+
+
+def commit_collection_transaction(
+    state_path: Path,
+    usage_path: Path,
+    rows: list[dict[str, Any]],
+    candidate_state: Mapping[str, Any],
+) -> None:
+    transaction_id = uuid.uuid4().hex
+    prepared_rows = transaction_rows(transaction_id, rows)
+    write_pending_transaction(
+        state_path,
+        transaction_id,
+        prepared_rows,
+        candidate_state,
+    )
+    append_transaction_rows(
+        usage_path,
+        transaction_id,
+        prepared_rows,
+        recovering=False,
+    )
+    save_state(state_path, candidate_state)
+    remove_pending_transaction(state_path)
 
 
 def snake_case(value: str) -> str:
@@ -573,20 +861,48 @@ def read_new_json_lines(
     offset_state: MutableMapping[str, Any],
     *,
     max_bytes: int = 50 * 1024 * 1024,
-) -> tuple[list[dict[str, Any]], int, int]:
-    """Read appended JSONL records, retaining a byte offset across polls."""
+) -> tuple[list[dict[str, Any]], int, int, list[str]]:
+    """Read JSONL increments while draining renamed inodes before replacements."""
 
     key = str(path)
     try:
         file_stat = path.stat()
-        file_size = file_stat.st_size
     except OSError:
-        return [], 0, 0
+        return [], 0, 0, []
     raw_state = offset_state.get(key, 0)
+    pending_inodes: list[dict[str, int]] = []
     if isinstance(raw_state, Mapping):
         raw_offset = raw_state.get("offset", 0)
         previous_inode = raw_state.get("inode")
+        raw_pending = raw_state.get("pending_inodes", [])
+        if isinstance(raw_pending, list):
+            for item in raw_pending:
+                if not isinstance(item, Mapping):
+                    continue
+                try:
+                    pending_inode = int(item.get("inode"))
+                    pending_offset = max(0, int(item.get("offset", 0)))
+                except (TypeError, ValueError):
+                    continue
+                pending_inodes.append(
+                    {"inode": pending_inode, "offset": pending_offset}
+                )
         if previous_inode is not None and previous_inode != file_stat.st_ino:
+            try:
+                previous_inode_value = int(previous_inode)
+                previous_offset_value = max(0, int(raw_offset))
+            except (TypeError, ValueError):
+                previous_inode_value = 0
+                previous_offset_value = 0
+            if previous_inode_value and not any(
+                item["inode"] == previous_inode_value for item in pending_inodes
+            ):
+                pending_inodes.append(
+                    {
+                        "inode": previous_inode_value,
+                        "offset": previous_offset_value,
+                    }
+                )
             raw_offset = 0
     else:
         raw_offset = raw_state
@@ -594,13 +910,92 @@ def read_new_json_lines(
         offset = int(raw_offset)
     except (TypeError, ValueError):
         offset = 0
-    if offset < 0 or offset > file_size:
+    losses: list[str] = []
+    if offset < 0 or offset > file_stat.st_size:
+        if offset > file_stat.st_size:
+            losses.append(
+                f"inode {file_stat.st_ino} was truncated before offset {offset} could be read"
+            )
         offset = 0
 
     records: list[dict[str, Any]] = []
     parse_errors = 0
+    bytes_read = 0
+    remaining = max(0, max_bytes)
+    still_pending: list[dict[str, int]] = []
+    for pending_index, pending in enumerate(pending_inodes):
+        old_path = find_file_by_inode(path.parent, pending["inode"])
+        if old_path is None:
+            losses.append(
+                f"rotated inode {pending['inode']} disappeared before unread offset "
+                f"{pending['offset']} was drained"
+            )
+            continue
+        budget_before = remaining
+        old_records, old_errors, new_old_offset, consumed, old_size = read_json_lines_at(
+            old_path,
+            pending["offset"],
+            remaining,
+        )
+        records.extend(old_records)
+        parse_errors += old_errors
+        bytes_read += consumed
+        remaining = max(0, remaining - consumed)
+        if new_old_offset < old_size:
+            if consumed < budget_before:
+                losses.append(
+                    f"rotated inode {pending['inode']} ended with an incomplete JSONL record"
+                )
+                continue
+            still_pending.append(
+                {"inode": pending["inode"], "offset": new_old_offset}
+            )
+            still_pending.extend(pending_inodes[pending_index + 1 :])
+            break
+        if remaining <= 0:
+            still_pending.extend(pending_inodes[pending_index + 1 :])
+            break
+
+    new_offset = offset
+    if not still_pending and remaining > 0:
+        current_records, current_errors, new_offset, consumed, _current_size = (
+            read_json_lines_at(path, offset, remaining)
+        )
+        records.extend(current_records)
+        parse_errors += current_errors
+        bytes_read += consumed
+    offset_state[key] = {
+        "offset": new_offset,
+        "inode": file_stat.st_ino,
+        "pending_inodes": still_pending,
+    }
+    return records, parse_errors, bytes_read, losses
+
+
+def find_file_by_inode(directory: Path, inode: int) -> Optional[Path]:
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            entry_stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(entry_stat.st_mode) and entry_stat.st_ino == inode:
+            return Path(entry.path)
+    return None
+
+
+def read_json_lines_at(
+    path: Path, offset: int, max_bytes: int
+) -> tuple[list[dict[str, Any]], int, int, int, int]:
+    records: list[dict[str, Any]] = []
+    parse_errors = 0
     with path.open("rb") as handle:
-        handle.seek(offset)
+        file_size = os.fstat(handle.fileno()).st_size
+        safe_offset = offset if 0 <= offset <= file_size else 0
+        handle.seek(safe_offset)
         consumed = 0
         while consumed < max_bytes:
             line_start = handle.tell()
@@ -619,8 +1014,26 @@ def read_new_json_lines(
             if isinstance(decoded, dict):
                 records.append(decoded)
         new_offset = handle.tell()
-    offset_state[key] = {"offset": new_offset, "inode": file_stat.st_ino}
-    return records, parse_errors, new_offset - offset
+    return records, parse_errors, new_offset, new_offset - safe_offset, file_size
+
+
+def rotation_loss_row(
+    collected_at: str, provider: str, source: str, losses: list[str]
+) -> Optional[dict[str, Any]]:
+    if not losses:
+        return None
+    return metric_row(
+        collected_at,
+        provider,
+        "collection",
+        "rotation_data_loss",
+        record_kind="interval_total",
+        value=len(losses),
+        unit="files",
+        source=source,
+        status="error",
+        message="; ".join(losses),
+    )
 
 
 def record_timestamp(record: Mapping[str, Any], fallback: str) -> str:
@@ -728,6 +1141,47 @@ def next_json_message(
     return message if has_message else None
 
 
+def terminate_provider_process(
+    process: "subprocess.Popen[str]", process_group: Optional[int]
+) -> None:
+    """Bound cleanup and terminate descendants that inherited provider pipes."""
+
+    if process_group is not None and os.name == "posix":
+        try:
+            os.killpg(process_group, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(process_group, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        else:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=1)
+        return
+
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1)
+
+
 def query_codex_app_server(
     executable: Path, timeout_seconds: int
 ) -> tuple[Any, Any]:
@@ -742,6 +1196,7 @@ def query_codex_app_server(
 
     stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
     process: Optional[subprocess.Popen[str]] = None
+    process_group: Optional[int] = None
     try:
         process = subprocess.Popen(
             [str(executable), "app-server"],
@@ -751,7 +1206,10 @@ def query_codex_app_server(
             text=True,
             bufsize=1,
             env=environment,
+            start_new_session=os.name == "posix",
         )
+        if os.name == "posix":
+            process_group = os.getpgid(process.pid)
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("failed to open Codex app-server pipes")
 
@@ -814,13 +1272,7 @@ def query_codex_app_server(
                     process.stdin.close()
                 except OSError:
                     pass
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
+            terminate_provider_process(process, process_group)
             if process.stdout is not None:
                 process.stdout.close()
         stderr_file.close()
@@ -1481,7 +1933,17 @@ def collect_antigravity(
         if not isinstance(offsets, MutableMapping):
             offsets = {}
             state["antigravity_offsets"] = offsets
-        event_records, parse_errors, _ = read_new_json_lines(events_path, offsets)
+        event_records, parse_errors, _, rotation_losses = read_new_json_lines(
+            events_path, offsets
+        )
+        loss_row = rotation_loss_row(
+            collected_at,
+            "antigravity",
+            "antigravity-status-line-events",
+            rotation_losses,
+        )
+        if loss_row is not None:
+            rows.append(loss_row)
         baselines = state.setdefault("antigravity_session_totals", {})
         if not isinstance(baselines, MutableMapping):
             baselines = {}
@@ -1783,7 +2245,17 @@ def collect_gemini_cli(
     if not isinstance(offsets, MutableMapping):
         offsets = {}
         state["gemini_offsets"] = offsets
-    records, parse_errors, bytes_read = read_new_json_lines(telemetry_path, offsets)
+    records, parse_errors, bytes_read, rotation_losses = read_new_json_lines(
+        telemetry_path, offsets
+    )
+    loss_row = rotation_loss_row(
+        collected_at,
+        "gemini_cli",
+        "gemini-telemetry",
+        rotation_losses,
+    )
+    if loss_row is not None:
+        rows.append(loss_row)
     recognized_records = 0
     for record in records:
         event_name = gemini_event_name(record)
@@ -1862,6 +2334,7 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
     environment["GROK_DISABLE_AUTOUPDATER"] = "1"
     stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
     process: Optional[subprocess.Popen[str]] = None
+    process_group: Optional[int] = None
     try:
         process = subprocess.Popen(
             [str(executable), "agent", "--no-leader", "stdio"],
@@ -1872,7 +2345,10 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
             bufsize=1,
             cwd=str(Path.home()),
             env=environment,
+            start_new_session=os.name == "posix",
         )
+        if os.name == "posix":
+            process_group = os.getpgid(process.pid)
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("failed to open Grok ACP pipes")
 
@@ -1949,13 +2425,7 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
                     process.stdin.close()
                 except OSError:
                     pass
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
+            terminate_provider_process(process, process_group)
             if process.stdout is not None:
                 process.stdout.close()
         stderr_file.close()
@@ -2406,6 +2876,7 @@ def collect_grok(
     recent_ids = set(recent_ids_list)
     new_ids: list[str] = []
     parse_errors = 0
+    rotation_losses: list[str] = []
     raw_session_budget = provider_config_value.get(
         "max_session_bytes_per_poll", 25 * 1024 * 1024
     )
@@ -2418,13 +2889,14 @@ def collect_grok(
         if remaining_session_bytes <= 0:
             deferred_files = len(session_files) - index
             break
-        records, errors, bytes_read = read_new_json_lines(
+        records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
             session_file,
             offsets,
             max_bytes=remaining_session_bytes,
         )
         remaining_session_bytes -= bytes_read
         parse_errors += errors
+        rotation_losses.extend(file_rotation_losses)
         for record in records:
             if record.get("method") != "_x.ai/session/update":
                 continue
@@ -2442,6 +2914,14 @@ def collect_grok(
             new_ids.append(event_key)
             rows.extend(grok_usage_rows(collected_at, record))
     state["grok_recent_event_ids"] = (recent_ids_list + new_ids)[-5000:]
+    loss_row = rotation_loss_row(
+        collected_at,
+        "grok",
+        "grok-session-log",
+        rotation_losses,
+    )
+    if loss_row is not None:
+        rows.append(loss_row)
     if parse_errors:
         rows.append(
             metric_row(
@@ -2801,93 +3281,286 @@ def desired_gemini_telemetry(settings: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def configure_antigravity_status_line(
-    config: Mapping[str, Any], config_path: Path
-) -> None:
-    settings = provider_config(config, "antigravity")
-    if (
-        settings.get("enabled", True) is not True
-        or settings.get("configure_status_line", True) is not True
-    ):
-        return
-    executable = find_executable(settings, ["agy"])
-    if executable is None:
-        print("Skipped Antigravity integration: agy was not found")
-        return
+def ownership_path() -> Path:
+    return DEFAULT_ROOT / "install-ownership.json"
 
-    wrapper_path = DEFAULT_ROOT / "antigravity-statusline"
-    wrapper = antigravity_wrapper_content(config_path)
-    atomic_write_bytes(wrapper_path, wrapper.encode("utf-8"), mode=0o700)
 
-    settings_path = expand_path(
-        str(
-            settings.get(
-                "settings_file", "~/.gemini/antigravity-cli/settings.json"
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class FilesystemTransaction:
+    """Disk-backed file snapshots for reversible install/uninstall mutations."""
+
+    def __init__(self, parent: Path):
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.recovery_dir = Path(
+            tempfile.mkdtemp(prefix=".ai-usage-install-recovery-", dir=str(parent))
+        )
+        os.chmod(self.recovery_dir, 0o700)
+        self.snapshots: dict[Path, dict[str, Any]] = {}
+        self.created_directories: list[Path] = []
+        self._write_manifest()
+
+    def _write_manifest(self) -> None:
+        entries = {
+            str(path): {key: value for key, value in record.items() if key != "backup"}
+            for path, record in self.snapshots.items()
+        }
+        content = json.dumps({"schema_version": 1, "files": entries}, indent=2) + "\n"
+        atomic_write_bytes(
+            self.recovery_dir / "manifest.json", content.encode("utf-8"), mode=0o600
+        )
+
+    def ensure_directory(self, path: Path, mode: int = 0o700) -> None:
+        missing: list[Path] = []
+        candidate = path
+        while not candidate.exists():
+            missing.append(candidate)
+            candidate = candidate.parent
+        if not candidate.is_dir():
+            raise ValueError(f"directory parent is not a directory: {candidate}")
+        for directory in reversed(missing):
+            directory.mkdir(mode=mode)
+            self.created_directories.append(directory)
+
+    def snapshot(self, path: Path) -> None:
+        if path in self.snapshots:
+            return
+        if path.is_symlink():
+            raise ValueError(f"refusing to mutate symlinked installer path: {path}")
+        if not path.exists():
+            self.snapshots[path] = {"kind": "absent"}
+        elif path.is_file():
+            backup = self.recovery_dir / f"file-{len(self.snapshots):04d}.backup"
+            shutil.copy2(path, backup, follow_symlinks=False)
+            self.snapshots[path] = {
+                "kind": "file",
+                "backup": backup,
+                "mode": stat.S_IMODE(path.stat().st_mode),
+            }
+        else:
+            raise ValueError(f"installer target is not a regular file: {path}")
+        self._write_manifest()
+
+    def mark_created(self, path: Path) -> None:
+        if path not in self.snapshots:
+            self.snapshots[path] = {"kind": "absent"}
+            self._write_manifest()
+
+    def rollback(self, preserve_recovery: bool = False) -> None:
+        failures: list[str] = []
+        for path, record in reversed(list(self.snapshots.items())):
+            try:
+                if record["kind"] == "absent":
+                    if path.is_symlink() or path.is_file():
+                        path.unlink()
+                    elif path.exists():
+                        raise ValueError(f"rollback target became a directory: {path}")
+                else:
+                    self.ensure_directory(path.parent)
+                    descriptor, temporary_name = tempfile.mkstemp(
+                        prefix=f".{path.name}.rollback-", dir=str(path.parent)
+                    )
+                    os.close(descriptor)
+                    temporary = Path(temporary_name)
+                    try:
+                        shutil.copy2(record["backup"], temporary)
+                        os.chmod(temporary, int(record["mode"]))
+                        os.replace(temporary, path)
+                        fsync_directory(path.parent)
+                    finally:
+                        if temporary.exists():
+                            temporary.unlink()
+            except Exception as error:
+                failures.append(f"{path}: {error}")
+        for directory in reversed(self.created_directories):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+        if failures:
+            raise RuntimeError(
+                "rollback incomplete; recovery artifacts preserved at "
+                f"{self.recovery_dir}: {'; '.join(failures)}"
             )
-        )
-    )
-    document, settings_status = read_json_object_for_merge(settings_path)
-    if document is None:
-        print(
-            "Preserved Antigravity settings; could not safely merge statusLine: "
-            f"{settings_status}"
-        )
-        return
-    desired = {"type": "command", "command": str(wrapper_path)}
-    existing = document.get("statusLine")
-    if existing is None:
-        document["statusLine"] = desired
-        write_json_object(settings_path, document)
-        print(f"Configured Antigravity status-line capture: {settings_path}")
-    elif existing == desired:
-        print(f"Antigravity status-line capture is already configured: {settings_path}")
-    else:
-        print(
-            "Preserved existing Antigravity statusLine; usage capture was not attached: "
-            f"{settings_path}"
-        )
+        if not preserve_recovery:
+            self.cleanup()
+
+    def cleanup(self) -> None:
+        if self.recovery_dir.exists():
+            shutil.rmtree(self.recovery_dir)
 
 
-def configure_gemini_telemetry(config: Mapping[str, Any]) -> None:
-    settings = provider_config(config, "gemini_cli")
-    if (
-        settings.get("enabled", True) is not True
-        or settings.get("configure_telemetry", True) is not True
+def load_ownership() -> Optional[dict[str, Any]]:
+    path = ownership_path()
+    if not path.exists():
+        return None
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"install ownership record is not a regular file: {path}")
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            value = json.load(handle)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"install ownership record is malformed: {path}: {error}") from error
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise ValueError(f"install ownership record has an unsupported schema: {path}")
+    if not isinstance(value.get("files"), dict) or not isinstance(
+        value.get("integrations"), dict
     ):
-        return
-    executable = find_executable(settings, ["gemini"])
-    if executable is None:
-        print("Skipped Gemini CLI integration: gemini was not found")
-        return
+        raise ValueError(f"install ownership record is incomplete: {path}")
+    return value
 
-    desired = desired_gemini_telemetry(settings)
-    telemetry_path = expand_path(str(desired["outfile"]))
-    telemetry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    settings_path = expand_path(
-        str(settings.get("settings_file", "~/.gemini/settings.json"))
+
+def previous_integration_record(
+    ownership: Optional[Mapping[str, Any]], name: str
+) -> Optional[Mapping[str, Any]]:
+    integrations = ownership.get("integrations") if isinstance(ownership, Mapping) else None
+    record = integrations.get(name) if isinstance(integrations, Mapping) else None
+    return record if isinstance(record, Mapping) else None
+
+
+def prepare_integration_plan(
+    name: str,
+    settings: Mapping[str, Any],
+    settings_path: Path,
+    field: str,
+    desired: Mapping[str, Any],
+    enabled: bool,
+    executable: Optional[Path],
+    previous: Optional[Mapping[str, Any]],
+) -> dict[str, Any]:
+    previous_owned = bool(
+        isinstance(previous, Mapping)
+        and previous.get("owned") is True
+        and previous.get("settings_path") == str(settings_path)
+        and previous.get("field") == field
+        and previous.get("value") == desired
     )
-    document, settings_status = read_json_object_for_merge(settings_path)
+    plan: dict[str, Any] = {
+        "name": name,
+        "settings": settings,
+        "settings_path": settings_path,
+        "field": field,
+        "value": dict(desired),
+        "owned": previous_owned,
+        "write": False,
+        "document": None,
+        "status": "inactive",
+    }
+    if not enabled or executable is None:
+        plan["status"] = "disabled" if not enabled else "missing executable"
+        return plan
+    if settings_path.is_symlink():
+        plan["owned"] = False
+        plan["status"] = "symlinked settings were preserved"
+        return plan
+    document, read_status = read_json_object_for_merge(settings_path)
     if document is None:
-        print(
-            "Preserved Gemini settings; could not safely merge telemetry: "
-            f"{settings_status}"
-        )
-        return
-    existing = document.get("telemetry")
+        plan["owned"] = False
+        plan["status"] = f"unsafe settings were preserved: {read_status}"
+        return plan
+    existing = document.get(field)
     if existing is None:
-        document["telemetry"] = desired
-        write_json_object(settings_path, document)
-        print(f"Configured local Gemini CLI telemetry: {settings_path}")
+        plan.update(owned=True, write=True, document=document, status="configured")
+    elif existing == desired and previous_owned:
+        plan.update(owned=True, document=document, status="managed")
     elif existing == desired:
-        print(f"Gemini CLI telemetry is already configured: {settings_path}")
+        plan.update(owned=False, document=document, status="preexisting identical")
     else:
-        warning = ""
-        if isinstance(existing, Mapping) and existing.get("logPrompts") is True:
-            warning = " Warning: its current logPrompts setting is true."
-        print(
-            "Preserved existing Gemini telemetry settings; collector did not replace them: "
-            f"{settings_path}.{warning}"
-        )
+        plan.update(owned=False, document=document, status="preexisting custom")
+    return plan
+
+
+def prepare_integration_plans(
+    config: Mapping[str, Any],
+    config_path: Path,
+    ownership: Optional[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    antigravity = provider_config(config, "antigravity")
+    wrapper_path = DEFAULT_ROOT / "antigravity-statusline"
+    antigravity_path = expand_path(
+        str(antigravity.get("settings_file", "~/.gemini/antigravity-cli/settings.json"))
+    )
+    antigravity_plan = prepare_integration_plan(
+        "antigravity",
+        antigravity,
+        antigravity_path,
+        "statusLine",
+        {"type": "command", "command": str(wrapper_path)},
+        antigravity.get("enabled", True) is True
+        and antigravity.get("configure_status_line", True) is True,
+        find_executable(antigravity, ["agy"]),
+        previous_integration_record(ownership, "antigravity"),
+    )
+    antigravity_plan["wrapper_path"] = wrapper_path
+    antigravity_plan["wrapper_bytes"] = antigravity_wrapper_content(config_path).encode(
+        "utf-8"
+    )
+
+    gemini = provider_config(config, "gemini_cli")
+    gemini_path = expand_path(str(gemini.get("settings_file", "~/.gemini/settings.json")))
+    gemini_plan = prepare_integration_plan(
+        "gemini_cli",
+        gemini,
+        gemini_path,
+        "telemetry",
+        desired_gemini_telemetry(gemini),
+        gemini.get("enabled", True) is True
+        and gemini.get("configure_telemetry", True) is True,
+        find_executable(gemini, ["gemini"]),
+        previous_integration_record(ownership, "gemini_cli"),
+    )
+    return {"antigravity": antigravity_plan, "gemini_cli": gemini_plan}
+
+
+def integration_ownership_record(plan: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "owned": plan.get("owned") is True,
+        "attached": plan.get("status")
+        in {"configured", "managed", "preexisting identical"},
+        "settings_path": str(plan["settings_path"]),
+        "field": str(plan["field"]),
+        "value": plan["value"],
+    }
+
+
+def apply_integration_plan(plan: MutableMapping[str, Any], tx: FilesystemTransaction) -> None:
+    name = str(plan["name"])
+    if plan.get("write") is True:
+        settings_path = Path(plan["settings_path"])
+        document = dict(plan["document"])
+        document[str(plan["field"])] = plan["value"]
+        tx.snapshot(settings_path)
+        tx.ensure_directory(settings_path.parent)
+        write_json_object(settings_path, document)
+    if name == "gemini_cli" and plan.get("owned") is True:
+        telemetry_path = expand_path(str(plan["value"]["outfile"]))
+        tx.ensure_directory(telemetry_path.parent)
+
+    status = str(plan["status"])
+    if name == "antigravity":
+        if status == "configured":
+            print(f"Configured Antigravity status-line capture: {plan['settings_path']}")
+        elif status in {"preexisting identical", "managed"}:
+            print(f"Preserved Antigravity statusLine ({status}): {plan['settings_path']}")
+        elif status == "missing executable":
+            print("Skipped Antigravity integration: agy was not found")
+        elif status != "disabled":
+            print(f"Preserved Antigravity settings ({status}): {plan['settings_path']}")
+    else:
+        if status == "configured":
+            print(f"Configured local Gemini CLI telemetry: {plan['settings_path']}")
+        elif status in {"preexisting identical", "managed"}:
+            print(f"Preserved Gemini CLI telemetry ({status}): {plan['settings_path']}")
+        elif status == "missing executable":
+            print("Skipped Gemini CLI integration: gemini was not found")
+        elif status != "disabled":
+            print(f"Preserved Gemini CLI settings ({status}): {plan['settings_path']}")
 
 
 def build_launch_agent_plist(
@@ -2939,44 +3612,119 @@ def run_launchctl(arguments: list[str], check: bool = False) -> subprocess.Compl
     return result
 
 
-def install_service(config_path: Path, no_start: bool) -> None:
-    if DEFAULT_ROOT.exists() and not DEFAULT_ROOT.is_dir():
-        timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
-        backup = Path.home() / f".ai-usage.legacy-{timestamp}"
-        sequence = 1
-        while backup.exists():
-            backup = Path.home() / f".ai-usage.legacy-{timestamp}-{sequence}"
-            sequence += 1
-        os.replace(DEFAULT_ROOT, backup)
-        print(f"Preserved legacy ~/.ai-usage file as: {backup}")
-    DEFAULT_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(DEFAULT_ROOT, 0o700)
+def previous_file_record(
+    ownership: Optional[Mapping[str, Any]], key: str
+) -> Optional[Mapping[str, Any]]:
+    files = ownership.get("files") if isinstance(ownership, Mapping) else None
+    record = files.get(key) if isinstance(files, Mapping) else None
+    return record if isinstance(record, Mapping) else None
 
-    source_script = Path(__file__).resolve()
-    script_bytes = source_script.read_bytes()
-    atomic_write_bytes(DEFAULT_INSTALLED_SCRIPT, script_bytes, mode=0o700)
 
-    if not config_path.exists():
-        write_default_config(config_path)
-        print(f"Created config: {config_path}")
+def prepare_managed_file(
+    key: str,
+    path: Path,
+    content: bytes,
+    mode: int,
+    ownership: Optional[Mapping[str, Any]],
+) -> dict[str, Any]:
+    previous = previous_file_record(ownership, key)
+    previously_owned = bool(
+        isinstance(previous, Mapping)
+        and previous.get("owned") is True
+        and previous.get("path") == str(path)
+    )
+    if path.is_symlink():
+        raise ValueError(f"refusing to manage symlinked installer file: {path}")
+    if path.exists() and not path.is_file():
+        raise ValueError(f"installer file path is not a regular file: {path}")
+    desired_hash = hashlib.sha256(content).hexdigest()
+    if not path.exists():
+        owned = True
+        write = True
+    elif previously_owned:
+        owned = True
+        write = path.read_bytes() != content or stat.S_IMODE(path.stat().st_mode) != mode
+    elif path.read_bytes() == content:
+        owned = False
+        write = False
     else:
-        print(f"Preserved existing config: {config_path}")
+        raise ValueError(
+            f"installer target already exists without an ownership record: {path}"
+        )
+    return {
+        "key": key,
+        "path": path,
+        "content": content,
+        "mode": mode,
+        "owned": owned,
+        "write": write,
+        "sha256": desired_hash,
+    }
 
-    config = load_config(config_path)
-    print_doctor(config)
-    configure_antigravity_status_line(config, config_path)
-    configure_gemini_telemetry(config)
+
+def managed_file_record(plan: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "owned": plan.get("owned") is True,
+        "path": str(plan["path"]),
+        "sha256": str(plan["sha256"]),
+        "mode": int(plan["mode"]),
+    }
+
+
+def apply_managed_file(plan: Mapping[str, Any], tx: FilesystemTransaction) -> None:
+    if plan.get("write") is not True:
+        return
+    path = Path(plan["path"])
+    tx.snapshot(path)
+    tx.ensure_directory(path.parent)
+    atomic_write_bytes(path, bytes(plan["content"]), mode=int(plan["mode"]))
+
+
+def launch_agent(domain: str) -> None:
+    bootstrap = run_launchctl(
+        ["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=False
+    )
+    if bootstrap.returncode != 0:
+        run_launchctl(["load", "-w", str(DEFAULT_PLIST_PATH)], check=True)
+    run_launchctl(["enable", f"{domain}/{SERVICE_LABEL}"], check=True)
+    run_launchctl(["kickstart", "-k", f"{domain}/{SERVICE_LABEL}"], check=True)
+
+
+def install_service(config_path: Path, no_start: bool) -> None:
+    config_path = config_path.resolve(strict=False)
+    if not no_start:
+        if sys.platform != "darwin":
+            raise RuntimeError("LaunchAgent installation can only be started on macOS")
+        if find_launchctl() is None:
+            raise RuntimeError("launchctl is unavailable; no installation changes were made")
+    if DEFAULT_ROOT.exists() and not DEFAULT_ROOT.is_dir():
+        raise ValueError(
+            f"install root is not a directory; move it explicitly before installing: {DEFAULT_ROOT}"
+        )
+    if config_path.exists():
+        if not config_path.is_file():
+            raise ValueError(f"config path is not a regular file: {config_path}")
+        config = load_config(config_path)
+        create_config = False
+    else:
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        validate_config(config)
+        create_config = True
+
+    previous_ownership = load_ownership()
+    if (
+        previous_ownership is not None
+        and previous_ownership.get("config_path") != str(config_path)
+    ):
+        raise ValueError(
+            "existing ownership record belongs to a different config path; "
+            "uninstall that instance before reinstalling"
+        )
     usage_path, log_path = configured_paths(config)
     cache_path = expand_path(config["paths"]["cache_dir"])
-    cache_path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(cache_path, 0o700)
-    csv_backup = ensure_csv(usage_path)
-    if csv_backup is not None:
-        print(f"Preserved incompatible usage CSV as: {csv_backup}")
-    log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    log_path.touch(exist_ok=True, mode=0o600)
-    os.chmod(log_path, 0o600)
-
+    integration_plans = prepare_integration_plans(
+        config, config_path, previous_ownership
+    )
     python_executable = Path(sys.executable).resolve()
     plist_bytes = build_launch_agent_plist(
         python_executable,
@@ -2984,37 +3732,140 @@ def install_service(config_path: Path, no_start: bool) -> None:
         config_path,
         log_path,
     )
-    atomic_write_bytes(DEFAULT_PLIST_PATH, plist_bytes, mode=0o600)
+    file_plans: dict[str, dict[str, Any]] = {
+        "installed_script": prepare_managed_file(
+            "installed_script",
+            DEFAULT_INSTALLED_SCRIPT,
+            Path(__file__).resolve().read_bytes(),
+            0o700,
+            previous_ownership,
+        ),
+        "plist": prepare_managed_file(
+            "plist",
+            DEFAULT_PLIST_PATH,
+            plist_bytes,
+            0o600,
+            previous_ownership,
+        ),
+    }
+    antigravity_plan = integration_plans["antigravity"]
+    if antigravity_plan.get("owned") is True:
+        file_plans["antigravity_wrapper"] = prepare_managed_file(
+            "antigravity_wrapper",
+            Path(antigravity_plan["wrapper_path"]),
+            bytes(antigravity_plan["wrapper_bytes"]),
+            0o700,
+            previous_ownership,
+        )
+
+    domain = f"gui/{os.getuid()}"
+    service_loaded = False
+    if not no_start:
+        service_loaded = (
+            run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False).returncode
+            == 0
+        )
+
+    tx = FilesystemTransaction(DEFAULT_ROOT.parent)
+    service_stopped = False
+    launch_attempted = False
+    try:
+        if service_loaded:
+            run_launchctl(["bootout", domain, str(DEFAULT_PLIST_PATH)], check=True)
+            service_stopped = True
+
+        tx.ensure_directory(DEFAULT_ROOT)
+        os.chmod(DEFAULT_ROOT, 0o700)
+        if create_config:
+            tx.snapshot(config_path)
+            tx.ensure_directory(config_path.parent)
+            write_default_config(config_path)
+            print(f"Created config: {config_path}")
+        else:
+            print(f"Preserved existing config: {config_path}")
+
+        for key in ("installed_script",):
+            apply_managed_file(file_plans[key], tx)
+        print_doctor(config)
+        if "antigravity_wrapper" in file_plans:
+            apply_managed_file(file_plans["antigravity_wrapper"], tx)
+        for plan in integration_plans.values():
+            apply_integration_plan(plan, tx)
+
+        tx.ensure_directory(cache_path)
+        os.chmod(cache_path, 0o700)
+        tx.snapshot(usage_path)
+        tx.snapshot(usage_path.with_name(f"{usage_path.name}.lock"))
+        csv_backup = ensure_csv(usage_path)
+        if csv_backup is not None:
+            tx.mark_created(csv_backup)
+            print(f"Preserved incompatible usage CSV as: {csv_backup}")
+        tx.snapshot(log_path)
+        tx.ensure_directory(log_path.parent)
+        log_path.touch(exist_ok=True, mode=0o600)
+        os.chmod(log_path, 0o600)
+
+        apply_managed_file(file_plans["plist"], tx)
+        ownership = {
+            "schema_version": 1,
+            "config_path": str(config_path),
+            "files": {
+                key: managed_file_record(plan) for key, plan in file_plans.items()
+            },
+            "integrations": {
+                name: integration_ownership_record(plan)
+                for name, plan in integration_plans.items()
+            },
+        }
+        tx.snapshot(ownership_path())
+        write_json_object(ownership_path(), ownership)
+
+        if not no_start:
+            launch_attempted = True
+            launch_agent(domain)
+        tx.cleanup()
+    except Exception as error:
+        cleanup_failed = False
+        if launch_attempted:
+            try:
+                cleanup = run_launchctl(
+                    ["bootout", domain, str(DEFAULT_PLIST_PATH)], check=False
+                )
+                if cleanup.returncode != 0:
+                    cleanup_failed = (
+                        run_launchctl(
+                            ["print", f"{domain}/{SERVICE_LABEL}"], check=False
+                        ).returncode
+                        == 0
+                    )
+            except Exception:
+                cleanup_failed = True
+        if cleanup_failed:
+            raise RuntimeError(
+                f"installation failed ({error}) and the new service could not be "
+                f"stopped safely; installed files and recovery artifacts were preserved at "
+                f"{tx.recovery_dir}"
+            ) from error
+        tx.rollback(preserve_recovery=service_stopped)
+        if service_stopped:
+            try:
+                launch_agent(domain)
+            except Exception as recovery_error:
+                raise RuntimeError(
+                    f"installation failed ({error}); files were restored but the prior "
+                    f"service could not be restarted ({recovery_error}); recovery artifacts: "
+                    f"{tx.recovery_dir}"
+                ) from error
+            tx.cleanup()
+        raise
 
     if no_start:
         print(f"Installed without starting: {DEFAULT_PLIST_PATH}")
-        return
-    if sys.platform != "darwin":
-        raise RuntimeError("LaunchAgent installation can only be started on macOS")
-    if find_launchctl() is None:
-        raise RuntimeError("launchctl is unavailable; service was installed but not started")
-
-    domain = f"gui/{os.getuid()}"
-    run_launchctl(["bootout", domain, str(DEFAULT_PLIST_PATH)], check=False)
-    bootstrap = run_launchctl(
-        ["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=False
-    )
-    if bootstrap.returncode != 0:
-        legacy = run_launchctl(["load", "-w", str(DEFAULT_PLIST_PATH)], check=False)
-        if legacy.returncode != 0:
-            message = (
-                bootstrap.stderr.strip()
-                or legacy.stderr.strip()
-                or "could not load LaunchAgent"
-            )
-            raise RuntimeError(message)
-    run_launchctl(["enable", f"{domain}/{SERVICE_LABEL}"], check=False)
-    run_launchctl(["kickstart", "-k", f"{domain}/{SERVICE_LABEL}"], check=False)
-
-    print(f"Installed service: {SERVICE_LABEL}")
-    print(f"Config: {config_path}")
-    print(f"Usage CSV: {usage_path}")
-    print(f"Log: {log_path}")
+    else:
+        print(f"Installed service: {SERVICE_LABEL}")
+        print(f"Config: {config_path}")
+        print(f"Usage CSV: {usage_path}")
+        print(f"Log: {log_path}")
 
 
 def print_status() -> int:
@@ -3036,86 +3887,135 @@ def print_status() -> int:
     return 1
 
 
-def remove_managed_integrations(config_path: Path) -> bool:
-    """Detach only provider settings that exactly match this installation."""
-
-    try:
-        config = load_config(config_path)
-    except Exception as error:
-        print(
-            "Could not read config to detach provider integrations; preserving "
-            f"collector hook files: {error}"
-        )
+def detach_owned_integration(
+    name: str, record: Mapping[str, Any], tx: FilesystemTransaction
+) -> bool:
+    if record.get("owned") is not True:
         return False
-
-    antigravity_detached = True
-    antigravity_settings = provider_config(config, "antigravity")
-    antigravity_settings_path = expand_path(
-        str(
-            antigravity_settings.get(
-                "settings_file", "~/.gemini/antigravity-cli/settings.json"
-            )
-        )
-    )
-    document, read_status = read_json_object_for_merge(antigravity_settings_path)
-    desired_status_line = {
-        "type": "command",
-        "command": str(DEFAULT_ROOT / "antigravity-statusline"),
-    }
+    settings_path = Path(str(record.get("settings_path", "")))
+    field = record.get("field")
+    desired = record.get("value")
+    if not settings_path.is_absolute() or not isinstance(field, str):
+        raise ValueError(f"ownership record for {name} is invalid")
+    if settings_path.is_symlink():
+        raise ValueError(f"refusing to detach integration through symlink: {settings_path}")
+    document, read_status = read_json_object_for_merge(settings_path)
     if document is None:
-        antigravity_detached = False
-        print(
-            "Could not inspect Antigravity settings; preserving collector.py and "
-            f"status-line wrapper to avoid a broken hook: {read_status}"
-        )
-    elif document.get("statusLine") == desired_status_line:
-        del document["statusLine"]
-        write_json_object(antigravity_settings_path, document)
-        print(f"Removed managed Antigravity statusLine: {antigravity_settings_path}")
+        raise ValueError(f"could not inspect owned {name} settings: {read_status}")
+    if field not in document:
+        return True
+    if document.get(field) != desired:
+        print(f"Preserved modified {name} integration: {settings_path}")
+        return False
+    tx.snapshot(settings_path)
+    del document[field]
+    write_json_object(settings_path, document)
+    print(f"Removed owned {name} integration: {settings_path}")
+    return True
 
-    gemini_settings = provider_config(config, "gemini_cli")
-    gemini_settings_path = expand_path(
-        str(gemini_settings.get("settings_file", "~/.gemini/settings.json"))
-    )
-    document, read_status = read_json_object_for_merge(gemini_settings_path)
-    desired_telemetry = desired_gemini_telemetry(gemini_settings)
-    if document is None:
-        print(
-            "Could not inspect Gemini settings; verify telemetry manually after "
-            f"uninstall: {read_status}"
-        )
-    elif document.get("telemetry") == desired_telemetry:
-        del document["telemetry"]
-        write_json_object(gemini_settings_path, document)
-        print(f"Removed managed Gemini telemetry: {gemini_settings_path}")
 
-    wrapper_path = DEFAULT_ROOT / "antigravity-statusline"
-    if antigravity_detached and wrapper_path.is_file():
-        try:
-            wrapper_content = wrapper_path.read_text(encoding="utf-8")
-        except OSError:
-            wrapper_content = ""
-        if wrapper_content == antigravity_wrapper_content(config_path):
-            wrapper_path.unlink()
-    return antigravity_detached
+def remove_owned_file(
+    key: str, record: Optional[Mapping[str, Any]], tx: FilesystemTransaction
+) -> bool:
+    if not isinstance(record, Mapping) or record.get("owned") is not True:
+        return False
+    path = Path(str(record.get("path", "")))
+    expected_hash = record.get("sha256")
+    if not path.is_absolute() or not isinstance(expected_hash, str):
+        raise ValueError(f"ownership record for {key} is invalid")
+    if not path.exists():
+        return True
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"refusing to remove non-regular owned file: {path}")
+    if file_sha256(path) != expected_hash:
+        print(f"Preserved modified installer file: {path}")
+        return False
+    tx.snapshot(path)
+    path.unlink()
+    fsync_directory(path.parent)
+    return True
 
 
 def uninstall_service(config_path: Path) -> None:
-    if sys.platform == "darwin" and find_launchctl() is not None:
-        domain = f"gui/{os.getuid()}"
-        run_launchctl(["bootout", domain, str(DEFAULT_PLIST_PATH)], check=False)
-    if DEFAULT_PLIST_PATH.exists():
-        DEFAULT_PLIST_PATH.unlink()
-    safe_to_remove_script = remove_managed_integrations(config_path)
-    if safe_to_remove_script and DEFAULT_INSTALLED_SCRIPT.exists():
-        DEFAULT_INSTALLED_SCRIPT.unlink()
-    if safe_to_remove_script:
-        print("Service removed. Config, CSV, and logs were preserved in ~/.ai-usage/.")
-    else:
-        print(
-            "LaunchAgent removed; collector hook files were preserved to avoid "
-            "breaking an integration that could not be inspected."
+    del config_path
+    ownership = load_ownership()
+    if ownership is None:
+        raise RuntimeError(
+            "no install ownership record exists; preserving all files and integrations"
         )
+    domain = f"gui/{os.getuid()}"
+    service_loaded = False
+    if sys.platform == "darwin":
+        if find_launchctl() is None:
+            raise RuntimeError("launchctl is unavailable; uninstall made no changes")
+        service_loaded = (
+            run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False).returncode
+            == 0
+        )
+    tx = FilesystemTransaction(DEFAULT_ROOT.parent)
+    service_stopped = False
+    try:
+        if service_loaded:
+            run_launchctl(["bootout", domain, str(DEFAULT_PLIST_PATH)], check=True)
+            service_stopped = True
+        integrations = ownership["integrations"]
+        antigravity_record = integrations.get("antigravity", {})
+        gemini_record = integrations.get("gemini_cli", {})
+        antigravity_detached = detach_owned_integration(
+            "antigravity", antigravity_record, tx
+        )
+        detach_owned_integration("gemini_cli", gemini_record, tx)
+
+        files = ownership["files"]
+        wrapper_record = files.get("antigravity_wrapper")
+        wrapper_removed = remove_owned_file(
+            "antigravity_wrapper", wrapper_record, tx
+        )
+        unowned_hook_uses_managed_path = bool(
+            isinstance(antigravity_record, Mapping)
+            and antigravity_record.get("owned") is not True
+            and antigravity_record.get("attached") is True
+            and antigravity_record.get("value")
+            == {
+                "type": "command",
+                "command": str(DEFAULT_ROOT / "antigravity-statusline"),
+            }
+        )
+        script_safe = (
+            antigravity_detached
+            or wrapper_removed
+            or (
+                not isinstance(wrapper_record, Mapping)
+                and not unowned_hook_uses_managed_path
+            )
+        )
+        remove_owned_file("plist", files.get("plist"), tx)
+        if script_safe:
+            remove_owned_file("installed_script", files.get("installed_script"), tx)
+        else:
+            print(
+                "Preserved collector.py because an unowned Antigravity hook may still depend on it"
+            )
+
+        tx.snapshot(ownership_path())
+        ownership_path().unlink()
+        fsync_directory(ownership_path().parent)
+        tx.cleanup()
+    except Exception as error:
+        tx.rollback(preserve_recovery=service_stopped)
+        if service_stopped:
+            try:
+                launch_agent(domain)
+            except Exception as recovery_error:
+                raise RuntimeError(
+                    f"uninstall failed ({error}); files were restored but the service "
+                    f"could not be restarted ({recovery_error}); recovery artifacts: "
+                    f"{tx.recovery_dir}"
+                ) from error
+            tx.cleanup()
+        raise
+
+    print("Service removed. Config, CSV, and logs were preserved in ~/.ai-usage/.")
 
 
 def run_once(config_path: Path) -> int:
@@ -3126,6 +4026,7 @@ def run_once(config_path: Path) -> int:
     LOGGER.info("one-shot collection started version=%s", VERSION)
     with state_transaction_lock(state_path):
         state = load_state(state_path)
+        state = recover_pending_transaction(state_path, usage_path, state)
         candidate_state = copy.deepcopy(state)
         local_date = datetime_module.datetime.now().date().isoformat()
         include_history = state.get("history_date") != local_date
@@ -3134,9 +4035,13 @@ def run_once(config_path: Path) -> int:
             include_history=include_history,
             state=candidate_state,
         )
-        append_rows(usage_path, rows)
         candidate_state["history_date"] = local_date
-        save_state(state_path, candidate_state)
+        commit_collection_transaction(
+            state_path,
+            usage_path,
+            rows,
+            candidate_state,
+        )
     errors = sum(1 for row in rows if row.get("status") == "error")
     LOGGER.info("one-shot collection completed rows=%d errors=%d", len(rows), errors)
     print(f"Appended {len(rows)} rows to {usage_path}; errors={errors}")
@@ -3175,6 +4080,7 @@ def run_daemon(config_path: Path) -> int:
 
             with state_transaction_lock(state_path):
                 state = load_state(state_path)
+                state = recover_pending_transaction(state_path, usage_path, state)
                 candidate_state = copy.deepcopy(state)
                 local_date = datetime_module.datetime.now().date().isoformat()
                 include_history = state.get("history_date") != local_date
@@ -3183,9 +4089,13 @@ def run_daemon(config_path: Path) -> int:
                     include_history=include_history,
                     state=candidate_state,
                 )
-                append_rows(usage_path, rows)
                 candidate_state["history_date"] = local_date
-                save_state(state_path, candidate_state)
+                commit_collection_transaction(
+                    state_path,
+                    usage_path,
+                    rows,
+                    candidate_state,
+                )
             first_cycle = False
             errors = sum(1 for row in rows if row.get("status") == "error")
             detected = sum(
