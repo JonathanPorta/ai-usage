@@ -101,6 +101,11 @@ class IsolatedHome:
         path.chmod(0o700)
         return path
 
+    def write_python_executable(self, name: str, body: str) -> Path:
+        """Write a fixture using the same interpreter that runs the tests."""
+
+        return self.write_executable(name, f"#!{sys.executable}\n{body}")
+
     def run(
         self,
         *arguments: str,
@@ -240,10 +245,9 @@ class CollectorBlackBoxTests(unittest.TestCase):
         )
 
     def test_codex_json_rpc_is_metadata_only(self) -> None:
-        fake = self.case.write_executable(
+        fake = self.case.write_python_executable(
             "codex",
-            """#!/usr/bin/python3
-import json, os, sys
+            """import json, os, sys
 with open(os.environ["TEST_TRACE"], "a", encoding="utf-8") as trace:
     trace.write(json.dumps({"argv": sys.argv[1:]}) + "\\n")
 for line in sys.stdin:
@@ -561,10 +565,9 @@ for line in sys.stdin:
 
     @unittest.skipUnless(hasattr(os, "fork"), "requires POSIX process groups")
     def test_codex_cleanup_terminates_descendants_that_inherit_stdout(self) -> None:
-        fake = self.case.write_executable(
+        fake = self.case.write_python_executable(
             "codex",
-            """#!/usr/bin/python3
-import json, os, signal, sys, time
+            """import json, os, signal, sys, time
 child = os.fork()
 if child == 0:
     def stop(_signal, _frame):
@@ -603,10 +606,9 @@ for line in sys.stdin:
 
     @unittest.skipUnless(hasattr(os, "fork"), "requires POSIX process groups")
     def test_grok_cleanup_terminates_descendants_that_inherit_stdout(self) -> None:
-        fake = self.case.write_executable(
+        fake = self.case.write_python_executable(
             "grok",
-            """#!/usr/bin/python3
-import json, os, signal, sys, time
+            """import json, os, signal, sys, time
 child = os.fork()
 if child == 0:
     def stop(_signal, _frame):
@@ -744,10 +746,9 @@ for line in sys.stdin:
         self.assertNotIn("private-session", csv_text)
 
     def test_grok_acp_sends_billing_metadata_method_only(self) -> None:
-        fake = self.case.write_executable(
+        fake = self.case.write_python_executable(
             "grok",
-            """#!/usr/bin/python3
-import json, os, sys
+            """import json, os, sys
 with open(os.environ["TEST_TRACE"], "a", encoding="utf-8") as trace:
     trace.write(json.dumps({"argv": sys.argv[1:]}) + "\\n")
 for line in sys.stdin:
