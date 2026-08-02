@@ -3,3 +3,5 @@ __pycache__/
 .coverage
 htmlcov/
 .DS_Store
+# ai-rules-local-config
+.ai-local/
