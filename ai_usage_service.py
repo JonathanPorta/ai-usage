@@ -1141,51 +1141,129 @@ def next_json_message(
     return message if has_message else None
 
 
+def pids_in_process_group(process_group: int) -> list[int]:
+    """Best-effort PIDs currently in a process group (macOS + Linux)."""
+
+    try:
+        completed = subprocess.run(
+            ["ps", "-axo", "pid=,pgid="],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+    pids: list[int] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid = int(parts[0])
+            pgid = int(parts[1])
+        except ValueError:
+            continue
+        if pgid == process_group:
+            pids.append(pid)
+    return pids
+
+
+def signal_pids(pids: Iterable[int], provider_signal: int) -> None:
+    """Signal each PID independently, ignoring processes that already exited."""
+
+    for pid in pids:
+        try:
+            os.kill(pid, provider_signal)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
 def terminate_provider_process(
     process: "subprocess.Popen[str]", process_group: Optional[int]
 ) -> None:
-    """Bound cleanup and terminate descendants that inherited provider pipes."""
+    """Bound cleanup and terminate descendants that inherited provider pipes.
+
+    Best-effort and never raises. Darwin intermittently returns EPERM from
+    killpg for a live session-leader group (and for an unreaped zombie leader);
+    that must not convert a successful provider response into a collection
+    failure, and descendants that inherited stdio still need to be stopped.
+    """
 
     if process_group is not None and os.name == "posix":
-        def signal_group(provider_signal: int) -> bool:
+        def list_targets() -> list[int]:
+            pids = pids_in_process_group(process_group)
+            if process.poll() is None and process.pid not in pids:
+                pids.append(process.pid)
+            return pids
+
+        def send_signal(provider_signal: int) -> None:
             try:
                 os.killpg(process_group, provider_signal)
+                return
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                pass
+            # killpg unavailable (empty group) or Darwin EPERM: hit each member.
+            signal_pids(list_targets(), provider_signal)
+
+        def group_still_alive() -> bool:
+            try:
+                os.killpg(process_group, 0)
                 return True
             except ProcessLookupError:
-                return False
+                return bool(list_targets())
             except PermissionError:
-                # Darwin can report EPERM while an exited group leader remains
-                # unreaped.  Reap our direct child and retry the group once.
-                if process.poll() is None:
-                    raise
-                try:
-                    os.killpg(process_group, provider_signal)
-                    return True
-                except ProcessLookupError:
-                    return False
+                return bool(list_targets())
 
-        # Reap a provider that exited on its own before signalling descendants.
-        process.poll()
-        signal_group(signal.SIGTERM)
+        # Snapshot before the first signal so members that later drop out of the
+        # process-group table can still be escalated.
+        known_members = list_targets()
+        send_signal(signal.SIGTERM)
+        # Always target the direct child as well — covers killpg EPERM while the
+        # leader is still alive (a case that previously raised and failed the query).
+        if process.poll() is None:
+            try:
+                os.kill(process.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
         try:
             process.wait(timeout=0.5)
         except subprocess.TimeoutExpired:
             pass
 
+        # After the leader is reaped, killpg often starts working again on Darwin.
+        # If not, the per-PID fallback inside send_signal covers remaining members.
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
-            if not signal_group(0):
+            if not group_still_alive() and process.poll() is not None:
                 break
             time.sleep(0.02)
         else:
-            signal_group(signal.SIGKILL)
+            send_signal(signal.SIGKILL)
+            signal_pids(known_members, signal.SIGKILL)
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
 
         if process.poll() is None:
             try:
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
-                signal_group(signal.SIGKILL)
-                process.wait(timeout=1)
+                send_signal(signal.SIGKILL)
+                try:
+                    process.kill()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
         return
 
     if process.poll() is None:
@@ -1194,7 +1272,10 @@ def terminate_provider_process(
             process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=1)
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def query_codex_app_server(
