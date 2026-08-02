@@ -1209,7 +1209,10 @@ def query_codex_app_server(
             start_new_session=os.name == "posix",
         )
         if os.name == "posix":
-            process_group = os.getpgid(process.pid)
+            # start_new_session makes the child a session leader, so its PID is
+            # also its process-group ID.  macOS rejects getpgid() across that
+            # new session with EPERM even though this is our direct child.
+            process_group = process.pid
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("failed to open Codex app-server pipes")
 
@@ -2348,7 +2351,9 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
             start_new_session=os.name == "posix",
         )
         if os.name == "posix":
-            process_group = os.getpgid(process.pid)
+            # start_new_session guarantees this without a cross-session
+            # getpgid() call, which macOS rejects with EPERM.
+            process_group = process.pid
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("failed to open Grok ACP pipes")
 
