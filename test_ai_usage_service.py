@@ -54,6 +54,8 @@ class IsolatedHome:
         self.tripwire = self.root / "tripwire.log"
         self.trace = self.root / "rpc-trace.jsonl"
         self.child_exit = self.root / "child-exit.log"
+        self.child_pid = self.root / "child.pid"
+        self.child_ready = self.root / "child.ready"
 
     def close(self) -> None:
         self._temporary.cleanup()
@@ -67,6 +69,8 @@ class IsolatedHome:
         environment["TEST_TRIPWIRE"] = str(self.tripwire)
         environment["TEST_TRACE"] = str(self.trace)
         environment["TEST_CHILD_EXIT"] = str(self.child_exit)
+        environment["TEST_CHILD_PID"] = str(self.child_pid)
+        environment["TEST_CHILD_READY"] = str(self.child_ready)
         return environment
 
     def provider_config(self, enabled: str, **settings: object) -> dict[str, object]:
@@ -183,9 +187,17 @@ class CollectorBlackBoxTests(unittest.TestCase):
 
     def assert_child_was_terminated(self, elapsed: float) -> None:
         self.assertLess(elapsed, 4.0, "provider timeout cleanup exceeded its bound")
+        child_pid = int(self.case.child_pid.read_text(encoding="utf-8"))
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and not self.case.child_exit.exists():
+        child_exists = True
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_exists = False
+                break
             time.sleep(0.02)
+        self.assertFalse(child_exists, "provider descendant survived cleanup")
         self.assertTrue(
             self.case.child_exit.exists(),
             "provider descendant did not receive process-group termination",
@@ -587,8 +599,17 @@ if child == 0:
             handle.write("codex-child-terminated\\n")
         os._exit(0)
     signal.signal(signal.SIGTERM, stop)
+    with open(os.environ["TEST_CHILD_PID"], "w", encoding="utf-8") as handle:
+        handle.write(str(os.getpid()))
+    with open(os.environ["TEST_CHILD_READY"], "w", encoding="utf-8"):
+        pass
     while True:
         time.sleep(1)
+deadline = time.monotonic() + 2
+while not os.path.exists(os.environ["TEST_CHILD_READY"]):
+    if time.monotonic() >= deadline:
+        raise RuntimeError("codex child did not become ready")
+    time.sleep(0.01)
 for line in sys.stdin:
     message = json.loads(line)
     ident = message.get("id")
@@ -628,8 +649,17 @@ if child == 0:
             handle.write("grok-child-terminated\\n")
         os._exit(0)
     signal.signal(signal.SIGTERM, stop)
+    with open(os.environ["TEST_CHILD_PID"], "w", encoding="utf-8") as handle:
+        handle.write(str(os.getpid()))
+    with open(os.environ["TEST_CHILD_READY"], "w", encoding="utf-8"):
+        pass
     while True:
         time.sleep(1)
+deadline = time.monotonic() + 2
+while not os.path.exists(os.environ["TEST_CHILD_READY"]):
+    if time.monotonic() >= deadline:
+        raise RuntimeError("grok child did not become ready")
+    time.sleep(0.01)
 for line in sys.stdin:
     message = json.loads(line)
     ident = message.get("id")
