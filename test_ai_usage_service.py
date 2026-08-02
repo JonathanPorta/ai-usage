@@ -123,9 +123,21 @@ class IsolatedHome:
             check=False,
         )
         if check and result.returncode != 0:
+            error_details = ""
+            if self.csv.is_file():
+                error_rows = [
+                    row for row in self.rows() if row.get("status") == "error"
+                ]
+                if error_rows:
+                    error_details = (
+                        "\nerror rows:\n"
+                        + json.dumps(error_rows, indent=2, sort_keys=True)
+                        + "\n"
+                    )
             raise AssertionError(
                 f"command failed ({result.returncode}): {result.args}\n"
                 f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                f"{error_details}"
             )
         return result
 
