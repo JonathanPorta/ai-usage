@@ -1,0 +1,12 @@
+schema: blessed/repo/v1
+project: ai-usage
+component: collector
+repo_type: daemon
+stage: active
+stack: [python, macos, launchd]
+standards: []
+capabilities: [ai-rules-subtree, sha-pinning]
+tracked_dependencies:
+  ai_rules:
+    origin: https://github.com/JonathanPorta/ai-rules
+    tag: v0.13.1
