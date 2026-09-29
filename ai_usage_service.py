@@ -37,7 +37,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, O
 import uuid
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 SERVICE_LABEL = "codes.porta.ai-usage"
 DEFAULT_ROOT = Path.home() / ".ai-usage"
 DEFAULT_CONFIG_PATH = DEFAULT_ROOT / "config.json"
@@ -105,6 +105,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "executable": None,
             "executable_names": ["claude"],
             "stats_file": "~/.claude/stats-cache.json",
+            "projects_dir": "~/.claude/projects",
+            "stale_after_seconds": 172800,
+            "max_session_bytes_per_poll": 26214400,
             "monthly_subscription_usd": None,
         },
         "antigravity": {
@@ -255,6 +258,7 @@ def configured_path_roles(
     ]
     provider_paths = (
         ("providers.claude.stats_file", "claude", "stats_file", "file"),
+        ("providers.claude.projects_dir", "claude", "projects_dir", "directory"),
         ("providers.antigravity.cache_file", "antigravity", "cache_file", "file"),
         ("providers.antigravity.events_file", "antigravity", "events_file", "file"),
         (
@@ -1387,15 +1391,7 @@ def collect_codex(
     rows: list[dict[str, Any]] = []
     executable = find_executable(provider_config, ["codex"])
     if executable is None:
-        rows.append(
-            availability_row(
-                collected_at,
-                "codex",
-                False,
-                "filesystem-discovery",
-                "Codex executable not found; no Codex command was run",
-            )
-        )
+        # No binary and no alternate local source — do not emit noise rows.
         return rows
 
     rows.append(
@@ -1614,6 +1610,169 @@ def collect_codex(
     return rows
 
 
+def claude_session_files(projects_dir: Path) -> list[Path]:
+    if not projects_dir.is_dir():
+        return []
+    files = [
+        path
+        for path in projects_dir.rglob("*.jsonl")
+        if path.is_file() and not path.is_symlink()
+    ]
+    # String paths so `session.jsonl` precedes `session/subagents/...`
+    # (Path part-tuples would put the directory first).
+    return sorted(files, key=lambda path: str(path))
+
+
+def claude_message_id(record: Mapping[str, Any]) -> str:
+    message = record.get("message")
+    if isinstance(message, Mapping) and message.get("id"):
+        return str(message["id"])
+    if record.get("uuid"):
+        return str(record["uuid"])
+    return ""
+
+
+def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> list[dict[str, Any]]:
+    if record.get("type") != "assistant":
+        return []
+    message = record.get("message")
+    if not isinstance(message, Mapping):
+        return []
+    usage = message.get("usage")
+    if not isinstance(usage, Mapping):
+        return []
+    model = str(message.get("model") or "")
+    if not model or model == "<synthetic>":
+        return []
+    session_id = record.get("sessionId") or record.get("session_id") or ""
+    event_time = record_timestamp(record, fallback_collected_at)
+    period_start = ""
+    if isinstance(event_time, str) and len(event_time) >= 10 and event_time[4] == "-":
+        period_start = event_time[:10]
+    scope = f"{stable_scope(session_id or claude_message_id(record))}:{model}"
+    metric_map = (
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("cache_read_input_tokens", "cache_read_input_tokens"),
+        ("cache_creation_input_tokens", "cache_creation_input_tokens"),
+    )
+    rows: list[dict[str, Any]] = []
+    for source_key, metric in metric_map:
+        value = usage.get(source_key)
+        if value is None:
+            continue
+        rows.append(
+            metric_row(
+                event_time,
+                "claude",
+                "usage",
+                metric,
+                record_kind="event_total",
+                scope=scope,
+                period_start=period_start,
+                value=value,
+                unit="tokens",
+                source="claude-session-log",
+            )
+        )
+    return rows
+
+
+def collect_claude_session_logs(
+    collected_at: str,
+    projects_dir: Path,
+    provider_config: Mapping[str, Any],
+    state: MutableMapping[str, Any],
+) -> list[dict[str, Any]]:
+    session_files = claude_session_files(projects_dir)
+    if not session_files:
+        return []
+    rows: list[dict[str, Any]] = []
+    offsets = state.setdefault("claude_offsets", {})
+    if not isinstance(offsets, MutableMapping):
+        offsets = {}
+        state["claude_offsets"] = offsets
+    recent_ids_raw = state.get("claude_recent_message_ids", [])
+    recent_ids_list = recent_ids_raw if isinstance(recent_ids_raw, list) else []
+    recent_ids = set(recent_ids_list)
+    new_ids: list[str] = []
+    parse_errors = 0
+    rotation_losses: list[str] = []
+    raw_session_budget = provider_config.get(
+        "max_session_bytes_per_poll", 25 * 1024 * 1024
+    )
+    try:
+        remaining_session_bytes = max(1024 * 1024, int(raw_session_budget))
+    except (TypeError, ValueError):
+        remaining_session_bytes = 25 * 1024 * 1024
+    deferred_files = 0
+    for index, session_file in enumerate(session_files):
+        if remaining_session_bytes <= 0:
+            deferred_files = len(session_files) - index
+            break
+        records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
+            session_file,
+            offsets,
+            max_bytes=remaining_session_bytes,
+        )
+        remaining_session_bytes -= bytes_read
+        parse_errors += errors
+        rotation_losses.extend(file_rotation_losses)
+        for record in records:
+            message_id = claude_message_id(record)
+            if not message_id:
+                rows.extend(claude_usage_rows(record, collected_at))
+                continue
+            if message_id in recent_ids:
+                continue
+            turn_rows = claude_usage_rows(record, collected_at)
+            if not turn_rows:
+                continue
+            recent_ids.add(message_id)
+            new_ids.append(message_id)
+            rows.extend(turn_rows)
+    state["claude_recent_message_ids"] = (recent_ids_list + new_ids)[-20000:]
+    loss_row = rotation_loss_row(
+        collected_at,
+        "claude",
+        "claude-session-log",
+        rotation_losses,
+    )
+    if loss_row is not None:
+        rows.append(loss_row)
+    if parse_errors:
+        rows.append(
+            metric_row(
+                collected_at,
+                "claude",
+                "collection",
+                "session_log_parse_errors",
+                record_kind="interval_total",
+                value=parse_errors,
+                unit="records",
+                source="claude-session-log",
+                status="error",
+                message="Malformed records were skipped",
+            )
+        )
+    if deferred_files:
+        rows.append(
+            metric_row(
+                collected_at,
+                "claude",
+                "collection",
+                "session_files_deferred",
+                record_kind="interval_total",
+                value=deferred_files,
+                unit="files",
+                source="claude-session-log",
+                status="partial",
+                message="Per-poll local scan budget reached; remaining files will be read later",
+            )
+        )
+    return rows
+
+
 def collect_claude(
     collected_at: str,
     provider_config: Mapping[str, Any],
@@ -1626,22 +1785,29 @@ def collect_claude(
     stats_setting = provider_config.get("stats_file", "~/.claude/stats-cache.json")
     stats_path = expand_path(str(stats_setting))
     stats_available = stats_path.is_file() and os.access(stats_path, os.R_OK)
-    detected = executable is not None or stats_available
+    projects_setting = provider_config.get("projects_dir", "~/.claude/projects")
+    projects_dir = expand_path(str(projects_setting))
+    session_files = claude_session_files(projects_dir)
+    detected = executable is not None or stats_available or bool(session_files)
 
     details = []
     if executable is not None:
         details.append(f"binary={executable}")
     if stats_available:
         details.append(f"stats={stats_path}")
+    if session_files:
+        details.append(f"session_logs={len(session_files)}")
+    if not detected:
+        # No binary, stats cache, or session transcripts — skip rather than writing missing spam.
+        return rows
+
     rows.append(
         availability_row(
             collected_at,
             "claude",
-            detected,
+            True,
             "filesystem-discovery",
-            "; ".join(details)
-            if details
-            else "Claude executable and stats cache not found; no Claude command was run",
+            "; ".join(details),
         )
     )
 
@@ -1657,134 +1823,167 @@ def collect_claude(
                 message=f"stats cache not found: {stats_path}; Claude was not executed",
             )
         )
-        return rows
-
-    try:
-        with stats_path.open("r", encoding="utf-8") as handle:
-            stats = json.load(handle)
-    except (OSError, json.JSONDecodeError) as error:
+    else:
+        raw_stale_after = provider_config.get("stale_after_seconds", 172800)
+        try:
+            stale_after = max(60, int(raw_stale_after))
+        except (TypeError, ValueError):
+            stale_after = 172800
+        try:
+            age_seconds = max(0, int(time.time() - stats_path.stat().st_mtime))
+        except OSError:
+            age_seconds = 0
         rows.append(
             metric_row(
                 collected_at,
                 "claude",
-                "collection",
-                "stats_cache",
+                "freshness",
+                "source_age_seconds",
+                value=age_seconds,
+                unit="seconds",
                 source="claude-stats-cache",
-                status="error",
-                message=str(error),
+                status="stale" if age_seconds > stale_after else "ok",
+                message=(
+                    "Stats cache has not been rewritten; session transcripts are the live source"
+                    if age_seconds > stale_after
+                    else ""
+                ),
             )
         )
-        return rows
-
-    if not isinstance(stats, Mapping):
-        rows.append(
-            metric_row(
-                collected_at,
-                "claude",
-                "collection",
-                "stats_cache",
-                source="claude-stats-cache",
-                status="error",
-                message="stats cache root is not an object",
-            )
-        )
-        return rows
-
-    activity_metrics = {
-        "total_sessions": ("totalSessions", "sessions"),
-        "total_messages": ("totalMessages", "messages"),
-    }
-    for metric, (source_key, unit) in activity_metrics.items():
-        value = stats.get(source_key)
-        if value is not None:
+        try:
+            with stats_path.open("r", encoding="utf-8") as handle:
+                stats = json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
             rows.append(
                 metric_row(
                     collected_at,
                     "claude",
-                    "activity",
-                    metric,
-                    value=value,
-                    unit=unit,
+                    "collection",
+                    "stats_cache",
                     source="claude-stats-cache",
+                    status="error",
+                    message=str(error),
                 )
             )
-
-    model_usage = stats.get("modelUsage")
-    if isinstance(model_usage, Mapping):
-        model_metric_map = {
-            "inputTokens": "input_tokens",
-            "outputTokens": "output_tokens",
-            "cacheReadInputTokens": "cache_read_input_tokens",
-            "cacheCreationInputTokens": "cache_creation_input_tokens",
-        }
-        for model, metrics in model_usage.items():
-            if not isinstance(metrics, Mapping):
-                continue
-            for source_key, metric in model_metric_map.items():
-                value = metrics.get(source_key)
-                if value is None:
-                    continue
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "claude",
-                        "usage",
-                        metric,
-                        scope=str(model),
-                        value=value,
-                        unit="tokens",
-                        source="claude-stats-cache",
-                    )
+            stats = None
+        if stats is not None and not isinstance(stats, Mapping):
+            rows.append(
+                metric_row(
+                    collected_at,
+                    "claude",
+                    "collection",
+                    "stats_cache",
+                    source="claude-stats-cache",
+                    status="error",
+                    message="stats cache root is not an object",
                 )
-            for cost_key in ("costUSD", "costUsd"):
-                if metrics.get(cost_key) is not None:
+            )
+            stats = None
+        if isinstance(stats, Mapping):
+            activity_metrics = {
+                "total_sessions": ("totalSessions", "sessions"),
+                "total_messages": ("totalMessages", "messages"),
+            }
+            for metric, (source_key, unit) in activity_metrics.items():
+                value = stats.get(source_key)
+                if value is not None:
                     rows.append(
                         metric_row(
                             collected_at,
                             "claude",
-                            "cost",
-                            "estimated_api_cost",
-                            scope=str(model),
-                            value=metrics[cost_key],
-                            unit="USD",
+                            "activity",
+                            metric,
+                            value=value,
+                            unit=unit,
                             source="claude-stats-cache",
                         )
                     )
-                    break
 
-    daily_model_tokens = stats.get("dailyModelTokens")
-    if isinstance(daily_model_tokens, list):
-        for day in daily_model_tokens:
-            if not isinstance(day, Mapping):
-                continue
-            date = day.get("date")
-            by_model = day.get("tokensByModel")
-            if not date or not isinstance(by_model, Mapping):
-                continue
-            for model, tokens in by_model.items():
-                scope = f"{date}:{model}"
-                if not state_value_changed(
-                    state,
-                    "claude_daily_model_tokens",
-                    scope,
-                    tokens,
-                    max_entries=2500,
-                ):
-                    continue
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "claude",
-                        "usage",
-                        "daily_model_tokens",
-                        record_kind="period_total",
-                        scope=scope,
-                        period_start=str(date),
-                        value=tokens,
-                        unit="tokens",
-                        source="claude-stats-cache",
-                    )
-                )
+            model_usage = stats.get("modelUsage")
+            if isinstance(model_usage, Mapping):
+                model_metric_map = {
+                    "inputTokens": "input_tokens",
+                    "outputTokens": "output_tokens",
+                    "cacheReadInputTokens": "cache_read_input_tokens",
+                    "cacheCreationInputTokens": "cache_creation_input_tokens",
+                }
+                for model, metrics in model_usage.items():
+                    if not isinstance(metrics, Mapping):
+                        continue
+                    for source_key, metric in model_metric_map.items():
+                        value = metrics.get(source_key)
+                        if value is None:
+                            continue
+                        rows.append(
+                            metric_row(
+                                collected_at,
+                                "claude",
+                                "usage",
+                                metric,
+                                scope=str(model),
+                                value=value,
+                                unit="tokens",
+                                source="claude-stats-cache",
+                            )
+                        )
+                    for cost_key in ("costUSD", "costUsd"):
+                        if metrics.get(cost_key) is not None:
+                            rows.append(
+                                metric_row(
+                                    collected_at,
+                                    "claude",
+                                    "cost",
+                                    "estimated_api_cost",
+                                    scope=str(model),
+                                    value=metrics[cost_key],
+                                    unit="USD",
+                                    source="claude-stats-cache",
+                                )
+                            )
+                            break
+
+            daily_model_tokens = stats.get("dailyModelTokens")
+            if isinstance(daily_model_tokens, list):
+                for day in daily_model_tokens:
+                    if not isinstance(day, Mapping):
+                        continue
+                    date = day.get("date")
+                    by_model = day.get("tokensByModel")
+                    if not date or not isinstance(by_model, Mapping):
+                        continue
+                    for model, tokens in by_model.items():
+                        scope = f"{date}:{model}"
+                        if not state_value_changed(
+                            state,
+                            "claude_daily_model_tokens",
+                            scope,
+                            tokens,
+                            max_entries=2500,
+                        ):
+                            continue
+                        rows.append(
+                            metric_row(
+                                collected_at,
+                                "claude",
+                                "usage",
+                                "daily_model_tokens",
+                                record_kind="period_total",
+                                scope=scope,
+                                period_start=str(date),
+                                value=tokens,
+                                unit="tokens",
+                                source="claude-stats-cache",
+                            )
+                        )
+
+    rows.extend(
+        collect_claude_session_logs(
+            collected_at,
+            projects_dir,
+            provider_config,
+            state,
+        )
+    )
 
     rows.append(
         metric_row(
@@ -2015,15 +2214,17 @@ def collect_antigravity(
         details.append(f"cache={cache_path}")
     if events_available:
         details.append(f"events={events_path}")
+    if not detected:
+        # No binary and no status-line cache/events — skip entirely.
+        return rows
+
     rows.append(
         availability_row(
             collected_at,
             "antigravity",
-            detected,
+            True,
             "filesystem-discovery",
-            "; ".join(details)
-            if details
-            else "agy and its status cache were not found; no command was run",
+            "; ".join(details),
         )
     )
 
@@ -2315,15 +2516,17 @@ def collect_gemini_cli(
         details.append(f"binary={executable}")
     if telemetry_available:
         details.append(f"telemetry={telemetry_path}")
+    if not detected:
+        # No binary and no telemetry file — skip rather than writing missing spam.
+        return []
+
     rows = [
         availability_row(
             collected_at,
             "gemini_cli",
-            detected,
+            True,
             "filesystem-discovery",
-            "; ".join(details)
-            if details
-            else "Gemini CLI and telemetry file were not found; no command was run",
+            "; ".join(details),
         )
     ]
     if not telemetry_available:
@@ -2506,7 +2709,9 @@ def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
                     {
                         "jsonrpc": "2.0",
                         "id": 2,
-                        "method": "x.ai/billing",
+                        # ACP custom methods are wire-named with a leading underscore.
+                        # The agent extension handler matches "x.ai/billing" after that.
+                        "method": "_x.ai/billing",
                         "params": {},
                     }
                 )
@@ -2956,15 +3161,17 @@ def collect_grok(
         details.append(f"session_logs={len(session_files)}")
     if billing_cache_available:
         details.append(f"billing_cache={billing_cache_path}")
+    if not detected:
+        # No binary, session logs, or billing cache — skip entirely.
+        return []
+
     rows = [
         availability_row(
             collected_at,
             "grok",
-            detected,
+            True,
             "filesystem-discovery",
-            "; ".join(details)
-            if details
-            else "Grok CLI and session logs were not found; no command was run",
+            "; ".join(details),
         )
     ]
 
@@ -3229,6 +3436,11 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             extra["stats_file_readable"] = (
                 stats_path.is_file() and os.access(stats_path, os.R_OK)
             )
+            projects_dir = expand_path(
+                str(settings.get("projects_dir", "~/.claude/projects"))
+            )
+            extra["projects_dir"] = str(projects_dir)
+            extra["session_log_count"] = len(claude_session_files(projects_dir))
         elif name == "antigravity":
             cache_path = expand_path(
                 str(

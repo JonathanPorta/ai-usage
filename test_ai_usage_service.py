@@ -146,6 +146,8 @@ class IsolatedHome:
         return result
 
     def rows(self) -> list[dict[str, str]]:
+        if not self.csv.is_file():
+            return []
         with self.csv.open(newline="", encoding="utf-8") as handle:
             return list(csv.DictReader(handle))
 
@@ -212,6 +214,7 @@ class CollectorBlackBoxTests(unittest.TestCase):
             for name in ("codex", "claude", "antigravity", "gemini_cli", "grok")
         }
         providers["claude"]["stats_file"] = str(self.case.root / "missing-claude.json")
+        providers["claude"]["projects_dir"] = str(self.case.root / "missing-claude-projects")
         providers["antigravity"]["cache_file"] = str(self.case.root / "missing-agy.json")
         providers["gemini_cli"]["telemetry_file"] = str(self.case.root / "missing-gemini.jsonl")
         providers["grok"].update(
@@ -228,16 +231,13 @@ class CollectorBlackBoxTests(unittest.TestCase):
         self.case.run("once", "--config", str(self.case.config))
 
         rows = self.case.rows()
-        missing = {
-            row["provider"]
-            for row in rows
-            if row["category"] == "availability"
-            and row["metric"] == "detected"
-            and row["status"] == "missing"
-        }
+        # Fully absent providers must not pollute the CSV with missing/availability
+        # rows every hour. Only an explicit config disable should leave a marker.
+        providers = {"codex", "claude", "antigravity", "gemini_cli", "grok"}
         self.assertEqual(
-            missing,
-            {"codex", "claude", "antigravity", "gemini_cli", "grok"},
+            {row["provider"] for row in rows} & providers,
+            set(),
+            f"expected no rows for absent providers, got: {rows}",
         )
         self.assertFalse(self.case.tripwire.exists())
 
@@ -362,6 +362,247 @@ for line in sys.stdin:
             self.rows_matching(provider="claude", metric="estimated_api_cost")[0]["value"],
             "1.25",
         )
+
+    def _write_claude_assistant_line(
+        self,
+        path: Path,
+        *,
+        message_id: str,
+        session_id: str,
+        model: str,
+        timestamp: str,
+        usage: dict[str, int],
+        text: str = "hello",
+        extra: Optional[dict] = None,
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "type": "assistant",
+            "timestamp": timestamp,
+            "sessionId": session_id,
+            "message": {
+                "id": message_id,
+                "model": model,
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "usage": usage,
+            },
+        }
+        if extra:
+            record.update(extra)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+
+    def test_claude_session_transcripts_backfill_without_launching_or_duplicating(self) -> None:
+        fake = self.case.write_executable("claude")
+        stats = self.case.root / "claude-stats.json"
+        stats.write_text(
+            json.dumps(
+                {
+                    "lastComputedDate": "2026-08-01",
+                    "totalSessions": 7,
+                    "totalMessages": 89,
+                    "modelUsage": {"claude-opus-5": {"inputTokens": 101, "outputTokens": 202}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        old = time.time() - (10 * 24 * 3600)
+        os.utime(stats, (old, old))
+        projects = self.case.root / "claude-projects"
+        parent = projects / "workspace" / "session-one.jsonl"
+        subagent = projects / "workspace" / "session-one" / "subagents" / "agent-a.jsonl"
+        usage = {
+            "input_tokens": 3,
+            "output_tokens": 11,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 7,
+        }
+        self._write_claude_assistant_line(
+            parent,
+            message_id="msg_parent",
+            session_id="secret-session",
+            model="claude-opus-5",
+            timestamp="2026-08-20T12:00:00.000Z",
+            usage=usage,
+            text="SECRET_PROMPT_TEXT",
+        )
+        self._write_claude_assistant_line(
+            parent,
+            message_id="msg_synthetic",
+            session_id="secret-session",
+            model="<synthetic>",
+            timestamp="2026-08-20T12:01:00.000Z",
+            usage={"input_tokens": 9, "output_tokens": 9},
+        )
+        self._write_claude_assistant_line(
+            subagent,
+            message_id="msg_parent",
+            session_id="secret-session",
+            model="claude-opus-5",
+            timestamp="2026-08-20T12:00:00.000Z",
+            usage={"input_tokens": 999, "output_tokens": 999},
+            text="should-not-double-count",
+        )
+        self._write_claude_assistant_line(
+            subagent,
+            message_id="msg_child",
+            session_id="secret-session",
+            model="claude-opus-5-5",
+            timestamp="2026-08-20T12:02:00.000Z",
+            usage={"input_tokens": 5, "output_tokens": 17},
+        )
+        grok_home = self.case.root / "grok-home"
+        (grok_home / "sessions" / "one").mkdir(parents=True)
+        self.case.write_config(
+            {
+                "poll_interval_seconds": 3600,
+                "paths": {
+                    "usage_csv": str(self.case.csv),
+                    "log_file": str(self.case.log),
+                    "state_file": str(self.case.state),
+                    "cache_dir": str(self.case.cache),
+                },
+                "providers": {
+                    "codex": {"enabled": False},
+                    "claude": {
+                        "enabled": True,
+                        "executable": str(fake),
+                        "stats_file": str(stats),
+                        "projects_dir": str(projects),
+                    },
+                    "antigravity": {"enabled": False},
+                    "gemini_cli": {"enabled": False},
+                    "grok": {
+                        "enabled": True,
+                        "executable_names": ["definitely-missing-grok"],
+                        "grok_home": str(grok_home),
+                        "auth_file": str(grok_home / "missing-auth.json"),
+                        "billing_cache_file": str(grok_home / "missing-billing.jsonl"),
+                    },
+                },
+            }
+        )
+
+        self.case.run("once", "--config", str(self.case.config))
+        first = self.case.rows()
+        header = first[0].keys() if first else []
+        self.assertEqual(list(header), SERVICE.CSV_FIELDS)
+        self.case.run("once", "--config", str(self.case.config))
+        all_rows = self.case.rows()
+
+        self.assertFalse(self.case.tripwire.exists())
+        session_first = [row for row in first if row["source"] == "claude-session-log"]
+        session_all = [row for row in all_rows if row["source"] == "claude-session-log"]
+        self.assertEqual(len(session_first), len(session_all), "Claude turns were counted twice")
+        self.assertTrue(session_first)
+        self.assertEqual(
+            {row["record_kind"] for row in session_first},
+            {"event_total"},
+        )
+        self.assertEqual(
+            self.rows_matching(
+                provider="claude",
+                source="claude-session-log",
+                metric="output_tokens",
+                scope=SERVICE.stable_scope("secret-session") + ":claude-opus-5",
+            )[0]["value"],
+            "11",
+        )
+        self.assertEqual(
+            self.rows_matching(
+                provider="claude",
+                source="claude-session-log",
+                metric="output_tokens",
+                scope=SERVICE.stable_scope("secret-session") + ":claude-opus-5-5",
+            )[0]["value"],
+            "17",
+        )
+        self.assertFalse(
+            any(row["value"] == "999" for row in session_all),
+            "overlapping subagent message was double-counted",
+        )
+        self.assertFalse(any(row["value"] == "9" for row in session_all))
+        csv_text = self.case.csv.read_text(encoding="utf-8")
+        self.assertNotIn("SECRET_PROMPT_TEXT", csv_text)
+        self.assertNotIn("secret-session", csv_text)
+        self.assertNotIn("msg_parent", csv_text)
+        self.assertEqual(
+            self.rows_matching(provider="claude", source="claude-stats-cache", metric="total_sessions")[0]["value"],
+            "7",
+        )
+        age = self.rows_matching(provider="claude", metric="source_age_seconds")
+        self.assertTrue(age)
+        self.assertEqual(age[0]["status"], "stale")
+        self.assertEqual(
+            self.rows_matching(provider="claude", source="claude-session-log", metric="output_tokens")[0]["collected_at"],
+            "2026-08-20T12:00:00.000Z",
+        )
+        self.assertEqual(
+            self.rows_matching(provider="claude", source="claude-session-log", metric="output_tokens")[0]["period_start"],
+            "2026-08-20",
+        )
+        grok_rows = [row for row in all_rows if row["provider"] == "grok"]
+        self.assertEqual(grok_rows, [])
+
+    def test_claude_session_byte_budget_defers_without_dropping_later_files(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        first = projects / "a" / "one.jsonl"
+        second = projects / "b" / "two.jsonl"
+        usage = {"input_tokens": 1, "output_tokens": 2}
+        padding = "x" * 8000
+        for index in range(200):
+            self._write_claude_assistant_line(
+                first,
+                message_id=f"msg_a_{index}",
+                session_id="session-a",
+                model="claude-opus-5",
+                timestamp="2026-08-21T00:00:00.000Z",
+                usage=usage,
+                text=padding,
+            )
+        self._write_claude_assistant_line(
+            second,
+            message_id="msg_b",
+            session_id="session-b",
+            model="claude-opus-5",
+            timestamp="2026-08-22T00:00:00.000Z",
+            usage={"input_tokens": 4, "output_tokens": 8},
+        )
+        self.assertGreater(first.stat().st_size, 1024 * 1024)
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+                max_session_bytes_per_poll=1024 * 1024,
+            )
+        )
+
+        self.case.run("once", "--config", str(self.case.config))
+        first_rows = self.case.rows()
+        deferred = self.rows_matching(provider="claude", metric="session_files_deferred")
+        self.assertTrue(deferred)
+        self.assertFalse(
+            any(
+                row["source"] == "claude-session-log" and row["period_start"] == "2026-08-22"
+                for row in first_rows
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config))
+        self.case.run("once", "--config", str(self.case.config))
+        later = self.case.rows()
+        self.assertTrue(
+            any(
+                row["source"] == "claude-session-log"
+                and row["metric"] == "output_tokens"
+                and row["value"] == "8"
+                for row in later
+            )
+        )
+        self.assertFalse(self.case.tripwire.exists())
 
     def test_antigravity_callback_sanitizes_then_collector_reads_cache(self) -> None:
         fake = self.case.write_executable("agy")
@@ -827,7 +1068,7 @@ for line in sys.stdin:
         self.assertEqual(trace[0], {"argv": ["agent", "--no-leader", "stdio"]})
         self.assertEqual(
             [item["method"] for item in trace[1:]],
-            ["initialize", "x.ai/billing"],
+            ["initialize", "_x.ai/billing"],
         )
         self.assertEqual(
             self.rows_matching(provider="grok", metric="used_percent")[0]["value"],
