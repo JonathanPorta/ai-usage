@@ -1623,6 +1623,15 @@ def claude_session_files(projects_dir: Path) -> list[Path]:
     return sorted(files, key=lambda path: str(path))
 
 
+CLAUDE_USAGE_METRIC_KEYS = (
+    ("input_tokens", "input_tokens"),
+    ("output_tokens", "output_tokens"),
+    ("cache_read_input_tokens", "cache_read_input_tokens"),
+    ("cache_creation_input_tokens", "cache_creation_input_tokens"),
+)
+CLAUDE_RECENT_MESSAGE_ID_CAP = 20000
+
+
 def claude_message_id(record: Mapping[str, Any]) -> str:
     message = record.get("message")
     if isinstance(message, Mapping) and message.get("id"):
@@ -1632,14 +1641,83 @@ def claude_message_id(record: Mapping[str, Any]) -> str:
     return ""
 
 
-def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> list[dict[str, Any]]:
+def claude_numeric_usage_value(value: Any) -> Optional[Union[int, float]]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    return None
+
+
+def claude_usage_metrics(record: Mapping[str, Any]) -> dict[str, Union[int, float]]:
     if record.get("type") != "assistant":
-        return []
+        return {}
     message = record.get("message")
     if not isinstance(message, Mapping):
-        return []
+        return {}
     usage = message.get("usage")
     if not isinstance(usage, Mapping):
+        return {}
+    model = str(message.get("model") or "")
+    if not model or model == "<synthetic>":
+        return {}
+    metrics: dict[str, Union[int, float]] = {}
+    for source_key, metric in CLAUDE_USAGE_METRIC_KEYS:
+        numeric = claude_numeric_usage_value(usage.get(source_key))
+        if numeric is None:
+            continue
+        metrics[metric] = numeric
+    return metrics
+
+
+def merge_claude_metrics(
+    left: Mapping[str, Union[int, float]],
+    right: Mapping[str, Union[int, float]],
+) -> dict[str, Union[int, float]]:
+    merged = dict(left)
+    for key, value in right.items():
+        previous = merged.get(key)
+        if previous is None or value > previous:
+            merged[key] = value
+    return merged
+
+
+def claude_metric_deltas(
+    previous: Mapping[str, Union[int, float]],
+    current: Mapping[str, Union[int, float]],
+) -> dict[str, Union[int, float]]:
+    deltas: dict[str, Union[int, float]] = {}
+    for key, value in current.items():
+        prior = previous.get(key, 0)
+        delta = value - prior
+        if delta > 0:
+            deltas[key] = delta
+    return deltas
+
+
+def claude_accounted_metrics(
+    raw: Mapping[str, Any],
+) -> dict[str, Union[int, float]]:
+    metrics: dict[str, Union[int, float]] = {}
+    for key, value in raw.items():
+        numeric = claude_numeric_usage_value(value)
+        if numeric is None:
+            continue
+        metrics[str(key)] = numeric
+    return metrics
+
+
+def claude_usage_rows_from_metrics(
+    record: Mapping[str, Any],
+    fallback_collected_at: str,
+    metrics: Mapping[str, Union[int, float]],
+) -> list[dict[str, Any]]:
+    message = record.get("message")
+    if not isinstance(message, Mapping):
         return []
     model = str(message.get("model") or "")
     if not model or model == "<synthetic>":
@@ -1650,16 +1728,9 @@ def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> 
     if isinstance(event_time, str) and len(event_time) >= 10 and event_time[4] == "-":
         period_start = event_time[:10]
     scope = f"{stable_scope(session_id or claude_message_id(record))}:{model}"
-    metric_map = (
-        ("input_tokens", "input_tokens"),
-        ("output_tokens", "output_tokens"),
-        ("cache_read_input_tokens", "cache_read_input_tokens"),
-        ("cache_creation_input_tokens", "cache_creation_input_tokens"),
-    )
     rows: list[dict[str, Any]] = []
-    for source_key, metric in metric_map:
-        value = usage.get(source_key)
-        if value is None:
+    for _source_key, metric in CLAUDE_USAGE_METRIC_KEYS:
+        if metric not in metrics:
             continue
         rows.append(
             metric_row(
@@ -1670,12 +1741,19 @@ def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> 
                 record_kind="event_total",
                 scope=scope,
                 period_start=period_start,
-                value=value,
+                value=metrics[metric],
                 unit="tokens",
                 source="claude-session-log",
             )
         )
     return rows
+
+
+def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> list[dict[str, Any]]:
+    metrics = claude_usage_metrics(record)
+    if not metrics:
+        return []
+    return claude_usage_rows_from_metrics(record, fallback_collected_at, metrics)
 
 
 def collect_claude_session_logs(
@@ -1696,6 +1774,12 @@ def collect_claude_session_logs(
     recent_ids_list = recent_ids_raw if isinstance(recent_ids_raw, list) else []
     recent_ids = set(recent_ids_list)
     new_ids: list[str] = []
+    accounted_raw = state.get("claude_accounted_usage")
+    if isinstance(accounted_raw, MutableMapping):
+        accounted = accounted_raw
+    else:
+        accounted = {}
+    state["claude_accounted_usage"] = accounted
     parse_errors = 0
     rotation_losses: list[str] = []
     raw_session_budget = provider_config.get(
@@ -1718,20 +1802,66 @@ def collect_claude_session_logs(
         remaining_session_bytes -= bytes_read
         parse_errors += errors
         rotation_losses.extend(file_rotation_losses)
+        file_key = str(session_file)
+        best_by_id: dict[str, tuple[Mapping[str, Any], dict[str, Union[int, float]]]] = {}
+        best_order: list[str] = []
         for record in records:
             message_id = claude_message_id(record)
+            metrics = claude_usage_metrics(record)
             if not message_id:
-                rows.extend(claude_usage_rows(record, collected_at))
+                rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
                 continue
-            if message_id in recent_ids:
+            if not metrics:
                 continue
-            turn_rows = claude_usage_rows(record, collected_at)
-            if not turn_rows:
+            previous_best = best_by_id.get(message_id)
+            if previous_best is None:
+                best_by_id[message_id] = (record, metrics)
+                best_order.append(message_id)
                 continue
-            recent_ids.add(message_id)
-            new_ids.append(message_id)
-            rows.extend(turn_rows)
-    state["claude_recent_message_ids"] = (recent_ids_list + new_ids)[-20000:]
+            previous_record, previous_metrics = previous_best
+            merged = merge_claude_metrics(previous_metrics, metrics)
+            if (metrics.get("output_tokens") or 0) >= (
+                previous_metrics.get("output_tokens") or 0
+            ):
+                best_by_id[message_id] = (record, merged)
+            else:
+                best_by_id[message_id] = (previous_record, merged)
+        for message_id in best_order:
+            record, metrics = best_by_id[message_id]
+            prior = accounted.get(message_id)
+            if not isinstance(prior, Mapping):
+                if message_id in recent_ids:
+                    continue
+                rows.extend(
+                    claude_usage_rows_from_metrics(record, collected_at, metrics)
+                )
+                accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
+                recent_ids.add(message_id)
+                new_ids.append(message_id)
+                continue
+            prior_file = str(prior.get("file") or "")
+            if prior_file and prior_file != file_key:
+                continue
+            prior_metrics_raw = prior.get("metrics")
+            prior_metrics = (
+                claude_accounted_metrics(prior_metrics_raw)
+                if isinstance(prior_metrics_raw, Mapping)
+                else {}
+            )
+            deltas = claude_metric_deltas(prior_metrics, metrics)
+            if not deltas:
+                continue
+            rows.extend(claude_usage_rows_from_metrics(record, collected_at, deltas))
+            accounted[message_id] = {
+                "file": prior_file or file_key,
+                "metrics": merge_claude_metrics(prior_metrics, metrics),
+            }
+    kept_ids = (recent_ids_list + new_ids)[-CLAUDE_RECENT_MESSAGE_ID_CAP:]
+    state["claude_recent_message_ids"] = kept_ids
+    kept_id_set = set(kept_ids)
+    for message_id in list(accounted.keys()):
+        if message_id not in kept_id_set:
+            accounted.pop(message_id, None)
     loss_row = rotation_loss_row(
         collected_at,
         "claude",

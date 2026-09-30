@@ -604,6 +604,49 @@ for line in sys.stdin:
         )
         self.assertFalse(self.case.tripwire.exists())
 
+    def test_claude_streamed_message_keeps_final_usage_across_polls(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+            extra={"stop_reason": None},
+        )
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+
+        self.case.run("once", "--config", str(self.case.config))
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+            extra={"stop_reason": "tool_use"},
+        )
+        self.case.run("once", "--config", str(self.case.config))
+
+        output_rows = self.rows_matching(
+            provider="claude",
+            source="claude-session-log",
+            metric="output_tokens",
+            scope=SERVICE.stable_scope("stream-session") + ":claude-opus-5",
+        )
+        self.assertEqual(sum(int(row["value"]) for row in output_rows), 34)
+        self.assertFalse(self.case.tripwire.exists())
+
     def test_antigravity_callback_sanitizes_then_collector_reads_cache(self) -> None:
         fake = self.case.write_executable("agy")
         cache = self.case.cache / "antigravity.json"
