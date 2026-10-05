@@ -2160,3 +2160,208 @@ for line in sys.stdin:
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ScheduleDecisionTests(unittest.TestCase):
+    def test_pause_resume_and_due_decisions(self) -> None:
+        decide = SERVICE.schedule_decision
+        self.assertEqual(decide(paused=True, was_paused=False, next_due=5.0, now=1.0, interval=60), ("pause", 5.0))
+        self.assertEqual(decide(paused=True, was_paused=True, next_due=5.0, now=9.0, interval=60), ("paused", 5.0))
+        # Resume clears the pause and schedules the next check one interval later,
+        # even if the old due time already passed.
+        self.assertEqual(decide(paused=False, was_paused=True, next_due=5.0, now=100.0, interval=60), ("resume", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=160.0, now=120.0, interval=60), ("wait", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=160.0, now=160.0, interval=60), ("collect", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=None, now=0.0, interval=60), ("collect", None))
+
+
+class MenuAppCommandTests(unittest.TestCase):
+    """Collector commands used by the menu app, exercised against isolated homes."""
+
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+        self.uid = os.getuid()
+
+    def wait_for_log(self, text: str, timeout: float = 15.0) -> str:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            content = self.case.log.read_text(encoding="utf-8") if self.case.log.exists() else ""
+            if text in content:
+                return content
+            time.sleep(0.05)
+        self.fail(f"log never contained {text!r}:\n{content}")
+
+    def disabled_config(self, **extra: object) -> dict[str, object]:
+        """Every provider off: a fast, provider-free check."""
+        config = self.case.provider_config("codex", executable_names=["definitely-missing-codex"])
+        config["providers"]["codex"]["enabled"] = False
+        config.update(extra)
+        return config
+
+    def test_configure_changes_only_named_settings_atomically(self) -> None:
+        config = self.disabled_config()
+        config["x_custom"] = {"kept": [1, 2, 3]}
+        config["providers"]["codex"]["executable_names"] = ["my-codex"]
+        self.case.write_config(config)
+        os.chmod(self.case.config, 0o600)
+        result = self.case.run("configure", "--config", str(self.case.config),
+                               "--set", "poll_paused=true",
+                               "--set", "providers.codex.monthly_subscription_usd=25",
+                               "--set", "providers.grok.enabled=false")
+        self.assertEqual(json.loads(result.stdout)["poll_paused"], True)
+        written = json.loads(self.case.config.read_text(encoding="utf-8"))
+        self.assertIs(written["poll_paused"], True)
+        self.assertEqual(written["providers"]["codex"]["monthly_subscription_usd"], 25)
+        self.assertIs(written["providers"]["grok"]["enabled"], False)
+        self.assertEqual(written["x_custom"], {"kept": [1, 2, 3]}, "unrelated keys must survive")
+        self.assertEqual(written["providers"]["codex"]["executable_names"], ["my-codex"])
+        self.assertEqual(written["paths"], config["paths"])
+        self.assertEqual(stat.S_IMODE(self.case.config.stat().st_mode), 0o600)
+
+        before = self.case.config.read_bytes()
+        for bad in ("poll_interval_seconds=10", "providers.codex.enabled=\"yes\"", "paths.usage_csv=\"/tmp/x\"",
+                    "providers.codex.monthly_subscription_usd=-1", "poll_paused=1", "nonsense"):
+            with self.subTest(bad=bad):
+                failed = self.case.run("configure", "--config", str(self.case.config), "--set", bad, check=False)
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertEqual(self.case.config.read_bytes(), before, "a rejected change must not touch the file")
+
+    def test_once_progress_reports_each_enabled_provider(self) -> None:
+        config = self.disabled_config()
+        for name in ("codex", "grok"):
+            config["providers"][name]["enabled"] = True
+            config["providers"][name]["executable_names"] = [f"definitely-missing-{name}"]
+        config["providers"]["grok"]["collect_billing_via_acp"] = False
+        self.case.write_config(config)
+        result = self.case.run("once", "--config", str(self.case.config), "--progress")
+        events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+        self.assertEqual([(e["provider"], e["index"], e["total"]) for e in events], [("codex", 1, 2), ("grok", 2, 2)])
+        self.assertIn("Appended", result.stdout)
+
+    def test_paused_daemon_skips_scheduled_checks_while_once_still_collects(self) -> None:
+        self.case.write_config(self.disabled_config(poll_paused=True, poll_on_start=True))
+        environment = dict(self.case.environment(), **{SERVICE.SCHEDULE_TICK_ENV: "0.1"})
+        daemon = subprocess.Popen([sys.executable, str(SCRIPT), "daemon", "--config", str(self.case.config)],
+                                  env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self.wait_for_log("scheduled checks paused; collector keeps running")
+            time.sleep(0.6)
+            log = self.case.log.read_text(encoding="utf-8")
+            self.assertNotIn("collection completed", log.replace("one-shot collection completed", ""),
+                             "a paused daemon must not run its start-up or scheduled check")
+            self.assertTrue(daemon.poll() is None, "pause must keep the daemon running")
+
+            once = self.case.run("once", "--config", str(self.case.config))
+            self.assertIn("Appended", once.stdout, "Collect now must stay available while paused")
+
+            self.case.run("configure", "--config", str(self.case.config), "--set", "poll_paused=false")
+            self.wait_for_log("scheduled checks resumed next_poll_seconds=3600")
+            time.sleep(0.6)
+            log = self.case.log.read_text(encoding="utf-8")
+            self.assertNotIn("INFO collection completed", log,
+                             "resume schedules the next check one interval later, not immediately")
+        finally:
+            daemon.terminate()
+            daemon.wait(timeout=15)
+        self.assertIn("collector daemon stopped", self.case.log.read_text(encoding="utf-8"))
+
+    def test_pausing_a_running_daemon_takes_effect_after_its_current_check(self) -> None:
+        self.case.write_config(self.disabled_config(poll_on_start=True))
+        environment = dict(self.case.environment(), **{SERVICE.SCHEDULE_TICK_ENV: "0.1"})
+        daemon = subprocess.Popen([sys.executable, str(SCRIPT), "daemon", "--config", str(self.case.config)],
+                                  env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self.wait_for_log("INFO collection completed")
+            self.case.run("configure", "--config", str(self.case.config), "--set", "poll_paused=true")
+            log = self.wait_for_log("scheduled checks paused")
+            self.assertLess(log.index("INFO collection completed"), log.index("scheduled checks paused"))
+            self.assertIsNone(daemon.poll())
+        finally:
+            daemon.terminate()
+            daemon.wait(timeout=15)
+
+    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool) -> Path:
+        state = self.case.root / "launchd-state.json"
+        state.write_text(json.dumps({"loaded": loaded, "running": running, "disabled": disabled}), encoding="utf-8")
+        calls = self.case.root / "launchctl-calls.log"
+        script = self.case.root / "stateful-launchctl"
+        script.write_text(f"""#!{sys.executable}
+import json, sys
+state_path = {str(state)!r}
+s = json.load(open(state_path))
+args = sys.argv[1:]
+open({str(calls)!r}, "a").write(" ".join(args) + "\\n")
+cmd = args[0]
+code = 0
+if cmd == "print":
+    if not s["loaded"]:
+        code = 113
+    else:
+        print("state = running" if s["running"] else "state = waiting")
+        if s["running"]:
+            print("pid = 4242")
+elif cmd == "print-disabled":
+    print('disabled services = {{\\n\\t"codes.porta.ai-usage" => ' + ("disabled" if s["disabled"] else "enabled") + "\\n}}")
+elif cmd == "disable":
+    s["disabled"] = True
+elif cmd == "enable":
+    s["disabled"] = False
+elif cmd == "bootout":
+    s["loaded"] = False; s["running"] = False
+elif cmd == "bootstrap":
+    if s["disabled"]:
+        code = 5
+    else:
+        s["loaded"] = True; s["running"] = True
+elif cmd == "kickstart":
+    if s["loaded"]:
+        s["running"] = True
+    else:
+        code = 3
+json.dump(s, open(state_path, "w"))
+sys.exit(code)
+""", encoding="utf-8")
+        script.chmod(0o755)
+        return script
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_stop_disables_then_boots_out_and_start_reenables_then_bootstraps(self) -> None:
+        root = self.case.home / ".ai-usage"
+        self.case.run("install", "--config", str(root / "config.json"), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        target = f"gui/{self.uid}/codes.porta.ai-usage"
+
+        def run(command: str) -> dict[str, object]:
+            result = subprocess.run([sys.executable, str(SCRIPT), command], env=environment,
+                                    capture_output=True, text=True, timeout=30, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+
+        files_before = sorted(str(p) for p in root.rglob("*"))
+        stopped = run("stop")
+        self.assertEqual((stopped["state"], stopped["disabled"]), ("stopped", True))
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [c for c in calls if not c.startswith("print")]
+        self.assertEqual(mutations, [f"disable {target}", f"bootout {target}"],
+                         "stop must disable (stays stopped at login) before booting out")
+        self.assertEqual(sorted(str(p) for p in root.rglob("*")), files_before, "stop must keep installation and data")
+
+        (self.case.root / "launchctl-calls.log").unlink()
+        started = run("start")
+        self.assertEqual((started["state"], started["disabled"], started["pid"]), ("running", False, 4242))
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [c for c in calls if not c.startswith("print")]
+        plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
+        self.assertEqual(mutations, [f"enable {target}", f"bootstrap gui/{self.uid} {plist}"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_start_without_installation_changes_nothing(self) -> None:
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        result = subprocess.run([sys.executable, str(SCRIPT), "start"], env=environment,
+                                capture_output=True, text=True, timeout=30, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not installed", result.stderr)
+        self.assertFalse((self.case.root / "launchctl-calls.log").exists())

@@ -37,7 +37,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, O
 import uuid
 
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 SERVICE_LABEL = "codes.porta.ai-usage"
 DEFAULT_ROOT = Path.home() / ".ai-usage"
 DEFAULT_CONFIG_PATH = DEFAULT_ROOT / "config.json"
@@ -86,6 +86,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "format_version": 1,
     "poll_interval_seconds": 3600,
     "poll_on_start": True,
+    "poll_paused": False,
     "paths": {
         "usage_csv": "~/.ai-usage/usage.csv",
         "log_file": "~/.ai-usage/collector.log",
@@ -217,6 +218,9 @@ def validate_config(config: Mapping[str, Any]) -> None:
         raise ValueError("poll_interval_seconds must be at least 60")
     if interval > 604800:
         raise ValueError("poll_interval_seconds must not exceed 604800")
+    for flag in ("poll_on_start", "poll_paused"):
+        if flag in config and not isinstance(config[flag], bool):
+            raise ValueError(f"{flag} must be true or false")
 
     paths = config.get("paths")
     if not isinstance(paths, Mapping):
@@ -3865,6 +3869,7 @@ def collect_snapshot(
     config: Mapping[str, Any],
     include_history: bool,
     state: MutableMapping[str, Any],
+    progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[dict[str, Any]]:
     collected_at = iso_utc(utc_now())
     handlers: dict[
@@ -3882,8 +3887,13 @@ def collect_snapshot(
     }
 
     rows: list[dict[str, Any]] = []
+    enabled = [
+        name for name in handlers if provider_config(config, name).get("enabled", True) is True
+    ]
     for name, handler in handlers.items():
         settings = provider_config(config, name)
+        if progress is not None and name in enabled:
+            progress(name, enabled.index(name) + 1, len(enabled))
         if settings.get("enabled", True) is not True:
             rows.append(
                 metric_row(
@@ -4731,6 +4741,142 @@ def print_status() -> int:
     return 1
 
 
+def service_status() -> dict[str, Any]:
+    """LaunchAgent state for the menu app: installed, loaded/running, pid, disabled."""
+    status: dict[str, Any] = {
+        "label": SERVICE_LABEL,
+        "plist": str(DEFAULT_PLIST_PATH),
+        "installed": DEFAULT_PLIST_PATH.is_file(),
+        "state": "unknown",
+        "pid": None,
+        "disabled": None,
+        "detail": "",
+    }
+    if sys.platform != "darwin" or find_launchctl() is None:
+        status["detail"] = "launchctl unavailable on this system"
+        return status
+    domain = f"gui/{os.getuid()}"
+    printed = run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False)
+    if printed.returncode == 0:
+        status["state"] = "loaded"
+        for line in printed.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("state =") and status["state"] == "loaded":
+                status["state"] = "running" if stripped.split("=", 1)[1].strip() == "running" else "loaded"
+            elif stripped.startswith("pid =") and status["pid"] is None:
+                try:
+                    status["pid"] = int(stripped.split("=", 1)[1].strip())
+                except ValueError:
+                    pass
+    else:
+        status["state"] = "stopped" if status["installed"] else "not_installed"
+    disabled = run_launchctl(["print-disabled", domain], check=False)
+    if disabled.returncode == 0:
+        match = re.search(rf'"{re.escape(SERVICE_LABEL)}"\s*=>\s*(\w+)', disabled.stdout)
+        if match:
+            status["disabled"] = match.group(1) in ("disabled", "true")
+        else:
+            status["disabled"] = False
+    status["detail"] = f"launchctl: state = {status['state']}"
+    return status
+
+
+def start_service() -> dict[str, Any]:
+    """Re-enable the LaunchAgent and start it. Never rewrites installed files."""
+    if sys.platform != "darwin" or find_launchctl() is None:
+        raise RuntimeError("launchctl is unavailable; the collector was not started")
+    if not DEFAULT_PLIST_PATH.is_file():
+        raise RuntimeError(
+            f"the collector is not installed ({DEFAULT_PLIST_PATH} is missing); run install first"
+        )
+    domain = f"gui/{os.getuid()}"
+    target = f"{domain}/{SERVICE_LABEL}"
+    run_launchctl(["enable", target], check=True)
+    if run_launchctl(["print", target], check=False).returncode != 0:
+        run_launchctl(["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=True)
+    status = service_status()
+    if status["state"] != "running":
+        run_launchctl(["kickstart", target], check=True)
+        status = service_status()
+    return status
+
+
+def stop_service() -> dict[str, Any]:
+    """Disable the LaunchAgent (so it stays stopped across login) and boot it out.
+
+    Installation, configuration, and collected data are preserved."""
+    if sys.platform != "darwin" or find_launchctl() is None:
+        raise RuntimeError("launchctl is unavailable; the collector was not stopped")
+    domain = f"gui/{os.getuid()}"
+    target = f"{domain}/{SERVICE_LABEL}"
+    run_launchctl(["disable", target], check=True)
+    if run_launchctl(["print", target], check=False).returncode == 0:
+        run_launchctl(["bootout", target], check=True)
+    return service_status()
+
+
+CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}
+
+
+def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
+    if "=" not in assignment:
+        raise ValueError(f"expected KEY=JSON_VALUE, got {assignment!r}")
+    key, raw = assignment.split("=", 1)
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{key}: value is not JSON: {raw!r}") from error
+    parts = key.split(".")
+    if parts in (["poll_paused"], ["poll_interval_seconds"]):
+        return parts, value
+    if (
+        len(parts) == 3
+        and parts[0] == "providers"
+        and parts[1] in DEFAULT_CONFIG["providers"]
+        and parts[2] in CONFIGURABLE_PROVIDER_KEYS
+    ):
+        if parts[2] == "enabled" and not isinstance(value, bool):
+            raise ValueError(f"{key} must be true or false")
+        if parts[2] == "monthly_subscription_usd" and value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0
+        ):
+            raise ValueError(f"{key} must be a non-negative number or null")
+        return parts, value
+    raise ValueError(f"{key} is not a setting the menu app may change")
+
+
+def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
+    """Apply validated settings to config.json atomically, preserving every other key.
+
+    Writes are serialized with a lock beside the config, validated against the
+    full merged config before replacing the file, and keep mode 0600."""
+    parsed = [parse_config_assignment(item) for item in assignments]
+    if not parsed:
+        raise ValueError("no settings given")
+    with exclusive_file_lock(config_path.with_name(f"{config_path.name}.lock")):
+        with config_path.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if not isinstance(raw, dict):
+            raise ValueError("config root must be a JSON object")
+        updated = copy.deepcopy(raw)
+        for parts, value in parsed:
+            node = updated
+            for part in parts[:-1]:
+                child = node.get(part)
+                if not isinstance(child, dict):
+                    child = {}
+                    node[part] = child
+                node = child
+            node[parts[-1]] = value
+        merged = deep_merge(DEFAULT_CONFIG, updated)
+        validate_config(merged)
+        mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o600
+        atomic_write_bytes(config_path, (json.dumps(updated, indent=2) + "\n").encode("utf-8"), mode=mode)
+    load_config(config_path)  # the written file must load exactly as the collector will
+    return {".".join(parts): value for parts, value in parsed}
+
+
 def detach_owned_integration(
     name: str, record: Mapping[str, Any], tx: FilesystemTransaction
 ) -> bool:
@@ -4862,7 +5008,15 @@ def uninstall_service(config_path: Path) -> None:
     print("Service removed. Config, CSV, and logs were preserved in ~/.ai-usage/.")
 
 
-def run_once(config_path: Path) -> int:
+def emit_progress(provider: str, index: int, total: int) -> None:
+    """One JSON line per provider, for the menu app's Collect now progress."""
+    print(
+        json.dumps({"event": "provider", "provider": provider, "index": index, "total": total}),
+        flush=True,
+    )
+
+
+def run_once(config_path: Path, progress: bool = False) -> int:
     config = load_config(config_path)
     usage_path, log_path = configured_paths(config)
     state_path = state_path_for(config)
@@ -4878,6 +5032,7 @@ def run_once(config_path: Path) -> int:
             config,
             include_history=include_history,
             state=candidate_state,
+            progress=emit_progress if progress else None,
         )
         candidate_state["history_date"] = local_date
         commit_collection_transaction(
@@ -4890,6 +5045,44 @@ def run_once(config_path: Path) -> int:
     LOGGER.info("one-shot collection completed rows=%d errors=%d", len(rows), errors)
     print(f"Appended {len(rows)} rows to {usage_path}; errors={errors}")
     return 0 if errors == 0 else 2
+
+
+SCHEDULE_TICK_ENV = "AI_USAGE_SCHEDULE_TICK_SECONDS"
+DEFAULT_SCHEDULE_TICK_SECONDS = 15.0
+
+
+def schedule_tick_seconds() -> float:
+    """How often an idle daemon re-reads its config (to notice pause/resume).
+
+    The environment override exists for tests; launchd never sets it."""
+    try:
+        value = float(os.environ.get(SCHEDULE_TICK_ENV, DEFAULT_SCHEDULE_TICK_SECONDS))
+    except ValueError:
+        return DEFAULT_SCHEDULE_TICK_SECONDS
+    return min(max(value, 0.05), DEFAULT_SCHEDULE_TICK_SECONDS)
+
+
+def schedule_decision(
+    *,
+    paused: bool,
+    was_paused: bool,
+    next_due: Optional[float],
+    now: float,
+    interval: int,
+) -> tuple[str, Optional[float]]:
+    """Decide what an idle daemon does on one tick.
+
+    Returns (action, next_due). Actions: "pause" (paused just now), "paused"
+    (still paused), "resume" (pause cleared just now; next check one interval
+    later), "wait" (not due yet) or "collect".
+    """
+    if paused:
+        return ("paused" if was_paused else "pause"), next_due
+    if was_paused:
+        return "resume", now + interval
+    if next_due is not None and now < next_due:
+        return "wait", next_due
+    return "collect", next_due
 
 
 def run_daemon(config_path: Path) -> int:
@@ -4905,6 +5098,9 @@ def run_daemon(config_path: Path) -> int:
 
     current_log_path: Optional[Path] = None
     first_cycle = True
+    was_paused = False
+    next_due: Optional[float] = None
+    tick = schedule_tick_seconds()
 
     while not stop_event.is_set():
         try:
@@ -4918,8 +5114,27 @@ def run_daemon(config_path: Path) -> int:
             interval = int(config["poll_interval_seconds"])
             if first_cycle and config.get("poll_on_start", True) is not True:
                 first_cycle = False
+                next_due = time.monotonic() + interval
                 LOGGER.info("initial poll deferred interval_seconds=%d", interval)
-                stop_event.wait(interval)
+            action, next_due = schedule_decision(
+                paused=config.get("poll_paused") is True,
+                was_paused=was_paused,
+                next_due=next_due,
+                now=time.monotonic(),
+                interval=interval,
+            )
+            if action == "pause":
+                # Scheduled checks stop; the daemon, Collect now (`once`) and
+                # event-driven collection are unaffected.
+                was_paused = True
+                first_cycle = False
+                LOGGER.info("scheduled checks paused; collector keeps running")
+            if action == "resume":
+                was_paused = False
+                LOGGER.info("scheduled checks resumed next_poll_seconds=%d", interval)
+            if action != "collect":
+                remaining = (next_due - time.monotonic()) if next_due is not None else tick
+                stop_event.wait(max(0.0, min(tick, remaining)))
                 continue
 
             with state_transaction_lock(state_path):
@@ -4941,6 +5156,7 @@ def run_daemon(config_path: Path) -> int:
                     candidate_state,
                 )
             first_cycle = False
+            next_due = time.monotonic() + interval
             errors = sum(1 for row in rows if row.get("status") == "error")
             detected = sum(
                 1
@@ -4956,7 +5172,6 @@ def run_daemon(config_path: Path) -> int:
                 errors,
                 interval,
             )
-            stop_event.wait(interval)
         except Exception as error:
             if not LOGGER.handlers:
                 fallback_log = DEFAULT_ROOT / "collector.log"
@@ -4994,6 +5209,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     once_parser = subparsers.add_parser("once", help="collect one snapshot")
     add_config_argument(once_parser)
+    once_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="print one JSON line per provider as it is read",
+    )
 
     daemon_parser = subparsers.add_parser(
         "daemon", help="run the polling loop (normally launched by launchd)"
@@ -5013,6 +5233,22 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--json", action="store_true")
 
     subparsers.add_parser("status", help="show LaunchAgent status")
+    service_status_parser = subparsers.add_parser(
+        "service-status", help="LaunchAgent state as JSON (installed, state, pid, disabled)"
+    )
+    service_status_parser.add_argument("--json", action="store_true")
+    subparsers.add_parser("start", help="re-enable and start the LaunchAgent")
+    subparsers.add_parser(
+        "stop", help="stop and disable the LaunchAgent (stays stopped at login; data kept)"
+    )
+    configure_parser = subparsers.add_parser(
+        "configure", help="atomically change menu-app settings in config.json"
+    )
+    add_config_argument(configure_parser)
+    configure_parser.add_argument(
+        "--set", action="append", default=[], metavar="KEY=JSON",
+        help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd",
+    )
     uninstall_parser = subparsers.add_parser(
         "uninstall", help="remove the service but preserve config and data"
     )
@@ -5029,7 +5265,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             install_service(arguments.config, arguments.no_start)
             return 0
         if arguments.command == "once":
-            return run_once(arguments.config)
+            return run_once(arguments.config, progress=arguments.progress)
+        if arguments.command == "service-status":
+            print(json.dumps(service_status()))
+            return 0
+        if arguments.command == "start":
+            print(json.dumps(start_service()))
+            return 0
+        if arguments.command == "stop":
+            print(json.dumps(stop_service()))
+            return 0
+        if arguments.command == "configure":
+            print(json.dumps(configure(arguments.config, arguments.set)))
+            return 0
         if arguments.command == "daemon":
             return run_daemon(arguments.config)
         if arguments.command == "antigravity-statusline":
