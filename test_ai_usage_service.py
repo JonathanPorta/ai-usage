@@ -1876,7 +1876,7 @@ for line in sys.stdin:
 
             failure_sets = {
                 "bootout": {"bootout"},
-                "bootstrap-and-load": {"bootstrap", "load"},
+                "bootstrap": {"bootstrap"},
                 "enable": {"enable"},
                 "kickstart": {"kickstart"},
             }
@@ -1908,15 +1908,11 @@ for line in sys.stdin:
                             SERVICE.install_service(self.case.config, no_start=False)
                     self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
 
-            def bootstrap_fallback(arguments: list[str], check: bool = False):
-                command = arguments[0]
-                returncode = int(command == "bootstrap")
-                result = subprocess.CompletedProcess(
-                    ["launchctl", *arguments], returncode, "", "bootstrap unavailable"
-                )
-                if check and returncode:
-                    raise RuntimeError("bootstrap unavailable")
-                return result
+            calls: list[str] = []
+
+            def recording(arguments: list[str], check: bool = False):
+                calls.append(arguments[0])
+                return subprocess.CompletedProcess(["launchctl", *arguments], 0, "", "")
 
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
@@ -1927,11 +1923,14 @@ for line in sys.stdin:
                 )
                 stack.enter_context(
                     mock.patch.object(
-                        SERVICE, "run_launchctl", side_effect=bootstrap_fallback
+                        SERVICE, "run_launchctl", side_effect=recording
                     )
                 )
                 SERVICE.install_service(self.case.config, no_start=False)
             self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
+            # Explicit start order, with no legacy `load -w`.
+            self.assertEqual(calls[-3:], ["enable", "bootstrap", "kickstart"])
+            self.assertNotIn("load", calls)
 
     def test_bootout_failure_aborts_uninstall_before_deleting_files(self) -> None:
         config = self.case.provider_config(
@@ -2493,3 +2492,59 @@ class PausedSchedulerLoopTests(unittest.TestCase):
         self.assertEqual(wait("resume", next_due=4100.0, now=500.0, tick=15.0), 15.0)
         self.assertGreater(wait("wait", next_due=500.0, now=500.0, tick=15.0), 0)
         self.assertEqual(wait("wait", next_due=None, now=0.0, tick=0.1), 0.1)
+
+
+class InstallerRecoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+
+    def test_rollback_leaves_unchanged_files_untouched(self) -> None:
+        target = self.case.root / "kept.txt"
+        target.write_text("original\n", encoding="utf-8")
+        target.chmod(0o600)
+        inode = target.stat().st_ino
+        changed = self.case.root / "changed.txt"
+        changed.write_text("before\n", encoding="utf-8")
+        tx = SERVICE.FilesystemTransaction(self.case.root)
+        tx.snapshot(target)
+        tx.snapshot(changed)
+        changed.write_text("after\n", encoding="utf-8")
+        tx.rollback()
+        self.assertEqual(target.stat().st_ino, inode, "an unchanged file must not be rewritten")
+        self.assertEqual(changed.read_text(encoding="utf-8"), "before\n")
+
+    def test_incomplete_rollback_says_the_collector_was_not_restarted(self) -> None:
+        self.case.write_config(self.case.provider_config("codex", executable_names=["definitely-missing-codex"]))
+        harness = CollectorBlackBoxTests(methodName="test_missing_binaries_are_skipped")
+        harness.case = self.case
+        calls: list[str] = []
+
+        def launchctl(arguments: list[str], check: bool = False):
+            calls.append(arguments[0])
+            failed = arguments[0] == "enable"
+            if check and failed:
+                raise RuntimeError("enable failed")
+            return subprocess.CompletedProcess(["launchctl", *arguments], int(failed), "", "")
+
+        with harness.patched_service_install_paths():
+            SERVICE.install_service(self.case.config, no_start=True)
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
+                stack.enter_context(mock.patch.object(SERVICE, "find_launchctl", return_value=Path("/bin/true")))
+                stack.enter_context(mock.patch.object(SERVICE, "run_launchctl", side_effect=launchctl))
+                stack.enter_context(mock.patch.object(
+                    SERVICE.FilesystemTransaction, "rollback",
+                    side_effect=RuntimeError("rollback incomplete; recovery artifacts preserved at /x")))
+                with self.assertRaisesRegex(RuntimeError, "has NOT been restarted"):
+                    SERVICE.install_service(self.case.config, no_start=False)
+        self.assertEqual(calls.count("bootstrap"), 0, "no restart after an incomplete rollback")
+
+    def test_service_label_override_never_names_the_real_agent(self) -> None:
+        for label, ok in (("codes.porta.ai-usage", False), ("other.label", False),
+                          ("codes.porta.ai-usage.test.", False), ("codes.porta.ai-usage.test.ab12cd34", True)):
+            with self.subTest(label=label):
+                environment = dict(self.case.environment(), AI_USAGE_SERVICE_LABEL=label)
+                result = subprocess.run([sys.executable, str(SCRIPT), "version"], env=environment,
+                                        capture_output=True, text=True, timeout=30, check=False)
+                self.assertEqual(result.returncode == 0, ok, result.stderr)

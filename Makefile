@@ -5,7 +5,7 @@ SANDBOX ?= $(CURDIR)/.sandbox
 SNAPSHOT_DIR ?= $(CURDIR)/.sandbox/snapshots
 
 .PHONY: help test check spec-check design-check design-build design-build-check \
-	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-live
+	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-live launchd-integration-check
 
 help: ## List supported commands
 	@printf '%s\n' \
@@ -26,14 +26,16 @@ help: ## List supported commands
 		'make app-run             Build and launch against the installed collector' \
 		'make app-run-sandbox     Build and launch against the isolated synthetic sandbox' \
 		'make app-snapshot        Render fixture screens (light/dark, 420 pt, short) to SNAPSHOT_DIR' \
-		'make app-snapshot-live   Render the live report read-only to SNAPSHOT_DIR (personal data; not for git)'
+		'make app-snapshot-live   Render the live report read-only to SNAPSHOT_DIR (personal data; not for git)' \
+		'make launchd-integration-check  Real-launchd lifecycle check with a disposable agent (macOS; explicit only)'
 
 test: ## Run the full unit and black-box suite
 	$(PYTHON) -m unittest -v
 
 check: ## Compile supported Python sources and run tests
 	$(PYTHON) -m py_compile ai_usage_service.py ai_usage_report.py ai_usage_fixtures.py \
-		test_ai_usage_service.py test_ai_usage_report.py macos/scripts/generate_design_tokens.py
+		test_ai_usage_service.py test_ai_usage_report.py macos/scripts/generate_design_tokens.py \
+		scripts/launchd_integration_check.py
 	$(MAKE) test
 
 spec-check: ## Vendored Blessed spec-pack check; report-only, ARGS=--strict in CI
@@ -89,3 +91,6 @@ app-snapshot: app-build ## Render the real views offscreen from the fixture repo
 
 app-snapshot-live: app-build ## Render the live report (read-only) offscreen; output contains personal usage data
 	"$(APP)/Contents/MacOS/AIUsage" --snapshot "$(SNAPSHOT_DIR)/live" --live
+
+launchd-integration-check: ## Real launchd: install/start/stop/reinstall/rollback on a disposable codes.porta.ai-usage.test.* agent
+	$(PYTHON) scripts/launchd_integration_check.py

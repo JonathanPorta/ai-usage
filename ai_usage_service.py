@@ -38,7 +38,25 @@ import uuid
 
 
 VERSION = "2.2.0"
-SERVICE_LABEL = "codes.porta.ai-usage"
+PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
+TEST_SERVICE_LABEL_PREFIX = f"{PRODUCTION_SERVICE_LABEL}.test."
+
+
+def resolve_service_label() -> str:
+    """The LaunchAgent label. AI_USAGE_SERVICE_LABEL exists only for the
+    explicitly invoked real-launchd integration check, and may only name a
+    disposable `codes.porta.ai-usage.test.*` agent, never the real one."""
+    override = os.environ.get("AI_USAGE_SERVICE_LABEL")
+    if override is None:
+        return PRODUCTION_SERVICE_LABEL
+    if not re.fullmatch(re.escape(TEST_SERVICE_LABEL_PREFIX) + r"[A-Za-z0-9-]{4,64}", override):
+        raise SystemExit(
+            f"ai-usage: AI_USAGE_SERVICE_LABEL must look like {TEST_SERVICE_LABEL_PREFIX}<id>; refusing {override!r}"
+        )
+    return override
+
+
+SERVICE_LABEL = resolve_service_label()
 DEFAULT_ROOT = Path.home() / ".ai-usage"
 DEFAULT_CONFIG_PATH = DEFAULT_ROOT / "config.json"
 DEFAULT_INSTALLED_SCRIPT = DEFAULT_ROOT / "collector.py"
@@ -4199,6 +4217,15 @@ class FilesystemTransaction:
                     elif path.exists():
                         raise ValueError(f"rollback target became a directory: {path}")
                 else:
+                    if (
+                        path.is_file()
+                        and not path.is_symlink()
+                        and stat.S_IMODE(path.stat().st_mode) == int(record["mode"])
+                        and file_sha256(path) == file_sha256(Path(record["backup"]))
+                    ):
+                        # Unchanged since the snapshot (e.g. the write that failed
+                        # never replaced it): nothing to restore.
+                        continue
                     self.ensure_directory(path.parent)
                     descriptor, temporary_name = tempfile.mkstemp(
                         prefix=f".{path.name}.rollback-", dir=str(path.parent)
@@ -4539,12 +4566,10 @@ def apply_managed_file(plan: Mapping[str, Any], tx: FilesystemTransaction) -> No
 
 
 def launch_agent(domain: str) -> None:
-    bootstrap = run_launchctl(
-        ["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=False
-    )
-    if bootstrap.returncode != 0:
-        run_launchctl(["load", "-w", str(DEFAULT_PLIST_PATH)], check=True)
+    # Explicit order: clear any persistent disable (e.g. from `stop`) first,
+    # then bootstrap, then make sure it runs. No legacy `load -w` side effects.
     run_launchctl(["enable", f"{domain}/{SERVICE_LABEL}"], check=True)
+    run_launchctl(["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=True)
     run_launchctl(["kickstart", "-k", f"{domain}/{SERVICE_LABEL}"], check=True)
 
 
@@ -4704,7 +4729,16 @@ def install_service(config_path: Path, no_start: bool) -> None:
                 f"stopped safely; installed files and recovery artifacts were preserved at "
                 f"{tx.recovery_dir}"
             ) from error
-        tx.rollback(preserve_recovery=service_stopped)
+        try:
+            tx.rollback(preserve_recovery=service_stopped)
+        except RuntimeError as rollback_error:
+            if service_stopped:
+                raise RuntimeError(
+                    f"installation failed ({error}); {rollback_error}. The collector was stopped "
+                    "for this install and has NOT been restarted: restore the recovery artifacts, "
+                    "then run `collector.py start`"
+                ) from error
+            raise
         if service_stopped:
             try:
                 launch_agent(domain)
