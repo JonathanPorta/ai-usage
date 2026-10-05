@@ -198,3 +198,25 @@ routine choice made within the approved scope; change it freely with a new entry
 - When the data source is isolated (`AI_USAGE_SERVICE=skip`, as in `make app-run-sandbox` and tests), the app uses no service control at all. `LiveServiceControl` also refuses as a second guard, with a Swift test proving no launchd command runs.
 - **Reinstall after Stop:** `install` falls back to `launchctl load -w` when `bootstrap` refuses a disabled agent. `-w` clears the persistent disable flag. This is tested against a stateful fake that encodes that documented `launchctl` behavior. It has **not** been exercised against the real launchd, which would mean stopping the owner's collector.
 - **Notifications** are recorded as delivered only after the system accepts them while authorized, so granting permission later still shows current conditions once.
+
+## 2026-10-05 — Review findings on PRs #4 and #5 (engineering, owner-requested fixes)
+- **Relative launcher overrides (#4):** a valid `AI_USAGE_LAUNCHCTL` resolves to an absolute path before execution. `./launchctl` previously reached `subprocess` as a bare name and was looked up on PATH. Every other invalid value still fails closed. The existing suite always used absolute fake paths, so this was not a production incident.
+- **Paused scheduler:** idle waits come from `schedule_wait_seconds()`. They are always positive and at most the 15 s tick, and the collection deadline is ignored while paused. Previously an expired deadline turned the pause into a zero-wait loop.
+- **Calendar rollover:**
+  - The report marks a past day whose source was last read before that day ended as `partial`, with `as_of`.
+  - The app rolls a cached snapshot carried past midnight in its timezone: today's totals and models are dropped, the window slides onto the new date with missing days, and only the report's own date is labelled "Today".
+  - The store re-reads once per new calendar day, even with unchanged files.
+- **Service observation order:** probes are timestamped by their start, and a report's service state counts as observed at `generated_at`. The newer observation wins, and a slow, older probe can't overwrite a newer one. The 5-minute timer probes the service independently of CSV changes.
+- **LaunchAgent start order:**
+  - `launch_agent()` is now `enable` → `bootstrap` → `kickstart -k`. This supersedes the earlier reliance on a `load -w` fallback (the "reinstall after Stop" assumption above).
+  - A bootstrap failure fails and rolls back the install.
+  - Rollback skips files that still match their snapshot.
+  - An incomplete rollback names the stopped, not-restarted collector.
+- **Real launchd verification:** `make launchd-integration-check` runs the real lifecycle code on a disposable `codes.porta.ai-usage.test.<random>` agent. It uses a temporary HOME and an idle daemon with every provider off. `AI_USAGE_SERVICE_LABEL` accepts only that prefix.
+  - **Verified on this Mac (2026-10-05):**
+    - `--no-start`;
+    - Stop: disabled in launchd's database, process exits, files kept;
+    - Start;
+    - reinstall after Stop;
+    - failed install → rollback → prior service restarted.
+  - **Residue:** launchd keeps a `=> enabled` override entry per disposable label, which launchctl can't delete. Nothing else remains.

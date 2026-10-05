@@ -49,6 +49,12 @@ With `poll_paused: true` the daemon keeps running and skips scheduled checks,
 re-reading config every 15 s. Clearing it schedules the next check one interval
 later. `once` and event-driven collection are never paused.
 
+`install` starts the agent with `enable` → `bootstrap` → `kickstart -k`, and
+`start` with `enable` → `bootstrap`. Neither relies on `load -w`. A failed
+install rolls back and restarts the prior service. `make launchd-integration-check`
+verifies this on real launchd with a disposable `codes.porta.ai-usage.test.*`
+agent (`AI_USAGE_SERVICE_LABEL` accepts only that prefix).
+
 `once` and `daemon` take an exclusive `flock` on `<state_file>.lock` for the
 whole collect-and-commit cycle. Two collections never interleave. A `once`
 started during a scheduled check waits for it to finish.
@@ -188,14 +194,15 @@ reported*. It never means zero.
   "state": "measured",       // measured | zero | missing | not_collected | partial (today)
   "input": 684000, "output": 92000, "total": 776000,
   "cache_read": 3120000, "cache_write": null,
-  "incomplete_events": 0 }
+  "incomplete_events": 0,
+  "as_of": null }            // for partial days: when the source was last read
 ```
 
 - `measured`: at least one usage record for the day.
 - `zero`: the source was read successfully and covers the day, but no usage was recorded. This is a real zero.
 - `missing`: no record for a day the source should cover. This is a gap, not zero.
 - `not_collected`: the day is before `coverage_start`.
-- `partial`: today, which is not over yet. The figures are a running total "as of" `today.as_of`.
+- `partial`: an incomplete day. It is either today, which isn't over yet, or a past day whose source was last read before that day ended, for example because the collector stopped. Figures are a running total as of the day's `as_of`. Only the report's `today` is "today".
 
 `total` is input + output when the provider splits them. Otherwise it is the
 provider's own total. Cache tokens are never included in `total`.

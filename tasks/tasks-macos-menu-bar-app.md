@@ -57,3 +57,9 @@
   - [x] 6.1 Fail-closed `AI_USAGE_LAUNCHCTL`, a module guard, regression tests, incident record (PR #4).
   - [x] 6.2 Report scan 6.3 s → 2.35 s with byte-identical output.
   - [x] 6.3 Coalesced refreshes, change-detected rescans, `becomes_stale_at` re-evaluation. *Validation:* store tests; `--measure` on real data.
+- [x] 7.0 Review findings on #4 and #5 (2026-10-05)
+  - [x] 7.1 Relative launcher override resolved to an absolute path (#4). *Validation:* PATH-trap regression, mutation-checked.
+  - [x] 7.2 Paused scheduler never spins. *Validation:* virtual-clock `run_daemon` regression, mutation-checked.
+  - [x] 7.3 Calendar rollover in the report and the cached snapshot. *Validation:* Python and Swift tests across midnight.
+  - [x] 7.4 Service observation freshness order. *Validation:* Swift tests (both directions, out-of-order probes).
+  - [x] 7.5 Explicit start order, a rollback fix, and a real-launchd integration check. *Validation:* `make launchd-integration-check` passes on this Mac.

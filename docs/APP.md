@@ -78,10 +78,13 @@ into both scenes with `.environment(store)`.
    - First render takes about 180 ms.
    - The footer says "Showing saved data from …" until the live report replaces it.
 2. **When the popover opens:** render the store at once. A cheap service probe runs: the bundled `service-status`, about 150 ms, never a CSV scan. The report runs only if the CSV, log or config changed since the last scan. It is read-only and never collects.
-3. **While running:** every 5 minutes, the same change check.
+3. **While running:** every 5 minutes, a service probe plus the same change check.
+   - The report also re-runs once per new calendar day (report timezone), even with unchanged files.
+   - Service state shows whichever observation is newer: the probe, timestamped at its start, or the report's `generated_at`. A slow, older probe never overwrites a newer one.
 4. **Collect now, service actions and settings:** run the action, then refresh. Every view, including an already-open History window, updates from the same store.
 5. **Overlap:** all report runs go through one worker. Overlapping requests share one follow-up run, an older result never replaces a newer one, and a failure keeps the last good snapshot with the error shown.
 6. **Aging:** the snapshot is re-evaluated against the clock with the report's `becomes_stale_at` deadlines, so cached readings can't look fresher than they are.
+7. **Midnight:** a snapshot carried into a new day drops today's totals and models and slides the daily window onto the new date with missing days. Yesterday stays a partial day with its as-of time, never "Today", even while refreshing or after a failed refresh.
 
 `AIUsage --measure` reports these behaviors against the live report (read-only).
 

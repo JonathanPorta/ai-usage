@@ -131,6 +131,13 @@ Still outstanding (needs a person at the Mac):
   - 0 scans for 10 reopens;
   - 1 run for 5 overlapping requests.
 
+#### 2026-10-05: review fixes (agent)
+
+- Real launchd, using a disposable agent and `make launchd-integration-check`:
+  - `--no-start`, Stop, Start, reinstall after Stop, and failed-install recovery all pass;
+  - the real collector's pid was unchanged.
+- Midnight rollover and service-observation order are covered by Swift tests. The rollover labels have not yet been seen on screen.
+
 ### Manual checklist (needs a person at the Mac; offscreen renders don't complete these)
 
 - [ ] The real menu-bar popover opened from the status item: 420 pt wide, pinned header and footer, short-screen scrolling.
@@ -149,7 +156,8 @@ Still outstanding (needs a person at the Mac):
 - [ ] Large text sizes: quota cells and the footer stay readable.
 - [ ] Notifications appear after permission is granted, once per limit period.
 - [ ] Open at login registers (it may require approval in System Settings).
-- [ ] Stop and Start on the real collector, which also confirms it stays stopped across a logout and login. Optional, at your discretion: these change your installed service.
+- [ ] Stop and Start on the real collector, including staying stopped across a logout and login. The launchd behavior itself is verified on a disposable agent; this check confirms the UI on the real one.
+- [ ] Leave the popover cached overnight. The next morning it shows no "Today" totals from yesterday, and re-reads once.
 - [ ] Pause and Resume. This needs the installed collector at 2.2.0 or newer (`python3 ai_usage_service.py install`).
 - [ ] Accept native visual baselines into `references/`. This retires the waiver.
 
