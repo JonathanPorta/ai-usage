@@ -22,15 +22,65 @@ final class SpyReporter: ReportFetching, @unchecked Sendable {
 }
 
 final class SpyCollector: CollectorRunning, @unchecked Sendable {
-    private let lock = NSLock()
     private(set) var calls = 0
+    private(set) var progressRequested: [Bool] = []
     var outcome: CollectRun.Outcome = .complete
     var gate: (() async -> Void)?
+    var progress: [CollectProgress] = []
 
-    func collectOnce() async throws -> CollectRun {
-        lock.lock(); calls += 1; lock.unlock()
+    func collectOnce(progressSupported: Bool, onProgress: @escaping @Sendable (CollectProgress) -> Void) async throws -> CollectRun {
+        calls += 1
+        progressRequested.append(progressSupported)
+        for event in progress { onProgress(event) }
         if let gate { await gate() }
         return CollectRun(outcome: outcome, message: "Appended 10 rows", finishedAt: Date())
+    }
+}
+
+/// A reporter whose runs can be held open, to test overlapping refreshes.
+@MainActor
+final class GatedReporter: ReportFetching, @unchecked Sendable {
+    var results: [Report]
+    private(set) var calls = 0
+    var gates: [CheckedContinuation<Void, Never>] = []
+    var holdRuns = false
+
+    init(_ results: [Report]) { self.results = results }
+
+    nonisolated func fetch() async throws -> Report {
+        await MainActor.run { self.calls += 1 }
+        if await MainActor.run(body: { self.holdRuns }) {
+            await withCheckedContinuation { continuation in
+                Task { @MainActor in self.gates.append(continuation) }
+            }
+        }
+        return await MainActor.run { self.results.count > 1 ? self.results.removeFirst() : self.results[0] }
+    }
+
+    func releaseAll() {
+        let pending = gates
+        gates = []
+        pending.forEach { $0.resume() }
+    }
+}
+
+final class SpyService: ServiceControlling, @unchecked Sendable {
+    var calls: [String] = []
+    var state: Service.State = .running
+    func status() async throws -> ServiceStatus {
+        calls.append("status")
+        return ServiceStatus(installed: true, state: state, pid: state == .running ? 7 : nil, disabled: state != .running, detail: "")
+    }
+    func start() async throws { calls.append("start"); state = .running }
+    func stop() async throws { calls.append("stop"); state = .stopped }
+}
+
+final class SpyConfig: ConfigWriting, @unchecked Sendable {
+    var applied: [[ConfigChange]] = []
+    var error: Error?
+    func apply(_ changes: [ConfigChange]) async throws {
+        if let error { throw error }
+        applied.append(changes)
     }
 }
 
@@ -89,25 +139,11 @@ final class AppStoreTests: XCTestCase {
         let store = AppStore(environment: environment(), reporter: reporter, collector: collector)
         await store.refresh()
         let before = reporter.calls
-        store.popoverOpened()  // within 60 s of the last refresh: no work at all
+        store.popoverOpened()  // collector files unchanged: no scan, never a collection
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(reporter.calls, before)
         XCTAssertEqual(collector.calls, 0, "opening the popover must not start a collection")
         XCTAssertNotNil(store.report)
-    }
-
-    func testPopoverOpenAfterSixtySecondsRefreshesReportOnly() async throws {
-        var clockNow = Date()
-        let reporter = SpyReporter([.success(try fixture())])
-        let collector = SpyCollector()
-        let store = AppStore(environment: environment(), reporter: reporter, collector: collector,
-                             clock: { clockNow })
-        await store.refresh()
-        clockNow = clockNow.addingTimeInterval(61)
-        store.popoverOpened()
-        for _ in 0..<50 where reporter.calls < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
-        XCTAssertEqual(reporter.calls, 2)
-        XCTAssertEqual(collector.calls, 0)
     }
 
     func testCollectNowRefreshesSharedStoreSeenByEveryObserver() async throws {
@@ -133,6 +169,108 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(popoverSaw)
         XCTAssertTrue(historySaw)
         if case let .finished(result) = store.collect { XCTAssertEqual(result.outcome, .complete) } else { XCTFail("no result") }
+    }
+
+    func testOverlappingRefreshesCoalesceIntoOneFollowUpRun() async throws {
+        let base = try fixture()
+        let reporter = GatedReporter([bumped(base, minutes: 1), bumped(base, minutes: 2)])
+        reporter.holdRuns = true
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector())
+        let first = Task { await store.refresh() }
+        for _ in 0..<200 where reporter.gates.isEmpty { try await Task.sleep(nanoseconds: 2_000_000) }
+        // Three more requests while the first run is in flight.
+        let others = (0..<3).map { _ in Task { await store.refresh() } }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(reporter.calls, 1)
+        reporter.holdRuns = false
+        reporter.releaseAll()
+        await first.value
+        for task in others { await task.value }
+        XCTAssertEqual(reporter.calls, 2, "requests made during a run share exactly one follow-up run")
+        XCTAssertEqual(store.reportRuns, 2)
+        XCTAssertEqual(store.snapshot?.generatedAt, bumped(base, minutes: 2).generatedAt)
+        XCTAssertFalse(store.isRefreshing)
+    }
+
+    func testOlderResultNeverReplacesNewerSnapshot() async throws {
+        let base = try fixture()
+        let reporter = SpyReporter([.success(bumped(base, minutes: 10)), .success(bumped(base, minutes: 1))])
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector())
+        await store.refresh()
+        let revision = store.revision
+        await store.refresh()
+        XCTAssertEqual(store.snapshot?.generatedAt, bumped(base, minutes: 10).generatedAt)
+        XCTAssertEqual(store.revision, revision, "a discarded older result must not notify observers")
+    }
+
+    func testReopeningThePopoverScansOnlyWhenSourcesChanged() async throws {
+        let reporter = SpyReporter([.success(try fixture())])
+        let marker = FingerprintBox()
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector(),
+                             service: SpyService(), fingerprint: { _ in marker.value })
+        await store.refresh()
+        XCTAssertEqual(reporter.calls, 1)
+        for _ in 0..<5 { await store.refreshIfSourcesChanged() }
+        XCTAssertEqual(reporter.calls, 1, "unchanged collector files: no CSV scan on reopen")
+        marker.value = SourceFingerprint(entries: ["/csv": [2, 2]])
+        await store.refreshIfSourcesChanged()
+        XCTAssertEqual(reporter.calls, 2)
+    }
+
+    func testCachedSnapshotCannotShowStaleReadingsAsCurrent() async throws {
+        let report = try fixture()
+        let grokUsageDeadline = try XCTUnwrap(report.provider("grok")?.usage.becomesStaleAt)
+        let antigravity = try XCTUnwrap(report.provider("antigravity")?.quota.windows.first)
+        XCTAssertEqual(antigravity.status, .current)
+        let deadline = try XCTUnwrap(antigravity.becomesStaleAt)
+        let later = max(deadline, grokUsageDeadline).addingTimeInterval(1)
+        let store = AppStore.preview(report, clock: later)
+        let shown = try XCTUnwrap(store.report)
+        XCTAssertEqual(shown.provider("grok")?.usage.status, .stale)
+        let window = try XCTUnwrap(shown.provider("antigravity")?.quota.windows.first)
+        XCTAssertEqual(window.status, .stale)
+        XCTAssertNil(window.limit)
+        XCTAssertEqual(window.measuredAt, antigravity.measuredAt, "measurement times never change")
+        XCTAssertEqual(store.snapshot, report, "the stored snapshot itself is untouched")
+    }
+
+    func testServiceAndSettingsActionsUseTheirClientsThenRefresh() async throws {
+        let reporter = SpyReporter([.success(try fixture())])
+        let service = SpyService()
+        let config = SpyConfig()
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector(),
+                             service: service, config: config)
+        await store.stopService()
+        XCTAssertEqual(service.calls, ["stop", "status"])
+        XCTAssertEqual(store.report?.service.state, .stopped)
+        XCTAssertEqual(store.action, .done("Collector stopped; it stays stopped at login"))
+        await store.setPaused(true)
+        await store.applySettings([.pollIntervalSeconds(1800), .monthlySubscription("codex", 20)])
+        XCTAssertEqual(config.applied, [[.pollPaused(true)], [.pollIntervalSeconds(1800), .monthlySubscription("codex", 20)]])
+        XCTAssertEqual(reporter.calls, 3, "each action refreshes the shared snapshot")
+        config.error = ClientError.processFailed("poll_interval_seconds must be at least 60")
+        await store.applySettings([.pollIntervalSeconds(10)])
+        XCTAssertEqual(store.action, .failed("poll_interval_seconds must be at least 60"))
+        XCTAssertNotNil(store.report, "a failed action keeps the last good snapshot")
+    }
+
+    func testCollectNowReportsProviderProgressWhenSupported() async throws {
+        let reporter = SpyReporter([.success(try fixture())])
+        let collector = SpyCollector()
+        collector.progress = [CollectProgress(providerId: "codex", index: 1, total: 4)]
+        var release: CheckedContinuation<Void, Never>?
+        collector.gate = { await withCheckedContinuation { release = $0 } }
+        let store = AppStore(environment: environment(), reporter: reporter, collector: collector)
+        await store.refresh()
+        let task = Task { await store.collectNow() }
+        for _ in 0..<200 where release == nil { try await Task.sleep(nanoseconds: 2_000_000) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        if case let .running(_, progress) = store.collect {
+            XCTAssertEqual(progress, CollectProgress(providerId: "codex", index: 1, total: 4))
+        } else { XCTFail("not running") }
+        XCTAssertEqual(collector.progressRequested, [true], "fixture models a 2.2.0 collector")
+        release?.resume()
+        _ = await task.value
     }
 
     func testCollectNowIsSingleFlight() async throws {
@@ -184,7 +322,20 @@ final class AppStoreTests: XCTestCase {
 
 // MARK: - Presentation
 
+final class FingerprintBox: @unchecked Sendable {
+    var value = SourceFingerprint(entries: ["/csv": [1, 1]])
+}
+
 final class PresentationTests: XCTestCase {
+    func testConfigAssignmentsMatchTheCollectorContract() {
+        XCTAssertEqual(ConfigChange.pollPaused(true).assignment, "poll_paused=true")
+        XCTAssertEqual(ConfigChange.pollIntervalSeconds(1800).assignment, "poll_interval_seconds=1800")
+        XCTAssertEqual(ConfigChange.providerEnabled("gemini_cli", false).assignment, "providers.gemini_cli.enabled=false")
+        XCTAssertEqual(ConfigChange.monthlySubscription("codex", 20).assignment, "providers.codex.monthly_subscription_usd=20")
+        XCTAssertEqual(ConfigChange.monthlySubscription("codex", 19.5).assignment, "providers.codex.monthly_subscription_usd=19.5")
+        XCTAssertEqual(ConfigChange.monthlySubscription("codex", nil).assignment, "providers.codex.monthly_subscription_usd=null")
+    }
+
     func testTokenFormatting() {
         XCTAssertEqual(Format.tokens(776_000), "776K")
         XCTAssertEqual(Format.tokens(1_150_000), "1.15M")

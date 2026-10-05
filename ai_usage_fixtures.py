@@ -340,7 +340,8 @@ def fixture_report(now_iso: str = FIXTURE_NOW) -> dict[str, Any]:
             config = collector.load_config(config_path)
             built = report.build_report(
                 config, config_path=config_path, now=now, days=90,
-                service={"state": "running", "pid": 4242, "detail": "launchctl: state = running"})
+                service={"state": "running", "pid": 4242, "disabled": False, "detail": "launchctl: state = running"},
+                installed_version=tuple(int(part) for part in collector.VERSION.split(".")))
             text = json.dumps(built).replace(str(root.resolve()), "/sandbox").replace(str(root), "/sandbox")
             return json.loads(text)
     finally:

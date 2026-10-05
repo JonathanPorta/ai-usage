@@ -172,10 +172,31 @@ PROVIDER_BY_ID = {p.id: p for p in PROVIDERS}
 _FRACTION = re.compile(r"\.(\d+)")
 
 
+_TS_CACHE: dict[str, Optional[float]] = {}
+
+
 def parse_ts(value: str) -> Optional[float]:
     """Parse the collector's ISO-8601 shapes to epoch seconds (UTC)."""
     if not value:
         return None
+    # Fast path for the collector's own `YYYY-MM-DDTHH:MM:SS[.fff…]Z` shape.
+    # Rows in one check share a timestamp, so whole-second prefixes are cached.
+    if len(value) >= 20 and value[10] == "T" and value[-1] == "Z" and value[19] in ".Z":
+        base = _TS_CACHE.get(value[:19])
+        if base is None and value[:19] not in _TS_CACHE:
+            try:
+                base = float(calendar.timegm((int(value[0:4]), int(value[5:7]), int(value[8:10]),
+                                              int(value[11:13]), int(value[14:16]), int(value[17:19]), 0, 0, 0)))
+            except ValueError:
+                base = None
+            _TS_CACHE[value[:19]] = base
+        if base is not None:
+            if value[19] == ".":
+                digits = value[20:-1]
+                if digits.isdigit():
+                    return base + int(digits) / (10 ** len(digits))
+            else:
+                return base
     text = value.strip()
     if len(text) == 10 and text[4] == "-":
         try:
@@ -204,9 +225,19 @@ def iso(ts: Optional[float]) -> Optional[str]:
     return dt.datetime.fromtimestamp(round(ts), tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_DATE_CACHE: dict[int, str] = {}
+
+
 def local_date(ts: float) -> str:
-    t = time.localtime(ts)
-    return f"{t.tm_year:04d}-{t.tm_mon:02d}-{t.tm_mday:02d}"
+    # Local dates (including DST shifts) change only on hour boundaries in the
+    # zones this runs in, so memoize per UTC hour.
+    hour = int(ts // 3600)
+    cached = _DATE_CACHE.get(hour)
+    if cached is None:
+        t = time.localtime(hour * 3600)
+        cached = f"{t.tm_year:04d}-{t.tm_mon:02d}-{t.tm_mday:02d}"
+        _DATE_CACHE[hour] = cached
+    return cached
 
 
 def local_midnight(date_text: str) -> float:
@@ -252,24 +283,13 @@ class Row:
     __slots__ = ("tx", "ts", "provider", "category", "metric", "kind", "scope",
                  "period_start", "period_end", "value", "unit", "window", "resets", "source", "status", "message")
 
-    def __init__(self, fields: list[str], ix: dict[str, int]) -> None:
-        get = lambda name: fields[ix[name]] if ix[name] < len(fields) else ""  # noqa: E731
-        self.tx = get("transaction_id")
-        self.ts = parse_ts(get("collected_at"))
-        self.provider = get("provider")
-        self.category = get("category")
-        self.metric = get("metric")
-        self.kind = get("record_kind")
-        self.scope = get("scope")
-        self.period_start = get("period_start")
-        self.period_end = get("period_end")
-        self.value = get("value")
-        self.unit = get("unit")
-        self.window = get("window_seconds")
-        self.resets = get("resets_at")
-        self.source = get("source")
-        self.status = get("status")
-        self.message = get("message")
+    def __init__(self, fields: list[str], ix: tuple[int, ...]) -> None:
+        # `fields` is padded to the header width; `ix` maps CSV_FIELDS order to columns.
+        (tx, _index, collected, self.provider, self.category, self.metric, self.kind, self.scope,
+         self.period_start, self.period_end, self.value, self.unit, self.window, self.resets,
+         self.source, self.status, self.message) = [fields[i] for i in ix]
+        self.tx = tx
+        self.ts = parse_ts(collected)
 
 
 class Attempt:
@@ -308,9 +328,14 @@ def scan_csv(path: Path) -> Scan:
         header = next(reader, None)
         if not header:
             return scan
-        ix = {name: header.index(name) if name in header else 10_000 for name in collector.CSV_FIELDS}
+        width = len(header) + 1
+        # Columns absent from the header read as "" from the padding slot.
+        ix = tuple(header.index(name) if name in header else len(header) for name in collector.CSV_FIELDS)
+        padding = [""] * width
         for fields in reader:
             scan.row_count += 1
+            if len(fields) < width:
+                fields = fields + padding[len(fields):]
             row = Row(fields, ix)
             if not row.provider:
                 continue
@@ -695,6 +720,16 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
         elif reset_passed:
             cause = "reset_passed"
         status = "stale" if cause else "current"
+        # When a current reading will turn stale with no new data, so a cached
+        # report re-evaluated later can never show it as fresh.
+        becomes: list[tuple[float, str]] = []
+        if status == "current":
+            if definition.quota == "polled" and collected_at is not None:
+                becomes.append((collected_at + stale_after, "not_collected"))
+                becomes.append((measured_at + threshold, "source_old"))
+            if resets_at is not None and resets_at > measured_at:
+                becomes.append((resets_at, "reset_passed"))
+        next_stale = min(becomes) if becomes else None
         remaining = last["percent"] if basis == "remaining" else 100.0 - last["percent"]
         limit = None
         if status == "current":
@@ -716,6 +751,8 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
             "reset_passed": reset_passed,
             "status": status,
             "stale_cause": cause,
+            "becomes_stale_at": iso(next_stale[0]) if next_stale else None,
+            "becomes_stale_cause": next_stale[1] if next_stale else None,
             "omitted": omitted,
             "retired": retired,
             "limit": limit,
@@ -776,34 +813,41 @@ def read_log_events(path: Path) -> list[tuple[float, str, str]]:
     return events
 
 
-def probe_service(runner: Callable[[list[str]], subprocess.CompletedProcess]) -> dict[str, Any]:
-    launchctl = collector.find_launchctl()
-    if sys.platform != "darwin" or launchctl is None:
-        return {"state": "unknown", "pid": None, "detail": "launchctl unavailable on this system"}
-    target = f"gui/{os.getuid()}/{collector.SERVICE_LABEL}"
+def probe_service(runner: Optional[Callable[[list[str]], subprocess.CompletedProcess]] = None) -> dict[str, Any]:
+    """Service state via the collector's own read-only `launchctl print` probe."""
     try:
-        result = runner([str(launchctl), "print", target])
-    except (OSError, subprocess.SubprocessError) as error:
-        return {"state": "unknown", "pid": None, "detail": f"launchctl failed: {error}"}
-    if result.returncode != 0:
-        installed = collector.DEFAULT_PLIST_PATH.exists()
-        return {
-            "state": "stopped" if installed else "not_installed",
-            "pid": None,
-            "detail": "LaunchAgent installed but not loaded" if installed else "LaunchAgent not installed",
-        }
-    state = "loaded"
-    pid = None
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("state =") and state == "loaded":
-            state = "running" if stripped.split("=", 1)[1].strip() == "running" else "loaded"
-        elif stripped.startswith("pid ="):
-            try:
-                pid = int(stripped.split("=", 1)[1].strip())
-            except ValueError:
-                pid = None
-    return {"state": state, "pid": pid, "detail": f"launchctl: state = {state}"}
+        status = collector.service_status()
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        return {"state": "unknown", "pid": None, "disabled": None, "detail": f"launchctl failed: {error}"}
+    return {key: status.get(key) for key in ("state", "pid", "disabled", "detail")}
+
+
+PAUSE_MIN_VERSION = (2, 2, 0)
+_VERSION_LINE = re.compile(r'^VERSION = "([0-9]+)\.([0-9]+)\.([0-9]+)"', re.MULTILINE)
+
+
+def installed_collector_script() -> Optional[Path]:
+    """The script the LaunchAgent actually runs (ProgramArguments[1])."""
+    try:
+        import plistlib
+        with collector.DEFAULT_PLIST_PATH.open("rb") as handle:
+            arguments = plistlib.load(handle).get("ProgramArguments") or []
+    except (OSError, ValueError):
+        return None
+    return Path(arguments[1]) if len(arguments) > 1 else None
+
+
+def installed_collector_version(script: Optional[Path]) -> Optional[tuple[int, int, int]]:
+    """Read VERSION from the installed script's text. Never executes it."""
+    if script is None:
+        return None
+    try:
+        with script.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(16384)
+    except OSError:
+        return None
+    match = _VERSION_LINE.search(head)
+    return tuple(int(part) for part in match.groups()) if match else None  # type: ignore[return-value]
 
 
 def default_runner(arguments: list[str]) -> subprocess.CompletedProcess:
@@ -819,6 +863,7 @@ def build_report(
     now: float,
     days: int = 90,
     service: Optional[dict[str, Any]] = None,
+    installed_version: Optional[tuple[int, int, int]] = None,
 ) -> dict[str, Any]:
     usage_path, log_path = collector.configured_paths(config)
     interval = int(config.get("poll_interval_seconds", 3600))
@@ -826,7 +871,18 @@ def build_report(
     scan = scan_csv(usage_path)
     log_events = read_log_events(log_path)
     today = local_date(now)
-    service = service or {"state": "unknown", "pid": None, "detail": "service probe skipped"}
+    service = dict(service or {"state": "unknown", "pid": None, "detail": "service probe skipped"})
+    service.setdefault("disabled", None)
+    supports_pause = installed_version is not None and installed_version >= PAUSE_MIN_VERSION
+    capabilities = {
+        # Read from the installed collector's VERSION; older collectors ignore
+        # poll_paused and have no `once --progress`.
+        "pause": supports_pause,
+        "progress": supports_pause,
+        "service_control": True,
+        "settings": True,
+    }
+    pause_requested = config.get("poll_paused") is True
 
     states = {p.id: ProviderState(p) for p in PROVIDERS}
     latest_results: dict[str, Optional[str]] = {}
@@ -936,16 +992,20 @@ def build_report(
         collection["summary"] = None
 
     next_scheduled = None
-    if service.get("state") == "running":
+    paused = pause_requested and supports_pause
+    if service.get("state") == "running" and not paused:
         for ts, _level, message in reversed(log_events):
-            match = re.search(r"collection completed .*next_poll_seconds=(\d+)", message)
-            if match and not message.startswith("one-shot"):
+            if message.startswith("scheduled checks paused"):
+                break
+            match = re.search(r"(?:^collection completed .*|^scheduled checks resumed )next_poll_seconds=(\d+)", message)
+            if match:
                 next_scheduled = ts + int(match.group(1))
                 break
     schedule = {
-        "state": "active" if service.get("state") == "running" else "unknown",
+        "state": "paused" if paused else ("active" if service.get("state") == "running" else "unknown"),
         "interval_minutes": interval // 60,
-        "pause_supported": False,
+        "pause_supported": supports_pause,
+        "pause_requested": pause_requested,
         "next_scheduled_at": iso(next_scheduled),
     }
 
@@ -993,6 +1053,12 @@ def build_report(
             usage_status, usage_cause = "stale", "source_old"
         else:
             usage_status = "current"
+        usage_next: Optional[tuple[float, str]] = None
+        if usage_status == "current" and usage_read_at is not None:
+            candidates = [(usage_read_at + stale_after, "not_collected")]
+            if definition.mode != "event" and usage_measured is not None:
+                candidates.append((usage_measured + stale_after, "source_old"))
+            usage_next = min(candidates)
         windows = build_windows(state, scan.quota.get(definition.id, []), freshness_rows, now=now, stale_after=stale_after)
         quota = quota_summary(definition, state, windows)
 
@@ -1065,6 +1131,8 @@ def build_report(
             "enabled": state.enabled, "setup": state.setup, "setup_note": state.setup_note,
             "usage": {
                 "status": usage_status, "stale_cause": usage_cause,
+                "becomes_stale_at": iso(usage_next[0]) if usage_next else None,
+                "becomes_stale_cause": usage_next[1] if usage_next else None,
                 "measured_at": iso(usage_measured), "collected_at": iso(usage_read_at),
                 "record_kind": definition.record_kind, "mode": definition.mode, "split": definition.split,
             },
@@ -1090,6 +1158,8 @@ def build_report(
             "log_file": str(log_path),
             "interval_seconds": interval,
             "csv_rows": scan.row_count,
+            "installed_version": ".".join(str(part) for part in installed_version) if installed_version else None,
+            "capabilities": capabilities,
         },
         "thresholds": {"stale_after_seconds": stale_after,
                        "grok_billing_stale_after_seconds": GROK_BILLING_STALE_SECONDS},
@@ -1117,6 +1187,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--service", choices=("auto", "skip"), default="auto")
     parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--installed-collector", type=Path,
+                        help="installed collector script to read VERSION from (default: the LaunchAgent's)")
     arguments = parser.parse_args(argv)
     try:
         if not 7 <= arguments.days <= 400:
@@ -1125,8 +1197,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         if now is None:
             raise ValueError(f"--now is not an ISO-8601 time: {arguments.now}")
         config = collector.load_config(arguments.config)
-        service = probe_service(default_runner) if arguments.service == "auto" else None
-        report = build_report(config, config_path=arguments.config, now=now, days=arguments.days, service=service)
+        service = probe_service() if arguments.service == "auto" else None
+        script = arguments.installed_collector or installed_collector_script()
+        report = build_report(config, config_path=arguments.config, now=now, days=arguments.days,
+                              service=service, installed_version=installed_collector_version(script))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"ai-usage-report: {error}", file=sys.stderr)
         return 1

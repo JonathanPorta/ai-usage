@@ -9,6 +9,18 @@ public struct ProcessResult: Equatable, Sendable {
 
 public protocol ProcessRunning: Sendable {
     func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval) async throws -> ProcessResult
+    /// Like `run`, also delivering each complete stdout line as it arrives.
+    func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval,
+             onLine: @escaping @Sendable (String) -> Void) async throws -> ProcessResult
+}
+
+public extension ProcessRunning {
+    func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval,
+             onLine: @escaping @Sendable (String) -> Void) async throws -> ProcessResult {
+        let result = try await run(executable, arguments: arguments, environment: environment, timeout: timeout)
+        String(decoding: result.stdout, as: UTF8.self).split(separator: "\n").forEach { onLine(String($0)) }
+        return result
+    }
 }
 
 /// Runs a child process off the main thread, draining stdout and stderr
@@ -17,6 +29,11 @@ public struct SystemProcessRunner: ProcessRunning {
     public init() {}
 
     public func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval) async throws -> ProcessResult {
+        try await run(executable, arguments: arguments, environment: environment, timeout: timeout, onLine: { _ in })
+    }
+
+    public func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval,
+                    onLine: @escaping @Sendable (String) -> Void) async throws -> ProcessResult {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
@@ -38,7 +55,22 @@ public struct SystemProcessRunner: ProcessRunning {
                 var stderr = Data()
                 let group = DispatchGroup()
                 group.enter()
-                DispatchQueue.global().async { stdout = out.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+                DispatchQueue.global().async {
+                    // Read incrementally so progress lines arrive while the process runs.
+                    var pending = Data()
+                    let handle = out.fileHandleForReading
+                    while true {
+                        let chunk = handle.availableData
+                        if chunk.isEmpty { break }
+                        stdout.append(chunk)
+                        pending.append(chunk)
+                        while let newline = pending.firstIndex(of: 0x0A) {
+                            onLine(String(decoding: pending[pending.startIndex..<newline], as: UTF8.self))
+                            pending.removeSubrange(pending.startIndex...newline)
+                        }
+                    }
+                    group.leave()
+                }
                 group.enter()
                 DispatchQueue.global().async { stderr = err.fileHandleForReading.readDataToEndOfFile(); group.leave() }
                 var timedOut = false
@@ -123,7 +155,8 @@ public struct CollectRun: Equatable, Sendable {
 }
 
 public protocol CollectorRunning: Sendable {
-    func collectOnce() async throws -> CollectRun
+    /// `progressSupported`: the installed collector accepts `once --progress` (2.2.0+).
+    func collectOnce(progressSupported: Bool, onProgress: @escaping @Sendable (CollectProgress) -> Void) async throws -> CollectRun
 }
 
 /// Runs the installed collector's existing one-time path: `<python> collector.py once --config <cfg>`.
@@ -140,17 +173,29 @@ public struct LiveCollectorClient: CollectorRunning {
         self.now = now
     }
 
-    public func collectOnce() async throws -> CollectRun {
+    public func collectOnce(progressSupported: Bool, onProgress: @escaping @Sendable (CollectProgress) -> Void) async throws -> CollectRun {
         guard let script = environment.collectorScript, FileManager.default.fileExists(atPath: script.path) else {
             throw ClientError.collectorMissing
         }
+        var arguments = [script.path, "once", "--config", environment.configPath.path]
+        if progressSupported { arguments.append("--progress") }
         let result = try await runner.run(
             environment.python,
-            arguments: [script.path, "once", "--config", environment.configPath.path],
+            arguments: arguments,
             environment: environment.childEnvironment,
-            timeout: 15 * 60
+            timeout: 15 * 60,
+            onLine: { line in
+                guard line.hasPrefix("{"), let data = line.data(using: .utf8),
+                      let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      event["event"] as? String == "provider",
+                      let provider = event["provider"] as? String,
+                      let index = event["index"] as? Int, let total = event["total"] as? Int else { return }
+                onProgress(CollectProgress(providerId: provider, index: index, total: total))
+            }
         )
-        let stdout = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let stdout = String(decoding: result.stdout, as: UTF8.self)
+            .split(separator: "\n").filter { !$0.hasPrefix("{") }.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.timedOut {
             return CollectRun(outcome: .failed, message: "The check took longer than 15 minutes and was stopped.", finishedAt: now())

@@ -52,7 +52,9 @@ class ReportCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def build(self, *, log: str = "", service: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    def build(self, *, log: str = "", service: Optional[dict[str, Any]] = None,
+              extra: Optional[dict[str, Any]] = None,
+              installed: Optional[tuple[int, int, int]] = None) -> dict[str, Any]:
         data = self.root / "data"
         data.mkdir(exist_ok=True)
         providers = {name: {"enabled": True} for name in ("codex", "claude", "antigravity", "gemini_cli", "grok")}
@@ -68,11 +70,13 @@ class ReportCase(unittest.TestCase):
             },
             "providers": providers,
         }
+        config.update(extra or {})
         self.config_path.write_text(json.dumps(config), encoding="utf-8")
         self.builder.write(data / "usage.csv")
         (data / "collector.log").write_text(log, encoding="utf-8")
         loaded = collector.load_config(self.config_path)
-        return report.build_report(loaded, config_path=self.config_path, now=self.now, days=30, service=service)
+        return report.build_report(loaded, config_path=self.config_path, now=self.now, days=30, service=service,
+                                   installed_version=installed)
 
     def provider(self, built: dict[str, Any], pid: str) -> dict[str, Any]:
         return next(p for p in built["providers"] if p["id"] == pid)
@@ -207,6 +211,28 @@ class QuotaFreshnessTests(ReportCase):
                 self.assertIs(five["reset_passed"], expected)
                 self.assertEqual(five["stale_cause"] == "reset_passed", expected)
 
+    def test_current_readings_state_when_they_will_turn_stale(self) -> None:
+        measured = self.now - 30 * 60
+        reset = self.now + 2 * HOUR
+        self.codex_check(measured, five=50, weekly=50, five_reset=reset, week_reset=self.now + 3 * DAY)
+        codex = self.provider(self.build(), "codex")
+        five = self.window(codex, "5-hour limit")
+        # 2x interval after the last good read, earlier than the 2 h reset.
+        self.assertEqual(five["becomes_stale_at"], report.iso(measured + 2 * HOUR))
+        self.assertEqual(five["becomes_stale_cause"], "not_collected")
+        self.assertEqual(codex["usage"]["becomes_stale_at"], report.iso(measured + 2 * HOUR))
+        # The same reading evaluated at that instant is stale for that reason.
+        self.now = measured + 2 * HOUR + 1
+        later = self.window(self.provider(self.build(), "codex"), "5-hour limit")
+        self.assertEqual((later["status"], later["stale_cause"]), ("stale", "not_collected"))
+
+    def test_reset_before_other_deadlines_is_the_next_stale_cause(self) -> None:
+        measured = self.now - 10 * 60
+        self.codex_check(measured, five=50, weekly=50, five_reset=self.now + 20 * 60)
+        five = self.window(self.provider(self.build(), "codex"), "5-hour limit")
+        self.assertEqual((five["becomes_stale_at"], five["becomes_stale_cause"]),
+                         (report.iso(self.now + 20 * 60), "reset_passed"))
+
     def test_window_absent_for_long_is_retired_not_current(self) -> None:
         ts = self.now - 4 * DAY
         self.check(ts, fx.codex_usage_summary(ts), fx.codex_quota(ts, "codex_x:primary", 10, 18000, ts + HOUR))
@@ -326,6 +352,34 @@ class SourceAndCacheTests(ReportCase):
         stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.now - 60))
         built = self.build(log=f"{stamp},000 INFO one-shot collection completed rows=0 errors=0\n")
         self.assertEqual(built["collection"]["last_attempt_at"], report.iso(self.now - 60))
+
+    def test_pause_is_reported_only_when_the_installed_collector_supports_it(self) -> None:
+        self.check(self.now - 20 * 60, fx.codex_usage_summary(self.now - 20 * 60))
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.now - 20 * 60))
+        log = f"{stamp},000 INFO collection completed rows=9 detected_providers=1 errors=0 next_poll_seconds=3600\n"
+        running = {"state": "running", "pid": 1, "detail": ""}
+        config = {"poll_paused": True}
+        # Persisted pause with an old collector: requested but not in effect.
+        old = self.build(log=log, service=running, extra=config, installed=(2, 1, 0))
+        self.assertEqual(old["schedule"]["state"], "active")
+        self.assertTrue(old["schedule"]["pause_requested"])
+        self.assertFalse(old["collector"]["capabilities"]["pause"])
+        self.assertEqual(old["collector"]["installed_version"], "2.1.0")
+        new = self.build(log=log, service=running, extra=config, installed=(2, 2, 0))
+        self.assertEqual(new["schedule"]["state"], "paused")
+        self.assertIsNone(new["schedule"]["next_scheduled_at"], "no scheduled check while paused")
+        self.assertTrue(new["collector"]["capabilities"]["progress"])
+
+    def test_resume_schedules_the_next_check_one_interval_later(self) -> None:
+        self.check(self.now - 50 * 60, fx.codex_usage_summary(self.now - 50 * 60))
+        def at(minutes_ago):
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.now - minutes_ago * 60))
+        log = (f"{at(50)},000 INFO collection completed rows=9 detected_providers=1 errors=0 next_poll_seconds=3600\n"
+               f"{at(40)},000 INFO scheduled checks paused; collector keeps running\n"
+               f"{at(5)},000 INFO scheduled checks resumed next_poll_seconds=3600\n")
+        built = self.build(log=log, service={"state": "running", "pid": 1, "detail": ""}, installed=(2, 2, 0))
+        self.assertEqual(built["schedule"]["state"], "active")
+        self.assertEqual(built["schedule"]["next_scheduled_at"], report.iso(self.now - 5 * 60 + 3600))
 
     def test_not_installed_provider_is_not_detected(self) -> None:
         self.check(self.now - 10 * 60, providers=("codex",))

@@ -3,7 +3,17 @@ import Observation
 
 /// The one shared application store. Owned by the App and injected into the
 /// MenuBarExtra popover and the History window, so both always render the same
-/// report. Views read it; only refreshes and Collect now write to it.
+/// snapshot. Views read it; refreshes, Collect now, service actions and settings write to it.
+///
+/// Latency rules (the report scans a large CSV and takes seconds):
+/// - the last good snapshot renders immediately, from memory or the on-disk cache;
+/// - all refreshes funnel through one worker: overlapping requests coalesce, and
+///   an older result can never replace a newer one;
+/// - opening the popover or switching views never scans unless the collector's
+///   files changed since the last scan;
+/// - a failed refresh keeps the last good snapshot and surfaces the error;
+/// - the snapshot is re-evaluated against the clock (`Report.evaluated(at:)`), so
+///   cached readings can never look fresher than they are.
 @MainActor
 @Observable
 public final class AppStore {
@@ -15,44 +25,80 @@ public final class AppStore {
 
     public enum CollectState: Equatable {
         case idle
-        case running(startedAt: Date)
+        case running(startedAt: Date, progress: CollectProgress?)
         case finished(CollectRun)
     }
 
-    public private(set) var report: Report?
+    public enum ActionState: Equatable {
+        case idle
+        case running(String)
+        case failed(String)
+        case done(String)
+    }
+
+    // MARK: Observable state
+
+    /// The last good snapshot exactly as the reporting layer produced it.
+    public private(set) var snapshot: Report?
     public private(set) var phase: Phase = .loading
-    /// Error from the most recent refresh, even when an older report is still shown.
+    /// Error from the most recent refresh, even when an older snapshot is still shown.
     public private(set) var refreshError: String?
     public private(set) var isRefreshing = false
     public private(set) var lastRefreshAt: Date?
     public private(set) var collect: CollectState = .idle
-    /// Increments on every report change; observers (e.g. History) can key on it.
+    /// Increments whenever the snapshot changes; History and other observers key on it.
     public private(set) var revision = 0
-    /// Whether this report came from the on-disk cache rather than a live run.
+    /// True until a live report replaces the snapshot loaded from the on-disk cache.
     public private(set) var isCachedReport = false
+    /// Number of full report runs (each scans the CSV). Used by tests and measurement.
+    public private(set) var reportRuns = 0
+    /// A fresher service probe than the snapshot's (cheap `launchctl print`).
+    public private(set) var liveService: ServiceStatus?
+    /// Lifecycle and settings actions (start/stop, pause/resume, config writes).
+    public private(set) var action: ActionState = .idle
+
+    /// The snapshot as it reads now: deadlines applied, live service state merged in.
+    public var report: Report? {
+        guard var current = snapshot?.evaluated(at: clock()) else { return nil }
+        if let liveService { current.service = liveService.asReportService }
+        return current
+    }
 
     public let environment: CollectorEnvironment
     private let reporter: ReportFetching
     private let collector: CollectorRunning
+    private let service: ServiceControlling
+    private let config: ConfigWriting
     private let clock: @Sendable () -> Date
     private let cacheURL: URL?
+    private let fingerprint: @Sendable ([URL]) -> SourceFingerprint
     private var timer: Timer?
 
-    public static let popoverRefreshAge: TimeInterval = 60
-    public static let backgroundRefreshInterval: TimeInterval = 5 * 60
+    private var requested = 0
+    private var completed = 0
+    private var worker: Task<Void, Never>?
+    private var scannedFingerprint: SourceFingerprint?
+
+    public static let backgroundCheckInterval: TimeInterval = 5 * 60
 
     public init(
         environment: CollectorEnvironment,
         reporter: ReportFetching,
         collector: CollectorRunning,
+        service: ServiceControlling = NoServiceControl(),
+        config: ConfigWriting = NoConfigWriter(),
         clock: @escaping @Sendable () -> Date = Date.init,
-        cacheURL: URL? = nil
+        cacheURL: URL? = nil,
+        fingerprint: @escaping @Sendable ([URL]) -> SourceFingerprint = SourceFingerprint.of
     ) {
         self.environment = environment
         self.reporter = reporter
         self.collector = collector
+        self.service = service
+        self.config = config
         self.clock = clock
         self.cacheURL = cacheURL
+        self.fingerprint = fingerprint
     }
 
     public static func live() -> AppStore {
@@ -61,11 +107,13 @@ public final class AppStore {
             environment: environment,
             reporter: LiveReportClient(environment: environment),
             collector: LiveCollectorClient(environment: environment),
+            service: LiveServiceControl(environment: environment),
+            config: LiveConfigWriter(environment: environment),
             cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json")
         )
     }
 
-    /// A store pre-filled with a report, for previews and tests. Never used by the running app.
+    /// A store pre-filled with a report, for previews, snapshots and tests. Never used by the running app.
     public static func preview(_ report: Report, clock: Date? = nil) -> AppStore {
         let store = AppStore(
             environment: CollectorEnvironment(
@@ -84,53 +132,107 @@ public final class AppStore {
         return false
     }
 
+    public var isActing: Bool {
+        if case .running = action { return true }
+        return false
+    }
+
     public var now: Date { clock() }
 
     // MARK: Lifecycle
 
-    /// Launch: show the cached report instantly, then refresh in the background.
+    /// Launch: render the cached snapshot instantly, then refresh in the background.
     public func start() {
         loadCache()
         Task { await refresh() }
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: Self.backgroundRefreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+        timer = Timer.scheduledTimer(withTimeInterval: Self.backgroundCheckInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refreshIfSourcesChanged() }
         }
     }
 
-    /// Popover opened: never collects. Re-reads the report only when it is old.
+    /// Popover opened: never collects, and only re-reads when the collector's files
+    /// changed since the last scan. The service probe is cheap and always runs.
     public func popoverOpened() {
-        guard !isRefreshing, !isCollecting else { return }
-        if let last = lastRefreshAt, clock().timeIntervalSince(last) < Self.popoverRefreshAge { return }
-        Task { await refresh() }
-    }
-
-    public func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            let fresh = try await reporter.fetch()
-            apply(fresh, cached: false)
-            refreshError = nil
-            saveCache(fresh)
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            refreshError = message
-            if report == nil { phase = .failed(message) }
+        Task {
+            await probeService()
+            await refreshIfSourcesChanged()
         }
-        lastRefreshAt = clock()
     }
 
-    /// Collect now: the collector's existing one-time path, one run at a time,
-    /// followed by a report refresh that every observing view receives.
+    /// Re-run the report only if the CSV, log or config changed since the last scan.
+    public func refreshIfSourcesChanged() async {
+        if let scannedFingerprint, scannedFingerprint == fingerprint(sourceURLs) { return }
+        await refresh()
+    }
+
+    /// Request a report run. Coalesces with any run in flight: callers return once a
+    /// run that started after their request has finished.
+    public func refresh() async {
+        requested += 1
+        let wanted = requested
+        while completed < wanted {
+            if worker == nil { worker = Task { await self.drain() } }
+            await worker?.value
+        }
+    }
+
+    private func drain() async {
+        while completed < requested {
+            let target = requested
+            isRefreshing = true
+            let before = fingerprint(sourceURLs)
+            reportRuns += 1
+            do {
+                let fresh = try await reporter.fetch()
+                // Never let an older result replace a newer snapshot.
+                if let current = snapshot, fresh.generatedAt < current.generatedAt {
+                    // Discard; the newer snapshot stays.
+                } else {
+                    apply(fresh, cached: false)
+                    saveCache(fresh)
+                }
+                refreshError = nil
+                // The first report names the CSV and log; fingerprint those too.
+                let after = fingerprint(sourceURLs)
+                scannedFingerprint = Set(after.entries.keys) == Set(before.entries.keys) ? before : after
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                refreshError = message
+                if snapshot == nil { phase = .failed(message) }
+            }
+            lastRefreshAt = clock()
+            completed = target
+        }
+        isRefreshing = false
+        worker = nil
+    }
+
+    private var sourceURLs: [URL] {
+        var urls = [environment.configPath]
+        if let collector = snapshot?.collector {
+            urls.append(URL(fileURLWithPath: collector.usageCsv))
+            urls.append(URL(fileURLWithPath: collector.logFile))
+        }
+        return urls
+    }
+
+    // MARK: Collect now
+
+    /// The collector's existing one-time path, one run at a time, followed by a
+    /// report refresh that every observing view (popover, History) receives.
     @discardableResult
     public func collectNow() async -> CollectRun? {
         guard !isCollecting else { return nil }
-        collect = .running(startedAt: clock())
+        collect = .running(startedAt: clock(), progress: nil)
         let run: CollectRun
         do {
-            run = try await collector.collectOnce()
+            run = try await collector.collectOnce(progressSupported: snapshot?.collector.capabilities?.progress ?? false) { [weak self] progress in
+                Task { @MainActor in
+                    guard let self, case let .running(started, _) = self.collect else { return }
+                    self.collect = .running(startedAt: started, progress: progress)
+                }
+            }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             run = CollectRun(outcome: .failed, message: message, finishedAt: clock())
@@ -144,17 +246,57 @@ public final class AppStore {
         if case .finished = collect { collect = .idle }
     }
 
+    // MARK: Service and settings
+
+    public func probeService() async {
+        if let status = try? await service.status() { liveService = status }
+    }
+
+    public func startService() async { await perform("Starting the collector…", success: "Collector started") { try await self.service.start() } }
+
+    public func stopService() async { await perform("Stopping the collector…", success: "Collector stopped; it stays stopped at login") { try await self.service.stop() } }
+
+    public func setPaused(_ paused: Bool) async {
+        await perform(paused ? "Pausing scheduled checks…" : "Resuming scheduled checks…",
+                      success: paused ? "Scheduled checks paused" : "Scheduled checks resumed") {
+            try await self.config.apply([.pollPaused(paused)])
+        }
+    }
+
+    public func applySettings(_ changes: [ConfigChange]) async {
+        guard !changes.isEmpty else { return }
+        await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+    }
+
+    private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async {
+        guard !isActing else { return }
+        action = .running(running)
+        do {
+            try await body()
+            action = .done(success)
+        } catch {
+            action = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+        }
+        await probeService()
+        await refresh()
+    }
+
+    public func dismissAction() {
+        if case .running = action { return }
+        action = .idle
+    }
+
     // MARK: Internals
 
     func apply(_ newReport: Report, cached: Bool) {
-        report = newReport
+        snapshot = newReport
         isCachedReport = cached
         phase = .ready
         revision += 1
     }
 
     private func loadCache() {
-        guard report == nil, let cacheURL, let data = try? Data(contentsOf: cacheURL),
+        guard snapshot == nil, let cacheURL, let data = try? Data(contentsOf: cacheURL),
               let cached = try? Report.decode(data) else { return }
         apply(cached, cached: true)
     }
@@ -170,13 +312,31 @@ public final class AppStore {
     }
 }
 
+/// Size and modification time of the collector's files; a change means a scan is worthwhile.
+public struct SourceFingerprint: Equatable, Sendable {
+    public var entries: [String: [Double]]
+
+    public init(entries: [String: [Double]]) { self.entries = entries }
+
+    public static func of(_ urls: [URL]) -> SourceFingerprint {
+        var entries: [String: [Double]] = [:]
+        for url in urls {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let size = (attributes?[.size] as? NSNumber)?.doubleValue ?? -1
+            let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? -1
+            entries[url.path] = [size, modified]
+        }
+        return SourceFingerprint(entries: entries)
+    }
+}
+
 struct StaticReport: ReportFetching {
     var report: Report
     func fetch() async throws -> Report { report }
 }
 
 struct NoCollector: CollectorRunning {
-    func collectOnce() async throws -> CollectRun {
+    func collectOnce(progressSupported: Bool, onProgress: @escaping @Sendable (CollectProgress) -> Void) async throws -> CollectRun {
         CollectRun(outcome: .failed, message: "Collect now isn’t available in previews.", finishedAt: Date())
     }
 }

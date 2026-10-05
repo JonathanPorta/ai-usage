@@ -4,12 +4,19 @@
   "timezone": "America/Denver",
   "today": "2026-09-29",
   "collector": {
-    "version": "2.1.0",
+    "version": "2.2.0",
     "config_path": "/sandbox/config.json",
     "usage_csv": "/sandbox/data/usage.csv",
     "log_file": "/sandbox/data/collector.log",
     "interval_seconds": 3600,
-    "csv_rows": 8297
+    "csv_rows": 8297,
+    "installed_version": "2.2.0",
+    "capabilities": {
+      "pause": true,
+      "progress": true,
+      "service_control": true,
+      "settings": true
+    }
   },
   "thresholds": {
     "stale_after_seconds": 7200,
@@ -18,12 +25,14 @@
   "service": {
     "state": "running",
     "pid": 4242,
+    "disabled": false,
     "detail": "launchctl: state = running"
   },
   "schedule": {
     "state": "active",
     "interval_minutes": 60,
-    "pause_supported": false,
+    "pause_supported": true,
+    "pause_requested": false,
     "next_scheduled_at": "2026-09-29T17:17:00Z"
   },
   "collection": {
@@ -59,6 +68,8 @@
       "usage": {
         "status": "current",
         "stale_cause": null,
+        "becomes_stale_at": "2026-09-29T18:17:00Z",
+        "becomes_stale_cause": "not_collected",
         "measured_at": "2026-09-29T16:17:00Z",
         "collected_at": "2026-09-29T16:17:00Z",
         "record_kind": "period_total",
@@ -1000,6 +1011,8 @@
             "reset_passed": true,
             "status": "stale",
             "stale_cause": "source_old",
+            "becomes_stale_at": null,
+            "becomes_stale_cause": null,
             "omitted": true,
             "retired": false,
             "limit": null,
@@ -1890,6 +1903,8 @@
             "reset_passed": false,
             "status": "current",
             "stale_cause": null,
+            "becomes_stale_at": "2026-09-29T18:17:00Z",
+            "becomes_stale_cause": "not_collected",
             "omitted": false,
             "retired": false,
             "limit": "reached",
@@ -4354,6 +4369,8 @@
       "usage": {
         "status": "current",
         "stale_cause": null,
+        "becomes_stale_at": "2026-09-29T18:17:00Z",
+        "becomes_stale_cause": "not_collected",
         "measured_at": "2026-09-29T16:27:00Z",
         "collected_at": "2026-09-29T16:17:00Z",
         "record_kind": "event_total",
@@ -5339,6 +5356,8 @@
       "usage": {
         "status": "current",
         "stale_cause": null,
+        "becomes_stale_at": "2026-09-29T18:17:00Z",
+        "becomes_stale_cause": "not_collected",
         "measured_at": "2026-09-29T15:22:00Z",
         "collected_at": "2026-09-29T16:17:00Z",
         "record_kind": "delta",
@@ -6285,6 +6304,8 @@
             "reset_passed": false,
             "status": "current",
             "stale_cause": null,
+            "becomes_stale_at": "2026-09-29T20:17:00Z",
+            "becomes_stale_cause": "reset_passed",
             "omitted": false,
             "retired": false,
             "limit": null,
@@ -6413,6 +6434,8 @@
       "usage": {
         "status": "current",
         "stale_cause": null,
+        "becomes_stale_at": "2026-09-29T18:17:00Z",
+        "becomes_stale_cause": "not_collected",
         "measured_at": "2026-09-29T16:37:00Z",
         "collected_at": "2026-09-29T16:17:00Z",
         "record_kind": "event_total",
@@ -7359,6 +7382,8 @@
             "reset_passed": false,
             "status": "stale",
             "stale_cause": "failed",
+            "becomes_stale_at": null,
+            "becomes_stale_cause": null,
             "omitted": false,
             "retired": false,
             "limit": null,
@@ -9828,6 +9853,8 @@
       "usage": {
         "status": "none",
         "stale_cause": null,
+        "becomes_stale_at": null,
+        "becomes_stale_cause": null,
         "measured_at": null,
         "collected_at": null,
         "record_kind": "event_total",

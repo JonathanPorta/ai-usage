@@ -27,6 +27,16 @@ public struct CollectorInfo: Codable, Equatable, Sendable {
     public var logFile: String
     public var intervalSeconds: Int
     public var csvRows: Int
+    /// VERSION of the collector the LaunchAgent runs (read from its file, never executed).
+    public var installedVersion: String?
+    public var capabilities: Capabilities?
+
+    public struct Capabilities: Codable, Equatable, Sendable {
+        public var pause: Bool
+        public var progress: Bool
+        public var serviceControl: Bool
+        public var settings: Bool
+    }
 }
 
 public struct Thresholds: Codable, Equatable, Sendable {
@@ -38,6 +48,8 @@ public struct Service: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable { case running, loaded, stopped, notInstalled = "not_installed", unknown }
     public var state: State
     public var pid: Int?
+    /// launchd's persistent disable flag: a disabled agent stays stopped at login.
+    public var disabled: Bool?
     public var detail: String
 }
 
@@ -45,7 +57,11 @@ public struct Schedule: Codable, Equatable, Sendable {
     public var state: String
     public var intervalMinutes: Int
     public var pauseSupported: Bool
+    /// `poll_paused` is set in config.json (in effect only when the installed collector supports it).
+    public var pauseRequested: Bool?
     public var nextScheduledAt: Date?
+
+    public var isPaused: Bool { state == "paused" }
 }
 
 public struct CollectionState: Codable, Equatable, Sendable {
@@ -104,6 +120,8 @@ public enum Freshness: String, Codable, Sendable { case current, stale, none }
 public struct Usage: Codable, Equatable, Sendable {
     public var status: Freshness
     public var staleCause: StaleCause?
+    public var becomesStaleAt: Date?
+    public var becomesStaleCause: StaleCause?
     public var measuredAt: Date?
     public var collectedAt: Date?
     public var recordKind: String
@@ -178,6 +196,8 @@ public struct QuotaWindow: Codable, Equatable, Identifiable, Sendable {
     public var resetPassed: Bool
     public var status: Freshness
     public var staleCause: StaleCause?
+    public var becomesStaleAt: Date?
+    public var becomesStaleCause: StaleCause?
     public var omitted: Bool
     public var retired: Bool
     public var limit: Limit?
@@ -327,5 +347,44 @@ public extension Report {
             throw ReportError.malformed("fixture resource missing")
         }
         return try decode(Data(contentsOf: url))
+    }
+}
+
+// MARK: - Re-evaluation of a stored snapshot
+
+public extension Report {
+    /// The snapshot as it reads at `now`. Freshness rules live in the reporting
+    /// layer; this only applies the deadlines it published (`becomes_stale_at`),
+    /// so a cached or aging snapshot can never present stale readings as current.
+    /// Measurements and their timestamps are never changed.
+    func evaluated(at now: Date) -> Report {
+        var copy = self
+        for index in copy.providers.indices {
+            var provider = copy.providers[index]
+            if provider.usage.status == .current, let deadline = provider.usage.becomesStaleAt, deadline <= now {
+                provider.usage.status = .stale
+                provider.usage.staleCause = provider.usage.becomesStaleCause ?? .notCollected
+            }
+            var changed = false
+            for w in provider.quota.windows.indices where provider.quota.windows[w].status == .current {
+                if let deadline = provider.quota.windows[w].becomesStaleAt, deadline <= now {
+                    let cause = provider.quota.windows[w].becomesStaleCause ?? .notCollected
+                    provider.quota.windows[w].status = .stale
+                    provider.quota.windows[w].staleCause = cause
+                    provider.quota.windows[w].limit = nil  // limits come from current windows only
+                    if cause == .resetPassed { provider.quota.windows[w].resetPassed = true }
+                    changed = true
+                }
+            }
+            if changed {
+                let active = provider.quota.windows.filter { !$0.retired && $0.status != .none }
+                let statuses = Set(active.map(\.status))
+                if statuses == [.stale] { provider.quota.status = .stale }
+                else if statuses.count > 1 { provider.quota.status = .mixed }
+                provider.quota.staleCause = active.first { $0.status == .stale }?.staleCause
+            }
+            copy.providers[index] = provider
+        }
+        return copy
     }
 }
