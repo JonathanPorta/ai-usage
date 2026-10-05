@@ -119,6 +119,38 @@ Still outstanding (needs a person at the Mac):
 - large text sizes;
 - accepting native visual baselines into `references/`.
 
+#### 2026-10-05: milestone 2 (agent; offscreen snapshots plus automated tests)
+
+- Monitoring and Settings rendered offscreen in light and dark at 420 pt. The switch alignment was fixed after the first render.
+- Collect now, Settings and Pause were exercised through the real collector commands in an isolated sandbox (`LiveSandboxTests`).
+- Start/stop and pause were exercised against a fake launchctl and an isolated daemon. **The installed collector was not touched.**
+- Latency with the real 334K-row CSV (`AIUsage --measure`):
+  - cache-first render in 182 ms;
+  - cold refresh 2.47 s;
+  - longest main-thread stall during a refresh 16 ms;
+  - 0 scans for 10 reopens;
+  - 1 run for 5 overlapping requests.
+
+### Manual checklist (needs a person at the Mac; offscreen renders don't complete these)
+
+- [ ] The real menu-bar popover opened from the status item: 420 pt wide, pinned header and footer, short-screen scrolling.
+- [ ] Keyboard:
+  - `↑`/`↓` between the status row and the cards;
+  - chart `←`/`→`/`Home`/`End` readouts;
+  - `Esc` back;
+  - `⌘R` Collect now;
+  - `⌘,` Settings.
+- [ ] Hover readouts on the 7-day and full charts.
+- [ ] An already-open History window updates after Collect now and after a price change.
+- [ ] `popoverOpened()` fires on every reopen of the `.window` MenuBarExtra.
+- [ ] Reduce Motion: no slide transitions, and a static checking symbol.
+- [ ] Large text sizes: quota cells and the footer stay readable.
+- [ ] Notifications appear after permission is granted, once per limit period.
+- [ ] Open at login registers (it may require approval in System Settings).
+- [ ] Stop and Start on the real collector, which also confirms it stays stopped across a logout and login. Optional, at your discretion: these change your installed service.
+- [ ] Pause and Resume. This needs the installed collector at 2.2.0 or newer (`python3 ai_usage_service.py install`).
+- [ ] Accept native visual baselines into `references/`. This retires the waiver.
+
 ## Related archives not imported
 
 | Archive | SHA-256 | Status |

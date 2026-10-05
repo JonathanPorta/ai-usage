@@ -122,5 +122,5 @@ over the collector's CSV, its state and `launchctl`.
 | Popover overview, provider detail, History window, shared store, Collect now | Done (milestone 1) |
 | Menu-bar glyph with collecting / stopped / attention badges | Done; paused badge waits on a pause capability |
 | Offscreen visual verification (`make app-snapshot`) | Done; visual baselines still need acceptance |
-| Monitoring view, Settings, service start/stop, pause/resume, notifications, open at login | Planned for later tasks; pause needs a new collector capability |
+| Monitoring, Settings, service start/stop, pause/resume, provider progress, notifications, open at login | Done (milestone 2). Pause and progress need collector 2.2.0+, and the UI says so |
 | Visual baselines | Pending (waived until verification) |

@@ -35,8 +35,8 @@ into both scenes with `.environment(store)`.
 | Overview: header, status row, at most one notice, provider cards, footer | Milestone 1 | `OverviewView.swift` |
 | Provider detail: chart (Tokens 7/30 d, or Quota with a window picker and ranges), quota windows, today, models, Cost and accounting, Sources and diagnostics, Open in History | Milestone 1 | `ProviderDetailView.swift` |
 | History: provider list, Tokens or Quota, window picker, range (7/30/90 d, default 30), summaries, chart, table, accounting | Milestone 1 | `HistoryView.swift` |
-| Monitoring: service start/stop, schedule pause/resume, collection attempts and failures, provider sources | **Later task** | — |
-| Settings: interval, providers and prices, notifications, open at login | **Later task** | — |
+| Monitoring: service start/stop, schedule pause/resume, collection attempts and failures (Collect now with progress), provider sources, data refresh state | Milestone 2 | `MonitoringView.swift` |
+| Settings: interval, providers and prices, notifications, open at login, Quit | Milestone 2 | `SettingsView.swift` |
 
 ## Interaction and state inventory
 
@@ -55,8 +55,11 @@ into both scenes with `.environment(store)`.
 | Not set up, disabled | `setup` | Muted card with one line of explanation |
 | First run (no attempts) | `collection.last_attempt_at == null` | "Waiting for the first check" with no charts |
 | Service stopped or not installed | `service.state` | Red status row: "Collector stopped · last check 4 h ago". Cached data stays shown. |
+| Paused schedule | `schedule.state == "paused"` | Status row: "Scheduled checks paused · Collect now still works". Menu-bar pause badge. Monitoring offers Resume. |
+| Pause not supported by the installed collector | `capabilities.pause == false` | Pause is disabled, with the version needed and the reinstall command |
+| Service action or settings save | `store.action` | Spinner, then "Collector stopped; it stays stopped at login" / "Settings saved", or the exact error |
 | Cancellation | — | Collect now cannot be cancelled once started. The collector's own timeouts bound it. |
-| Confirmation | — | No destructive actions in milestone 1. Stop and uninstall are later tasks, and will be confirmed. |
+| Confirmation | — | Stop collector asks first. It explains that the collector stays stopped at login and data is kept. |
 | Recovery | — | Every failure notice names its action: retry Collect now, open the log, or run a command. |
 
 ## Keyboard
@@ -67,14 +70,20 @@ into both scenes with `.environment(store)`.
 | `Esc` | Back from detail; at the overview it closes the popover (system behavior) |
 | `↑`/`↓` | Move between the status row and the cards (focus) |
 | `←`/`→`/`Home`/`End` on a focused chart | Move the readout |
-| `⌘,` | Settings, a later task. Until then it is unbound. |
+| `⌘,` | Settings |
 
 ## Data refresh policy
 
 1. **On launch:** decode the last report cached in `~/Library/Application Support/AI Usage/last-report.json`, then run the report in the background.
-2. **When the popover opens:** render the store at once. If the report is more than 60 s old, refresh it in the background (read-only; it never collects).
-3. **While running:** refresh every 5 minutes.
-4. **Collect now:** run `once` (serialized by the collector's lock), then refresh. Every view, including an already-open History window, updates from the same store.
+   - First render takes about 180 ms.
+   - The footer says "Showing saved data from …" until the live report replaces it.
+2. **When the popover opens:** render the store at once. A cheap service probe runs. The report runs only if the CSV, log or config changed since the last scan. It is read-only and never collects.
+3. **While running:** every 5 minutes, the same change check.
+4. **Collect now, service actions and settings:** run the action, then refresh. Every view, including an already-open History window, updates from the same store.
+5. **Overlap:** all report runs go through one worker. Overlapping requests share one follow-up run, an older result never replaces a newer one, and a failure keeps the last good snapshot with the error shown.
+6. **Aging:** the snapshot is re-evaluated against the clock with the report's `becomes_stale_at` deadlines, so cached readings can't look fresher than they are.
+
+`AIUsage --measure` reports these behaviors against the live report (read-only).
 
 ## Environment overrides (development and testing)
 

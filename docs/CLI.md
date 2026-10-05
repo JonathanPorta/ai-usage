@@ -13,6 +13,11 @@ python3 ai_usage_service.py install [--config PATH] [--no-start]
 ~/.ai-usage/collector.py once      [--config PATH]   # one collection, flock-serialized with the daemon
 ~/.ai-usage/collector.py daemon    [--config PATH]   # polling loop (launchd)
 ~/.ai-usage/collector.py status                      # LaunchAgent status
+~/.ai-usage/collector.py service-status              # JSON: installed, state, pid, disabled   (2.2.0)
+~/.ai-usage/collector.py start                       # enable + bootstrap the LaunchAgent        (2.2.0)
+~/.ai-usage/collector.py stop                        # disable + bootout; stays stopped at login (2.2.0)
+~/.ai-usage/collector.py configure --config PATH --set KEY=JSON [...]                          (2.2.0)
+~/.ai-usage/collector.py once --progress             # also prints one JSON line per provider   (2.2.0)
 ~/.ai-usage/collector.py doctor    [--config PATH] [--json]
 ~/.ai-usage/collector.py uninstall [--config PATH]
 ~/.ai-usage/collector.py version
@@ -25,6 +30,24 @@ python3 ai_usage_service.py install [--config PATH] [--no-start]
 | 0 | Every row was ok |
 | 2 | The transaction was committed, but at least one row has `status=error` (partial) |
 | 1 | Config, IO or state error; nothing was committed |
+
+`configure` accepts:
+
+- `poll_paused=true|false`;
+- `poll_interval_seconds=N` (60 to 604800);
+- `providers.<id>.enabled=true|false`;
+- `providers.<id>.monthly_subscription_usd=N|null`.
+
+It is locked, validated against the merged config, atomic and mode-preserving,
+and leaves every other key untouched. It exits 1 and changes nothing on any
+invalid value.
+
+`once --progress` lines look like
+`{"event":"provider","provider":"codex","index":1,"total":4}`.
+
+With `poll_paused: true` the daemon keeps running and skips scheduled checks,
+re-reading config every 15 s. Clearing it schedules the next check one interval
+later. `once` and event-driven collection are never paused.
 
 `once` and `daemon` take an exclusive `flock` on `<state_file>.lock` for the
 whole collect-and-commit cycle. Two collections never interleave. A `once`
@@ -79,18 +102,22 @@ reported*. It never means zero.
     "usage_csv": "/Users/me/.ai-usage/usage.csv",
     "log_file": "/Users/me/.ai-usage/collector.log",
     "interval_seconds": 3600,
-    "csv_rows": 329277
+    "csv_rows": 329277,
+    "installed_version": "2.1.0",      // VERSION read from the LaunchAgent's script; null if unknown
+    "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true }
   },
   "thresholds": { "stale_after_seconds": 7200, "grok_billing_stale_after_seconds": 10800 },
   "service": {
     "state": "running",          // running | loaded | stopped | not_installed | unknown
     "pid": 63638,
+    "disabled": false,           // launchd disable flag (true after Stop: stays stopped at login)
     "detail": "launchctl: state = running"
   },
   "schedule": {
-    "state": "active",           // active | unknown (paused: not yet supported)
+    "state": "active",           // active | paused | unknown
     "interval_minutes": 60,
-    "pause_supported": false,
+    "pause_supported": false,    // installed collector honors poll_paused (2.2.0+)
+    "pause_requested": false,    // poll_paused is set in config.json
     "next_scheduled_at": "2026-10-05T09:41:09Z"   // null when not running or unknown
   },
   "collection": {
@@ -121,6 +148,8 @@ reported*. It never means zero.
   "usage": {
     "status": "current",       // current | stale | none
     "stale_cause": null,       // failed | not_collected | source_old | null
+    "becomes_stale_at": "…",   // when a current reading turns stale without new data (or null)
+    "becomes_stale_cause": "not_collected",
     "measured_at": "…",        // newest measurement time (event time or poll time)
     "collected_at": "…",       // last successful read of the usage source
     "record_kind": "period_total",
@@ -185,6 +214,8 @@ provider's own total. Cache tokens are never included in `total`.
   "reset_passed": false,       // measured_at < resets_at <= now
   "status": "current",         // current | stale | none
   "stale_cause": null,         // auth | failed | not_collected | source_old | reset_passed
+  "becomes_stale_at": "…",     // earliest of: last read + stale_after, reading + threshold, resets_at
+  "becomes_stale_cause": "reset_passed",
   "omitted": false,            // absent from the latest successful quota read
   "retired": false,            // not reported for > 2× its length (min 24 h)
   "limit": null,               // reached | low | null — only for current windows

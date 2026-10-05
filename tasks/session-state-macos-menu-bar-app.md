@@ -20,15 +20,13 @@ Last updated: 2026-10-05T17:45:00Z
 - Authorized: commit, push non-protected feature branches, and open or update draft PRs. Not authorized: merging, or replacing the installed collector. Confirmed by the human.
 
 ### Codebase Understanding
-- `ai_usage_report.py`: attempts are transactions with check-time rows. Event rows carry event time in `collected_at`.
-- `ai_usage_fixtures.py`: one synthetic scenario feeds the tests, `report-fixture.json` and the sandbox.
-- `test_ai_usage_service.py`: `IsolatedHome` must keep `AI_USAGE_LAUNCHCTL` pointing at the fake, or the tests boot out the real collector.
-- A release `swift build` once spent about 18 minutes waiting at 3% CPU. Later builds were fast.
+- PR #4 (`jp/b/isolate-launchctl-in-tests`) is the base of `jp/f/macos-menu-bar-app` (design import first, then the app).
+- `ai_usage_service.py` 2.2.0 adds `poll_paused`, `service-status`, `start`, `stop`, `configure` and `once --progress`. `schedule_decision` is pure.
+- The report reads the installed collector's VERSION from the LaunchAgent plist's script (as text) to gate Pause and progress. The owner's install is 2.1.0.
+- AppStore: `snapshot` is raw, and `report` is `snapshot.evaluated(at: now)` merged with the live service status. All refreshes go through one worker. Rescans happen only when the fingerprint changes.
+- `AIUsage --snapshot DIR [--live]` and `AIUsage --measure` give permission-free evidence.
 
 ### What's Next
-1. A human verifies the outstanding items in `docs/design/app/design.md#verification`.
-2. Tasks 5.1–5.8 (Monitoring, Settings, service control, pause, progress, notifications, login item, baselines).
-
-### Blockers / Open Questions
-- Handoff §10 Q1 and Q2 (Stop vs. login start; pause persistence) gate tasks 5.2 and 5.3.
-- Delete this file before merging to main (rule 06).
+1. Push the app branch and open a draft PR on top of #4. Check CI on Linux and macOS.
+2. Human: manual checklist in `docs/design/app/design.md`.
+3. Before merge: delete this file (rule 06).

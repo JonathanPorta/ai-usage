@@ -131,6 +131,13 @@ The four configured paths and their derived lock/journal paths must resolve to
 distinct filesystem objects. Collisions—including symlink aliases—fail during
 config loading before logs, CSV, or state are mutated.
 
+`poll_paused: true` pauses scheduled checks (collector 2.2.0 or newer). The
+daemon keeps running, `once` still works, and clearing it schedules the next
+check one interval later. The menu app changes these settings with
+`collector.py configure --set KEY=JSON`, which writes atomically and preserves
+everything else. `collector.py stop` / `start` disable or re-enable the
+LaunchAgent; a stopped collector stays stopped across login.
+
 `monthly_subscription_usd` is intentionally manual: consumer billing metadata
 generally does not expose the price on your receipt. It is recorded once per
 calendar month, and again only if you change the configured value.

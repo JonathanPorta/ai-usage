@@ -138,3 +138,57 @@ routine choice made within the approved scope; change it freely with a new entry
 ## 2026-10-05 — Test isolation from the real LaunchAgent (engineering, bug fix)
 **Choice:** `find_launchctl()` honors `AI_USAGE_LAUNCHCTL`, and the black-box suite points it at a recording fake.
 **Reason:** the black-box `uninstall` tests booted out the developer's installed collector on every `make test` run on a Mac. This was observed during this work, and the service was re-bootstrapped.
+
+## 2026-10-05 — Service control, pause and resume (approved by the owner)
+**Choice:**
+- **Stop collector:** `launchctl disable gui/<uid>/codes.porta.ai-usage`, then `bootout`. It stays stopped across login. The plist, config and data are kept.
+- **Start collector:** `enable`, then `bootstrap` (`kickstart` only if it is loaded but not running).
+- **Pause:** a persisted `poll_paused` boolean in config.json, named after the existing `poll_interval_seconds` and `poll_on_start`.
+  - The daemon keeps running, and an in-flight check finishes. Later scheduled checks are skipped.
+  - `once` (Collect now) and event-driven collection (the Antigravity status line) are unaffected.
+- **Resume:** clears `poll_paused`. The next check comes one configured interval after the daemon notices the change.
+- **Quitting the app** changes nothing about the collector or its schedule. The app's open-at-login (SMAppService) is a separate preference.
+
+## 2026-10-05 — How pause reaches a running daemon (engineering)
+**Choice:**
+- An idle daemon re-reads config.json every 15 s (`AI_USAGE_SCHEDULE_TICK_SECONDS` lowers this for tests only).
+- The pause/resume decision is a pure function (`schedule_decision`) with unit tests.
+- The daemon logs `scheduled checks paused…` and `scheduled checks resumed next_poll_seconds=N`. The report derives the next check time from those lines.
+
+**Reason:** the collector already reloads config between polls. Ticking keeps changes noticed within seconds without signals or IPC.
+
+## 2026-10-05 — Capabilities come from the installed collector (engineering)
+**Choice:**
+- The report reads `VERSION` from the script the LaunchAgent runs (its plist's `ProgramArguments[1]`), as text, never executing it.
+- Pause and `once --progress` are offered only for 2.2.0 or newer. Otherwise the UI says which version is needed and how to reinstall.
+- An older collector ignores an unknown `poll_paused` key, so offering Pause there would be a silent no-op.
+- Service control and settings work with any installed version: they use `launchctl` and config keys that 2.1.0 already understands.
+
+**Reason:** never present a control the running collector won't honor. The owner's installed collector is 2.1.0 and was deliberately not reinstalled.
+
+## 2026-10-05 — Settings are written by the collector, not the app (engineering)
+**Choice:** the app runs its bundled `ai_usage_service.py configure --set KEY=JSON`.
+- Writes hold a lock beside config.json, are validated against the full merged config, and use temp file + rename. The file mode and every other key are kept.
+- Only `poll_paused`, `poll_interval_seconds` and `providers.<id>.enabled|monthly_subscription_usd` may change.
+- A rejected value leaves the file byte-identical.
+
+## 2026-10-05 — Interaction never waits for the CSV scan (engineering)
+**Choice:**
+- The last good snapshot renders immediately: about 180 ms from the on-disk cache at launch, then from memory.
+- One worker runs reports. Overlapping requests share one follow-up run, and older results can't replace newer ones.
+- Popover reopen and the 5-minute timer scan only when the CSV, log or config size/mtime changed. A cheap `service-status` probe keeps service state current.
+- The report publishes `becomes_stale_at` / `becomes_stale_cause`, and `Report.evaluated(at:)` applies them, so a cached snapshot can't show stale readings as current.
+- **Measured on the real 334K-row CSV:**
+  - cold refresh 2.47 s;
+  - 16 ms longest main-thread stall during a refresh;
+  - 0 scans for 10 reopens;
+  - 1 run for 5 overlapping requests.
+- The report itself was sped up from 6.3 s to 2.35 s, with byte-identical output.
+- This supersedes the earlier "re-read when the popover opens and the report is more than 60 s old" policy.
+
+## 2026-10-05 — Notifications (engineering, within the accepted design)
+**Choice:**
+- Notify when a **current** window reaches its limit, once per window and reset period.
+- Notify on check failures or sign-in needed, once per check and only within 2 h.
+- Two toggles in Settings, both on by default; nothing is delivered until macOS permission is granted.
+- Limits don't badge the menu-bar icon (handoff §10 Q5, current design).

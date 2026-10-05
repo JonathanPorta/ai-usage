@@ -44,12 +44,16 @@
   - [x] 4.1 `make check`, `make app-test`, and the strict checks in CI.
   - [x] 4.2 Run against real data (read-only) and against the sandbox (Collect now). Record the results in the design.md verification log.
   - [x] 4.3 Update DESIGN_SYSTEM implementation status and the component manifest status.
-- [ ] 5.0 Later tasks (accepted design, not in milestone 1)
-  - [ ] 5.1 Monitoring view: service, schedule, collection attempts, failures, sources.
-  - [ ] 5.2 Service start and stop through `launchctl bootstrap`/`bootout`, with confirmation. Needs a decision on handoff §10 Q1.
-  - [ ] 5.3 Pause and resume: a new collector config key read between polls. The collector keeps running and Collect now stays available. Needs §10 Q2.
-  - [ ] 5.4 Settings: interval, provider enablement and monthly prices, written to `config.json` atomically. History accounting updates live.
-  - [ ] 5.5 Per-provider Collect now progress: requires `once --progress` JSON-lines output from the collector.
-  - [ ] 5.6 Notifications for limits and failures (§10 Q5).
-  - [ ] 5.7 Open at login (`SMAppService.mainApp`).
-  - [ ] 5.8 Accepted native visual baselines in `docs/design/app/references/`, which retires the waiver.
+- [x] 5.0 Milestone 2 (accepted handoff remainder; owner decisions of 2026-10-05)
+  - [x] 5.1 Monitoring view: service, schedule, collection, failures, sources, data state. *Validation:* offscreen render; store tests.
+  - [x] 5.2 Service start/stop: stop is disable + bootout and stays stopped at login; start is enable + bootstrap. *Validation:* black-box test with a stateful fake launchctl (exact call sequence); Swift store test.
+  - [x] 5.3 Pause/resume through `poll_paused`. The daemon keeps running, `once` still works, and resume waits a full interval. *Validation:* `schedule_decision` unit tests; black-box daemon tests (paused at start, paused mid-run, resume); report tests (capability gating).
+  - [x] 5.4 Settings: interval, providers and prices through the atomic, validated `configure`. *Validation:* black-box `configure` test (keys kept, mode kept, rejects leave the file byte-identical); live sandbox Swift test.
+  - [x] 5.5 Per-provider progress through `once --progress`. *Validation:* black-box progress test; store progress test.
+  - [x] 5.6 Notifications for limits and failures, once each. *Validation:* NotificationPlanner tests. Delivery is still a manual check.
+  - [x] 5.7 Open at login (`SMAppService.mainApp`). *Validation:* manual check only.
+  - [ ] 5.8 Accepted native visual baselines in `docs/design/app/references/` (needs human acceptance).
+- [x] 6.0 Test isolation and latency (owner request 2026-10-05)
+  - [x] 6.1 Fail-closed `AI_USAGE_LAUNCHCTL`, a module guard, regression tests, incident record (PR #4).
+  - [x] 6.2 Report scan 6.3 s → 2.35 s with byte-identical output.
+  - [x] 6.3 Coalesced refreshes, change-detected rescans, `becomes_stale_at` re-evaluation. *Validation:* store tests; `--measure` on real data.
