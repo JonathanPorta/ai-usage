@@ -771,17 +771,212 @@ for line in sys.stdin:
             usage={"input_tokens": 10, "output_tokens": 34},
         )
         state = self._claude_state()
-        file_key = str(session)
-        cursor = state.setdefault("claude_offsets", {}).get(file_key, {})
-        if not isinstance(cursor, dict):
-            cursor = {}
-        cursor["offset"] = session.stat().st_size
-        cursor["inode"] = session.stat().st_ino
-        state["claude_offsets"][file_key] = cursor
+        size = session.stat().st_size
+        inode = session.stat().st_ino
+        for cursor in state.setdefault("claude_offsets", {}).values():
+            if isinstance(cursor, dict):
+                cursor["offset"] = size
+                cursor["inode"] = inode
         self._write_claude_state(state)
 
         self.case.run("once", "--config", str(self.case.config))
         self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertFalse(self.case.tripwire.exists())
+
+    def _unrecoverable_legacy_rows(self) -> list[dict[str, str]]:
+        return self.rows_matching(
+            provider="claude",
+            metric="legacy_message_baselines_unrecovered",
+        )
+
+    def test_claude_upgrade_does_not_replay_ids_evicted_from_recent_window(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_evicted",
+            session_id="evicted-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T11:00:00.000Z",
+            usage={"input_tokens": 4, "output_tokens": 7},
+        )
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_recent",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+        )
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config))
+        self.assertEqual(self._output_token_total("evicted-session", "claude-opus-5"), 7)
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 1)
+        state = self._claude_state()
+        state.pop("claude_accounted_usage", None)
+        state["claude_recent_message_ids"] = ["msg_recent"]
+        self._write_claude_state(state)
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_recent",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+        )
+
+        self.case.run("once", "--config", str(self.case.config))
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertEqual(self._output_token_total("evicted-session", "claude-opus-5"), 7)
+        self.assertFalse(self._unrecoverable_legacy_rows())
+        self.assertFalse(self.case.tripwire.exists())
+
+    def test_claude_upgrade_recovers_final_usage_after_inode_rotation(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+        )
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config))
+        state = self._claude_state()
+        state.pop("claude_accounted_usage", None)
+        self._write_claude_state(state)
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+        )
+        state = self._claude_state()
+        old_inode = session.stat().st_ino
+        size = session.stat().st_size
+        for cursor in state.setdefault("claude_offsets", {}).values():
+            if isinstance(cursor, dict):
+                cursor["offset"] = size
+                cursor["inode"] = old_inode
+        self._write_claude_state(state)
+        rotated = session.with_name(session.name + ".rotated")
+        session.rename(rotated)
+        session.write_text("", encoding="utf-8")
+        self.assertNotEqual(session.stat().st_ino, old_inode)
+        self.assertEqual(rotated.stat().st_ino, old_inode)
+
+        self.case.run("once", "--config", str(self.case.config))
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertFalse(self._unrecoverable_legacy_rows())
+        self.assertFalse(self.case.tripwire.exists())
+
+    def test_claude_upgrade_prefix_replay_stays_within_poll_byte_budget(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        padding = "x" * 8000
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+        )
+        for index in range(200):
+            self._write_claude_assistant_line(
+                session,
+                message_id=f"msg_pad_{index}",
+                session_id="pad-session",
+                model="claude-opus-5",
+                timestamp="2026-09-01T12:00:00.000Z",
+                usage={"input_tokens": 1, "output_tokens": 2},
+                text=padding,
+            )
+        self.assertGreater(session.stat().st_size, 1024 * 1024)
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config), timeout_seconds=40)
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 1)
+        self.assertEqual(self._output_token_total("pad-session", "claude-opus-5"), 400)
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+                max_session_bytes_per_poll=1024 * 1024,
+            )
+        )
+        state = self._claude_state()
+        state.pop("claude_accounted_usage", None)
+        state["claude_recent_message_ids"] = ["msg_stream"]
+        self._write_claude_state(state)
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+        )
+        state = self._claude_state()
+        size = session.stat().st_size
+        inode = session.stat().st_ino
+        for cursor in state.setdefault("claude_offsets", {}).values():
+            if isinstance(cursor, dict):
+                cursor["offset"] = size
+                cursor["inode"] = inode
+        self._write_claude_state(state)
+
+        self.case.run("once", "--config", str(self.case.config), timeout_seconds=40)
+        after_first = self._claude_state()
+        scans = [
+            entry
+            for entry in (after_first.get("claude_legacy_scan") or {}).values()
+            if isinstance(entry, dict)
+        ]
+        self.assertTrue(scans)
+        scan = scans[0]
+        self.assertLess(int(scan.get("offset", 0)), size)
+        self.assertLessEqual(int(scan.get("offset", 0)), 1024 * 1024 + 65536)
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 1)
+        self.assertEqual(self._output_token_total("pad-session", "claude-opus-5"), 400)
+        self.assertFalse(self._unrecoverable_legacy_rows())
+
+        for _ in range(8):
+            if self._output_token_total("stream-session", "claude-opus-5") == 34:
+                break
+            self.case.run("once", "--config", str(self.case.config), timeout_seconds=40)
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertEqual(self._output_token_total("pad-session", "claude-opus-5"), 400)
+        self.assertFalse(self._unrecoverable_legacy_rows())
         self.assertFalse(self.case.tripwire.exists())
 
     def test_antigravity_callback_sanitizes_then_collector_reads_cache(self) -> None:

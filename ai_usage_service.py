@@ -1757,16 +1757,54 @@ def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> 
 
 
 def claude_stored_offset(offsets: Mapping[str, Any], path: Path) -> int:
+    return int(claude_offset_record(offsets, path)["offset"])
+
+
+def claude_offset_record(offsets: Mapping[str, Any], path: Path) -> dict[str, Any]:
     raw = offsets.get(str(path), 0)
+    offset = 0
+    inode: Optional[int] = None
+    pending: list[dict[str, int]] = []
     if isinstance(raw, Mapping):
         try:
-            return max(0, int(raw.get("offset", 0)))
+            offset = max(0, int(raw.get("offset", 0)))
         except (TypeError, ValueError):
-            return 0
+            offset = 0
+        if raw.get("inode") is not None:
+            try:
+                inode = int(raw.get("inode"))
+            except (TypeError, ValueError):
+                inode = None
+        raw_pending = raw.get("pending_inodes", [])
+        if isinstance(raw_pending, list):
+            for item in raw_pending:
+                if isinstance(item, Mapping):
+                    pending.append(dict(item))
+    else:
+        try:
+            offset = max(0, int(raw))
+        except (TypeError, ValueError):
+            offset = 0
+    return {"offset": offset, "inode": inode, "pending_inodes": pending}
+
+
+def claude_prefix_replay_path(
+    session_file: Path, stored: Mapping[str, Any]
+) -> Optional[Path]:
+    stored_inode = stored.get("inode")
     try:
-        return max(0, int(raw))
+        current_inode = session_file.stat().st_ino
+    except OSError:
+        current_inode = None
+    if stored_inode is None:
+        return session_file if session_file.is_file() else None
+    try:
+        stored_inode_value = int(stored_inode)
     except (TypeError, ValueError):
-        return 0
+        return session_file if session_file.is_file() else None
+    if current_inode == stored_inode_value:
+        return session_file
+    return find_file_by_inode(session_file.parent, stored_inode_value)
 
 
 def fold_claude_usage_snapshot(
@@ -1852,16 +1890,30 @@ def merge_claude_snapshots(
     return merged
 
 
-def claude_snapshots_before_offset(
-    path: Path, end_offset: int
-) -> tuple[dict[str, dict[str, Any]], list[str], int]:
-    if end_offset <= 0:
-        return {}, [], 0
-    records, errors, _new_offset, _consumed, _size = read_json_lines_at(
-        path, 0, end_offset
+def claude_snapshots_in_byte_range(
+    path: Path,
+    start_offset: int,
+    end_offset: int,
+    max_bytes: int,
+) -> tuple[dict[str, dict[str, Any]], list[str], int, int, int]:
+    if end_offset <= start_offset or max_bytes <= 0:
+        return {}, [], 0, start_offset, 0
+    try:
+        file_size = path.stat().st_size
+    except OSError:
+        return {}, [], 0, start_offset, 0
+    if start_offset < 0 or start_offset > file_size:
+        return {}, [], 0, start_offset, 0
+    limit = min(max_bytes, end_offset - start_offset, file_size - start_offset)
+    if limit <= 0:
+        return {}, [], 0, start_offset, 0
+    records, errors, new_offset, consumed, _size = read_json_lines_at(
+        path, start_offset, limit
     )
+    if new_offset > end_offset:
+        new_offset = end_offset
     snapshots, order, _anonymous = claude_snapshots_from_records(records)
-    return snapshots, order, errors
+    return snapshots, order, errors, new_offset, consumed
 
 
 def collect_claude_session_logs(
@@ -1892,7 +1944,14 @@ def collect_claude_session_logs(
         message_id
         for message_id in recent_ids
         if not isinstance(accounted.get(message_id), Mapping)
+        or accounted.get(message_id, {}).get("awaiting_baseline")
     }
+    scan_raw = state.get("claude_legacy_scan")
+    if isinstance(scan_raw, MutableMapping):
+        legacy_scan = scan_raw
+    else:
+        legacy_scan = {}
+    state["claude_legacy_scan"] = legacy_scan
     parse_errors = 0
     rotation_losses: list[str] = []
     raw_session_budget = provider_config.get(
@@ -1903,11 +1962,15 @@ def collect_claude_session_logs(
     except (TypeError, ValueError):
         remaining_session_bytes = 25 * 1024 * 1024
     deferred_files = 0
+    incomplete_legacy_scans = False
     for index, session_file in enumerate(session_files):
         if remaining_session_bytes <= 0:
             deferred_files = len(session_files) - index
+            incomplete_legacy_scans = True
             break
-        start_offset = claude_stored_offset(offsets, session_file)
+        stored = claude_offset_record(offsets, session_file)
+        stored_offset = int(stored["offset"])
+        stored_inode = stored.get("inode")
         records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
             session_file,
             offsets,
@@ -1922,11 +1985,59 @@ def collect_claude_session_logs(
             rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
         prefix_snapshots: dict[str, dict[str, Any]] = {}
         prefix_order: list[str] = []
-        if legacy_ids and start_offset > 0:
-            prefix_snapshots, prefix_order, prefix_errors = (
-                claude_snapshots_before_offset(session_file, start_offset)
+        prefix_source = claude_prefix_replay_path(session_file, stored)
+        target_inode = stored_inode
+        if target_inode is None and prefix_source is not None:
+            try:
+                target_inode = prefix_source.stat().st_ino
+            except OSError:
+                target_inode = None
+        scan_entry = legacy_scan.get(file_key)
+        if (
+            isinstance(scan_entry, Mapping)
+            and scan_entry.get("inode") == target_inode
+        ):
+            try:
+                scan_at = max(0, int(scan_entry.get("offset", 0)))
+            except (TypeError, ValueError):
+                scan_at = 0
+        else:
+            scan_at = 0
+        scan_in_progress = (
+            isinstance(scan_entry, Mapping)
+            and scan_entry.get("inode") == target_inode
+            and scan_at < stored_offset
+        )
+        needs_prefix = (
+            prefix_source is not None
+            and stored_offset > 0
+            and scan_at < stored_offset
+            and (legacy_ids or scan_in_progress)
+        )
+        if needs_prefix and remaining_session_bytes <= 0:
+            incomplete_legacy_scans = True
+        elif needs_prefix:
+            (
+                prefix_snapshots,
+                prefix_order,
+                prefix_errors,
+                scan_at,
+                prefix_consumed,
+            ) = claude_snapshots_in_byte_range(
+                prefix_source,
+                scan_at,
+                stored_offset,
+                remaining_session_bytes,
             )
             parse_errors += prefix_errors
+            remaining_session_bytes -= prefix_consumed
+            if target_inode is not None:
+                legacy_scan[file_key] = {
+                    "inode": target_inode,
+                    "offset": scan_at,
+                }
+            if scan_at < stored_offset:
+                incomplete_legacy_scans = True
         combined = merge_claude_snapshots(prefix_snapshots, new_snapshots)
         visit_order: list[str] = []
         visited = set()
@@ -1935,6 +2046,7 @@ def collect_claude_session_logs(
                 continue
             visit_order.append(message_id)
             visited.add(message_id)
+        new_id_set = set(new_order)
         for message_id in visit_order:
             snap = combined[message_id]
             record = snap["best_record"]
@@ -1952,6 +2064,32 @@ def collect_claude_session_logs(
                     if isinstance(prior_metrics_raw, Mapping)
                     else {}
                 )
+                if prior.get("awaiting_baseline"):
+                    prefix_snap = prefix_snapshots.get(message_id)
+                    if prefix_snap is None:
+                        accounted[message_id] = {
+                            "file": prior_file or file_key,
+                            "inode": prior.get("inode", target_inode),
+                            "metrics": merge_claude_metrics(prior_metrics, metrics),
+                            "awaiting_baseline": True,
+                        }
+                        continue
+                    baseline = prefix_snap["first_metrics"]
+                    best_metrics = merge_claude_metrics(prior_metrics, metrics)
+                    deltas = claude_metric_deltas(baseline, best_metrics)
+                    if deltas:
+                        rows.extend(
+                            claude_usage_rows_from_metrics(
+                                record, collected_at, deltas
+                            )
+                        )
+                    accounted[message_id] = {
+                        "file": prior_file or file_key,
+                        "inode": prior.get("inode", target_inode),
+                        "metrics": best_metrics,
+                    }
+                    legacy_ids.discard(message_id)
+                    continue
                 deltas = claude_metric_deltas(prior_metrics, metrics)
                 if deltas:
                     rows.extend(
@@ -1959,12 +2097,20 @@ def collect_claude_session_logs(
                     )
                     accounted[message_id] = {
                         "file": prior_file or file_key,
+                        "inode": prior.get("inode", target_inode),
                         "metrics": merge_claude_metrics(prior_metrics, metrics),
                     }
                 continue
             if message_id in recent_ids:
                 prefix_snap = prefix_snapshots.get(message_id)
                 if prefix_snap is None:
+                    if message_id in new_id_set:
+                        accounted[message_id] = {
+                            "file": file_key,
+                            "inode": target_inode,
+                            "metrics": dict(metrics),
+                            "awaiting_baseline": True,
+                        }
                     continue
                 baseline = prefix_snap["first_metrics"]
                 deltas = claude_metric_deltas(baseline, metrics)
@@ -1972,19 +2118,32 @@ def collect_claude_session_logs(
                     rows.extend(
                         claude_usage_rows_from_metrics(record, collected_at, deltas)
                     )
-                accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
+                accounted[message_id] = {
+                    "file": file_key,
+                    "inode": target_inode,
+                    "metrics": dict(metrics),
+                }
                 legacy_ids.discard(message_id)
                 continue
+            if message_id not in new_id_set:
+                continue
             rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
-            accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
+            accounted[message_id] = {
+                "file": file_key,
+                "inode": target_inode,
+                "metrics": dict(metrics),
+            }
             recent_ids.add(message_id)
             new_ids.append(message_id)
-    if not deferred_files:
+    if not deferred_files and not incomplete_legacy_scans:
         leftover_legacy = [
             message_id
             for message_id in recent_ids_list
             if message_id in legacy_ids
-            and not isinstance(accounted.get(message_id), Mapping)
+            and (
+                not isinstance(accounted.get(message_id), Mapping)
+                or accounted.get(message_id, {}).get("awaiting_baseline")
+            )
         ]
         if leftover_legacy:
             for message_id in leftover_legacy:
