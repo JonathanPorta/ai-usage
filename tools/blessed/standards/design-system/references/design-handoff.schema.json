@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blessed-cicd/schemas/design-handoff/v1",
+  "title": "blessed/design-handoff/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "surface",
+    "status",
+    "version",
+    "source",
+    "authority",
+    "stack",
+    "implementation",
+    "checks",
+    "waivers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "blessed/design-handoff/v1" },
+    "surface": { "enum": ["app", "web", "cli", "icon", "infra"] },
+    "status": { "enum": ["draft", "accepted", "superseded"] },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "accepted_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "source": {
+      "type": "object",
+      "required": ["tool"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "archive": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": ["design", "engineering", "tokens", "production_components"],
+      "additionalProperties": false,
+      "properties": {
+        "design": { "$ref": "#/$defs/relativePath" },
+        "engineering": { "$ref": "#/$defs/relativePath" },
+        "tokens": { "$ref": "#/$defs/relativePath" },
+        "production_components": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "required": ["framework", "styling"],
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string", "minLength": 1 },
+        "bundler": { "type": "string", "minLength": 1 },
+        "package_manager": { "type": "string", "minLength": 1 },
+        "styling": {
+          "type": "object",
+          "required": ["profile", "canonical_tokens"],
+          "additionalProperties": false,
+          "properties": {
+            "profile": { "enum": ["tailwind-v4", "plain-css", "css-modules", "other"] },
+            "canonical_tokens": { "enum": ["dtcg", "css", "other"] },
+            "generated_theme": { "$ref": "#/$defs/relativePath" }
+          }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "required": ["design_system_root", "component_manifest"],
+      "additionalProperties": false,
+      "properties": {
+        "design_system_root": { "$ref": "#/$defs/relativePath" },
+        "screen_inventory": { "$ref": "#/$defs/relativePath" },
+        "interaction_state_inventory": { "$ref": "#/$defs/relativePath" },
+        "responsive_contract": { "$ref": "#/$defs/relativePath" },
+        "accessibility_contract": { "$ref": "#/$defs/relativePath" },
+        "asset_inventory": { "$ref": "#/$defs/relativePath" },
+        "component_manifest": { "$ref": "#/$defs/relativePath" },
+        "visual_baselines": { "$ref": "#/$defs/relativePath" },
+        "migration_notes": { "$ref": "#/$defs/relativePath" },
+        "preview_command": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "reason", "owner", "review_by"],
+        "additionalProperties": false,
+        "properties": {
+          "check": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "owner": { "type": "string", "minLength": 1 },
+          "review_by": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "accepted" } }, "required": ["status"] },
+      "then": { "required": ["accepted_at"] }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative path: no absolute root, no . or .. segments, no backslashes, no control characters.",
+      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$"
+    }
+  }
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Usage — Provider detail views (light and dark)</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  body { background: var(--au-review-bg); }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); }
+  .intro h1 { font: 600 28px/1.2 var(--font-display); letter-spacing: -.02em; margin: 0 0 var(--sp-2); }
+  .intro p { margin: 0 0 var(--sp-2); max-width: 70ch; color: var(--au-muted); font-size: 15px; }
+  .toc { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-6); padding: 0; list-style: none; }
+  .toc a { display: inline-block; padding: 4px 10px; border: 1px solid var(--au-line-strong); border-radius: 999px; font-size: var(--fs-caption); color: var(--au-text); text-decoration: none; }
+  @media (hover: hover) { .toc a:hover { background: var(--au-hover); } }
+  .scenario { margin-bottom: var(--sp-8); }
+  .scenario h2 { font: 600 17px/1.3 var(--font-display); margin: 0 0 4px; }
+  .scenario .what { margin: 0 0 var(--sp-3); color: var(--au-muted); font-size: var(--fs-body); max-width: 80ch; }
+  .scenario .open { font-size: var(--fs-caption); color: var(--au-blue); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--sp-5); align-items: flex-start; }
+  .board { display: grid; gap: var(--sp-2); }
+  .board .tag { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--au-muted); }
+  .canvas { padding: var(--sp-5); border-radius: 14px; background: var(--au-desk); color: var(--au-text); }
+  .canvas .popover { margin: 0; }
+  body.only-light .theme-dark-board, body.only-dark .theme-light-board { display: none; }
+</style>
+</head>
+<body>
+  <div class="review-bar" role="region" aria-label="Review controls (not part of the app)">
+    <span class="review-tag">Review</span>
+    <span class="illustrative">All values are illustrative sample data</span>
+    <span class="seg" role="group" aria-label="Show appearances">
+      <button type="button" data-show="both" aria-pressed="true">Light + dark</button>
+      <button type="button" data-show="light" aria-pressed="false">Light only</button>
+      <button type="button" data-show="dark" aria-pressed="false">Dark only</button>
+    </span>
+    <a href="index.html" style="color:var(--au-blue)">All targets</a>
+  </div>
+  <div class="wrap">
+    <header class="intro">
+      <h1>Provider detail views</h1>
+      <p>Each provider’s detail view is shown in full, without the popover’s height limit, so the chart, quota windows, today’s totals, models, and collapsed sections can be reviewed together. These boards are static and drawn from the same fixtures as the interactive popover. Use “Open interactive” to try the chart controls and keyboard readout.</p>
+      <ul class="toc" id="toc"></ul>
+    </header>
+    <div id="boards"></div>
+  </div>
+  <script src="app/icons.js"></script>
+  <script src="app/fixtures.js"></script>
+  <script src="app/components.js"></script>
+  <script>
+  (function () {
+    const F = AIU_FIXTURES, esc = AIU.esc;
+    const items = [
+      { sc: 'healthy', p: 'codex', ds: { metric: 'tokens', trange: 7 }, title: 'Codex — tokens, 7 days', note: 'Primary chart first. Today is outlined as incomplete. Both quota windows sit under the chart with their reset times.' },
+      { sc: 'healthy', p: 'codex', ds: { metric: 'quota', win: 'five-hour', qrange: '24h' }, title: 'Codex — 5-hour window, last 24 hours', note: 'Short-range quota history with reset markers. The line breaks at each reset, and flat 100% shows time with no active window.' },
+      { sc: 'limit-reached', p: 'codex', ds: { metric: 'quota', win: 'weekly', qrange: '5w' }, title: 'Codex — weekly limit reached', note: 'The weekly window is used up while the 5-hour window still shows 41% remaining. Weekly resets are marked across five weeks.' },
+      { sc: 'weekly-stale', p: 'codex', ds: { metric: 'quota', win: 'weekly', qrange: '7d' }, title: 'Codex — weekly reading stale, 5-hour current', note: 'Per-window freshness: the weekly chart extends its last reading as a dashed amber line; the 5-hour window remains current.' },
+      { sc: 'five-stale-weekly-limit', p: 'codex', ds: { metric: 'quota', win: 'five-hour', qrange: '24h' }, title: 'Codex — 5-hour stale, weekly limit reached', note: 'The 5-hour window stopped being reported at 08:38. The current, exhausted weekly window keeps its limit warning.' },
+      { sc: 'stale-quota', p: 'claude', ds: { metric: 'tokens', trange: 7 }, title: 'Claude Code — daily stats cache stopped', note: '27–28 Sep are gaps, not zeros. Today comes from recent sessions. Quota is not available for Claude.' },
+      { sc: 'healthy', p: 'antigravity', ds: { metric: 'quota', win: 'model', qrange: '7d' }, title: 'Antigravity — event-driven quota', note: 'Readings arrive only while Antigravity runs, so the line holds its value between sessions. That is normal, not stale.' },
+      { sc: 'stale-quota', p: 'grok', ds: { metric: 'quota', win: 'credits', qrange: '30d' }, title: 'Grok Build — stale monthly credits, current usage', note: 'The dashed amber line marks the time since the last billing reading. The 1 Sep reset is marked.' },
+      { sc: 'auth-required', p: 'grok', ds: { metric: 'tokens', trange: 7 }, title: 'Grok Build — sign-in required', note: 'Service trouble in red with an action. The 25 Sep gap comes from a rotated session log.' },
+      { sc: 'healthy', p: 'gemini', ds: {}, title: 'Gemini CLI — not set up', note: 'Explains the opt-in without implying zero usage.' }
+    ];
+    document.getElementById('toc').innerHTML = items.map((d, i) => `<li><a href="#d-${i}">${esc(d.title.split(' — ')[0])}: ${esc(d.title.split(' — ')[1])}</a></li>`).join('');
+    document.getElementById('boards').innerHTML = items.map((d, i) => {
+      const snap = F.getSnapshot(d.sc);
+      const inner = (t) => AIU.staticPopover(snap, 'provider', d.p, null, d.ds);
+      return `<section class="scenario" id="d-${i}" aria-labelledby="h-${i}"><h2 id="h-${i}">${esc(d.title)}</h2><p class="what">${esc(d.note)} <a class="open" href="popover.html?scenario=${d.sc}&view=${d.p}">Open interactive →</a></p>
+        <div class="pair"><div class="board theme-light-board"><span class="tag">Light</span><div class="canvas theme-light" inert>${inner('light')}</div></div><div class="board theme-dark-board"><span class="tag">Dark</span><div class="canvas theme-dark" inert>${inner('dark')}</div></div></div></section>`;
+    }).join('');
+    document.querySelectorAll('[data-show]').forEach((b) => b.addEventListener('click', () => {
+      document.body.classList.remove('only-light', 'only-dark');
+      if (b.dataset.show !== 'both') document.body.classList.add(`only-${b.dataset.show}`);
+      document.querySelectorAll('[data-show]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+  })();
+  </script>
+</body>
+</html>

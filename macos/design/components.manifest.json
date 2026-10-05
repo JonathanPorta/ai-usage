@@ -1,0 +1,69 @@
+{
+  "schema": "blessed/design-components/v1",
+  "components": [
+    {
+      "name": "StatusRow",
+      "source": "macos/Sources/AIUsageDesign/StatusRow.swift",
+      "status": "planned",
+      "variants": ["healthy", "collecting", "paused", "stopped", "attention", "first-run"],
+      "states": ["default", "hover", "focus"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "Notice",
+      "source": "macos/Sources/AIUsageDesign/Notice.swift",
+      "status": "planned",
+      "variants": ["limit", "stale", "failure", "result"],
+      "states": ["default", "focus"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "QuotaCell",
+      "source": "macos/Sources/AIUsageDesign/QuotaViews.swift",
+      "status": "planned",
+      "variants": ["remaining", "used", "derived-remaining"],
+      "states": ["current", "stale", "limit-low", "limit-reached", "none"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "MiniBarChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "planned",
+      "variants": ["input-output", "total-only"],
+      "states": ["measured", "zero", "missing", "not-collected", "today-partial", "focus-readout", "empty"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "TokenBarChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "planned",
+      "variants": ["7d", "30d", "90d"],
+      "states": ["measured", "zero", "missing", "not-collected", "today-partial", "focus-readout"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "QuotaLineChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "planned",
+      "variants": ["remaining", "used"],
+      "states": ["current", "stale-extension", "reset-marker", "gap"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "StatTile",
+      "source": "macos/Sources/AIUsageDesign/Primitives.swift",
+      "status": "planned",
+      "variants": ["value", "not-reported"],
+      "states": ["default"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    },
+    {
+      "name": "ProviderCard",
+      "source": "macos/Sources/AIUsageApp/OverviewView.swift",
+      "status": "planned",
+      "variants": ["quota-and-usage", "usage-only", "not-set-up", "disabled"],
+      "states": ["default", "hover", "focus", "checking"],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json"
+    }
+  ]
+}

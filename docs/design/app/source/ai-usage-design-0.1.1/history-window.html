@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Usage — History window (secondary, resizable)</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  .desk { padding: var(--sp-6) var(--sp-4) var(--sp-8); display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); }
+  .win {
+    width: 960px; height: 680px; min-width: 640px; min-height: 460px; max-width: 100%;
+    resize: both; overflow: hidden;
+    display: grid; grid-template-rows: auto minmax(0, 1fr);
+    background: var(--au-bg); border: 1px solid var(--au-line); border-radius: 12px;
+    box-shadow: 0 22px 50px var(--au-shadow);
+  }
+  .titlebar { display: flex; align-items: center; gap: var(--sp-3); height: 44px; padding: 0 var(--sp-4); border-bottom: 1px solid var(--au-line); background: var(--au-panel); }
+  .lights { display: flex; gap: 8px; }
+  .lights span { width: 12px; height: 12px; border-radius: 50%; border: .5px solid rgba(0,0,0,.18); }
+  .lights span:nth-child(1) { background: #ff5f57; } .lights span:nth-child(2) { background: #febc2e; } .lights span:nth-child(3) { background: #28c840; }
+  .titlebar h1 { font: 600 var(--fs-body)/1 var(--font-ui); margin: 0; flex: 1; text-align: center; padding-right: 60px; }
+  .body { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 0; }
+  .side { border-right: 1px solid var(--au-line); padding: var(--sp-3) var(--sp-2); overflow-y: auto; background: light-dark(#f0f1f3, #202123); }
+  .side h2 { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--au-muted); margin: var(--sp-2) var(--sp-2) var(--sp-1); }
+  .side button { width: 100%; display: flex; align-items: center; gap: var(--sp-2); min-height: 40px; padding: 4px var(--sp-2); border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; }
+  @media (hover: hover) { .side button:hover { background: var(--au-hover); } }
+  .side button[aria-current="true"] { background: var(--au-blue); color: light-dark(#fff, #10243d); }
+  .side button[aria-current="true"] .caption { color: inherit; opacity: .9; }
+  .side .p-meta { display: grid; min-width: 0; }
+  .main { overflow-y: auto; padding: var(--sp-4) var(--sp-5) var(--sp-6); min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+  .toolbar h2 { font: 600 var(--fs-title)/1.2 var(--font-display); margin: 0; flex: 1 1 auto; letter-spacing: -.02em; }
+  .view-h { font: 600 var(--fs-lead)/1.3 var(--font-display); margin: var(--sp-3) 0 var(--sp-1); }
+  .view-sub { margin: 0 0 var(--sp-3); font-size: var(--fs-caption); color: var(--au-muted); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sp-2); margin-bottom: var(--sp-3); }
+  .kpis .s-val { white-space: normal; }
+  .coverage { display: flex; gap: 6px; align-items: flex-start; margin: 8px 0 0; font-size: var(--fs-caption); color: var(--au-amber); }
+  .tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-caption); }
+  .tbl th, .tbl td { text-align: right; padding: 6px var(--sp-2); border-bottom: 1px solid var(--au-line); font-variant-numeric: tabular-nums; }
+  .tbl th:first-child, .tbl td:first-child { text-align: left; }
+  .tbl th { color: var(--au-muted); font-weight: 500; }
+  .tbl td.note { text-align: left; color: var(--au-muted); }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-3); }
+  @media (max-width: 760px) { .body { grid-template-columns: 1fr; } .side { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--au-line); } .side h2, .side p { display: none; } .side button { width: auto; flex: none; } .win { min-width: 0; height: auto; resize: none; } .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <div class="review-bar" role="region" aria-label="Review controls (not part of the app)">
+    <span class="review-tag">Review</span>
+    <span class="illustrative">All values are illustrative sample data</span>
+    <label>Scenario <select id="rv-scenario"></select></label>
+    <span id="sync" class="sync-note" role="status" aria-live="polite"></span>
+    <button type="button" id="relink" class="btn" hidden>Link to popover</button>
+    <span class="seg" role="group" aria-label="Appearance">
+      <button type="button" data-theme-btn="light">Light</button>
+      <button type="button" data-theme-btn="dark">Dark</button>
+      <button type="button" data-theme-btn="system">System</button>
+    </span>
+    <span>Opened from “Open history”. Drag the lower-right corner to resize.</span>
+    <a href="index.html" style="color:var(--au-blue)">All targets</a>
+  </div>
+
+  <div class="desk">
+    <div class="win" role="application" aria-label="AI Usage History window">
+      <div class="titlebar"><span class="lights" aria-hidden="true"><span></span><span></span><span></span></span><h1>AI Usage History</h1></div>
+      <div class="body">
+        <nav class="side" aria-label="Providers" id="side"></nav>
+        <main class="main" id="main"></main>
+      </div>
+    </div>
+  </div>
+
+  <script src="app/icons.js"></script>
+  <script src="app/fixtures.js"></script>
+  <script src="app/components.js"></script>
+  <script>
+  (function () {
+    const q = new URLSearchParams(location.search);
+    function setTheme(t) {
+      if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+      document.querySelectorAll('[data-theme-btn]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeBtn === t)));
+    }
+    setTheme(q.get('theme') || 'system');
+    document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themeBtn)));
+
+    const F = AIU_FIXTURES, { fmt, esc } = AIU, I = AIU_ICON, DAY = F.DAY, HOUR = F.HOUR;
+    const sel = document.getElementById('rv-scenario');
+    F.scenarios.forEach((s) => { const o = document.createElement('option'); o.value = s.id; o.textContent = s.label; sel.appendChild(o); });
+    sel.value = q.get('scenario') || 'healthy';
+    // Linked mode: show the popover's active state (see AIU.shared). Standalone: a fresh scenario.
+    let linked = q.get('linked') === '1' || !q.get('scenario');
+    let lastPayload = linked ? AIU.shared.read() : null;
+    if (!lastPayload) linked = false;
+    let snap = linked ? lastPayload.snap : F.getSnapshot(sel.value);
+    if (linked && lastPayload.meta && lastPayload.meta.scenario) sel.value = lastPayload.meta.scenario;
+    const syncEl = document.getElementById('sync');
+    const relink = document.getElementById('relink');
+    function showSync() {
+      if (linked) {
+        syncEl.textContent = `Linked to the popover’s active state · updated ${new Date(lastPayload.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${AIU.shared.live ? ' · live' : ' · updates when the popover saves'}`;
+        relink.hidden = true;
+      } else {
+        syncEl.textContent = AIU.shared.read() ? 'Standalone scenario — not linked to the popover' : 'Standalone scenario — no popover state found';
+        relink.hidden = !AIU.shared.read();
+      }
+    }
+    const st = { provider: q.get('provider') || 'codex', metric: q.get('metric') || 'tokens', trange: 30, qrange: 7, win: null };
+    const side = document.getElementById('side');
+    const main = document.getElementById('main');
+    AIU.bindCharts(document.body);
+
+    const prov = () => snap.providers.find((x) => x.id === st.provider) || snap.providers[0];
+    const quotaWindows = (p) => p.quota.windows.filter((w) => w.readings.length);
+
+    function renderSide() {
+      side.innerHTML = '<h2>Providers</h2>' + snap.providers.map((p) => {
+        let sub;
+        if (p.setup === 'not_configured') sub = 'Not set up';
+        else if (st.metric === 'quota') {
+          const ws = quotaWindows(p);
+          sub = ws.length ? ws.map((w) => `${w.short} ${w.percent}% ${w.basis === 'remaining' ? 'left' : 'used'}${w.status === 'stale' ? ' (stale)' : ''}`).join(' · ') : 'No quota history';
+        } else {
+          const c = AIU.barChartRange(p, snap.now, st.trange);
+          sub = p.days.length ? `${fmt.tokens(c.total)} tokens · ${st.trange} d` : 'No data yet';
+        }
+        return `<button type="button" data-p="${p.id}" aria-current="${p.id === st.provider}"><span class="p-meta"><span>${esc(p.name)}</span><span class="caption num">${esc(sub)}</span></span></button>`;
+      }).join('') + '<p class="caption" style="margin:12px 8px 0">One provider at a time: token counts and quota percentages from different tools aren’t comparable.</p>';
+    }
+
+    function tokensView(p) {
+      const days = st.trange;
+      const c = AIU.barChartRange(p, snap.now, days, { w: 680, h: 230, l: 44, r: 8, t: 12, b: 24 });
+      const meas = c.slots.filter((s) => s.kind === 'measured' || s.kind === 'today' || s.kind === 'zero');
+      const full = c.slots.filter((s) => s.kind === 'measured' || s.kind === 'zero');
+      const peak = full.reduce((m, s) => (!m || AIU.ioOf(s.rec) > AIU.ioOf(m.rec) ? s : m), null);
+      const cacheSum = meas.reduce((a, s) => a + (s.rec.cacheRead || 0), 0);
+      const hasCache = meas.some((s) => s.rec.cacheRead != null);
+      const kpis = `
+        <div class="stat"><span class="s-val">${meas.length ? fmt.tokens(c.total) : '—'}</span><span class="s-label">Input + output · ${days} days (today so far)</span></div>
+        <div class="stat"><span class="s-val">${full.length ? fmt.tokens(Math.round(full.reduce((a, s) => a + AIU.ioOf(s.rec), 0) / full.length)) : '—'}</span><span class="s-label">Average per complete measured day</span></div>
+        <div class="stat"><span class="s-val">${peak ? fmt.tokens(AIU.ioOf(peak.rec)) : '—'}</span><span class="s-label">${peak ? `Busiest day · ${fmt.wday(peak.date)}` : 'Busiest day'}</span></div>
+        <div class="stat"><span class="s-val">${meas.length} of ${days}</span><span class="s-label">Days measured${c.missing ? ` · ${c.missing} missing` : ''}${c.none ? ` · ${c.none} not collected` : ''}</span></div>
+        <div class="stat"><span class="s-val">${hasCache ? fmt.tokens(cacheSum) : '<span class="na">—</span>'}</span><span class="s-label">${hasCache ? `Cache reads · ${days} days (separate)` : 'Cache reads · not reported'}</span></div>`;
+      const coverage = c.none ? `<p class="coverage">${I('info', 'icon-sm')}<span>Only ${days - c.none} of the selected ${days} days have data. ${esc(p.coverageNote || `Collection began ${fmt.day(p.coverageStart)}.`)}</span></p>` : '';
+      const rows = c.slots.slice(-14).reverse().map((s) => {
+        const r = s.rec;
+        const status = { measured: 'Measured', zero: 'Measured zero', today: `So far, as of ${fmt.clock(p.usage.measuredAt || snap.now)}`, missing: 'Missing — not zero', none: 'Not collected yet' }[s.kind];
+        const cell = (v) => (r && r.state === 'measured' ? (v == null ? '<span class="na">Not reported</span>' : fmt.tokens(v)) : '<span class="na">—</span>');
+        return `<tr><td>${fmt.wday(s.date)}</td><td>${cell(r && r.input)}</td><td>${cell(r && r.output)}</td><td>${cell(r && r.cacheRead)}</td><td>${cell(r && r.cacheWrite)}</td><td class="note">${status}</td></tr>`;
+      }).join('');
+      return {
+        heading: `Daily tokens · last ${days} days`,
+        sub: `Input and output tokens per calendar day to ${fmt.wday(snap.now)}. Cache tokens are counted separately. ${AIU.RECORD_KIND[p.recordKind] || ''}`,
+        kpis, chart: c.html,
+        legend: `<span><i class="lg-in"></i>Input</span><span><i class="lg-out"></i>Output</span><span><i class="lg-today"></i>Today so far</span><span><i class="lg-gap"></i>Missing</span><span><i class="lg-zero"></i>Measured zero</span><span><i style="background:var(--au-hover)"></i>Not collected</span>`,
+        coverage: coverage + (p.missingNote ? `<p class="coverage">${I('clock-alert', 'icon-sm')}<span>${esc(p.missingNote)}</span></p>` : ''),
+        table: `<table class="tbl"><caption class="sr-only">Daily token detail for ${esc(p.name)}, latest 14 days</caption><thead><tr><th scope="col">Day</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Cache reads</th><th scope="col">Cache writes</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table><p class="caption" style="margin:8px 0 0">Latest 14 days of the selected range. Tokens are this provider’s own accounting.</p>`,
+        tableH: 'Daily detail'
+      };
+    }
+
+    function quotaView(p) {
+      const ws = quotaWindows(p);
+      const w = ws.find((x) => x.id === st.win) || ws[0];
+      st.win = w.id;
+      const ms = st.qrange * DAY;
+      const c = AIU.quotaChart(p, w, snap.now, ms, { w: 680, h: 230, l: 40, r: 10, t: 14, b: 24 });
+      const vals = c.inRange.map((r) => r.percent);
+      const worst = !vals.length ? null : (w.basis === 'remaining' ? Math.min(...vals) : Math.max(...vals));
+      const worstR = worst == null ? null : c.inRange.find((r) => r.percent === worst);
+      const stale = w.status === 'stale';
+      const kpis = `
+        <div class="stat"><span class="s-val">${c.lastR ? `${c.lastR.percent}% ${w.basis}` : '—'}</span><span class="s-label">${c.lastR ? `Latest reading · ${fmt.stamp(c.lastR.t, snap.now)}${stale ? ' · stale' : ''}` : 'No reading'}</span></div>
+        <div class="stat"><span class="s-val">${worst == null ? '—' : `${worst}% ${w.basis}`}</span><span class="s-label">${worstR ? `${w.basis === 'remaining' ? 'Lowest remaining' : 'Highest used'} in range · ${fmt.stamp(worstR.t, snap.now)}` : 'No readings in range'}</span></div>
+        <div class="stat"><span class="s-val">${c.resets.length}</span><span class="s-label">Resets in range</span></div>
+        <div class="stat"><span class="s-val">${c.inRange.length}</span><span class="s-label">Readings in range${p.quota.mode === 'event' ? ' · only while it runs' : ''}</span></div>
+        <div class="stat"><span class="s-val">${w.resetsAt && !w.resetPassed ? fmt.stamp(w.resetsAt, snap.now) : '—'}</span><span class="s-label">${w.resetPassed ? 'Reset time has passed since the last reading' : w.resetsAt ? 'Next reset (from latest reading)' : 'No active window'}</span></div>`;
+      const first = w.readings[0];
+      const coverage = first && first.t > snap.now - ms ? `<p class="coverage">${I('info', 'icon-sm')}<span>Readings start ${fmt.stamp(first.t, snap.now)}; this sample keeps ${w.keptDays} days for the ${esc(w.label.toLowerCase())}. Earlier parts of the range have no data.</span></p>` : '';
+      const staleNote = stale ? `<p class="coverage">${I('clock-alert', 'icon-sm')}<span>${esc(AIU.windowStaleText(p, w, snap.now))}</span></p>` : '';
+      const otherW = ws.filter((x) => x !== w);
+      const mixedNote = otherW.length ? `<p class="caption" style="margin:6px 0 0">${otherW.map((x) => `${esc(x.label)}: ${x.percent}% ${x.basis}, ${x.status === 'stale' ? `stale (reading ${fmt.stamp(x.measuredAt, snap.now)})` : `current (measured ${fmt.stamp(x.measuredAt, snap.now)})`}`).join(' · ')}</p>` : '';
+      const recent = c.inRange.slice(-15).reverse();
+      const rows = recent.map((r, i) => {
+        const older = recent[i + 1];
+        const resetBetween = older && w.resets.some((z) => z > older.t && z <= r.t);
+        const notes = [];
+        if (i === 0) notes.push(stale ? 'Latest reading · stale' : 'Latest reading');
+        if (resetBetween) notes.push('After a reset');
+        if (r.percent === 0 && w.basis === 'remaining') notes.push('Limit reached');
+        return `<tr><td>${fmt.wday(r.t)} ${fmt.clock(r.t)}</td><td>${r.percent}% ${w.basis}</td><td>${r.resetsAt ? fmt.stamp(r.resetsAt, snap.now) : '<span class="na">No active window</span>'}</td><td class="note">${notes.join(' · ')}</td></tr>`;
+      }).join('') || '<tr><td colspan="4" class="na">No readings in this range</td></tr>';
+      const winSel = ws.length > 1 ? `<label class="win-sel">Window <select id="win-sel">${ws.map((x) => `<option value="${x.id}" ${x.id === w.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>` : '';
+      return {
+        winSel,
+        heading: `${w.label} · % ${w.basis} · last ${st.qrange === 1 ? '24 hours' : `${st.qrange} days`}`,
+        sub: `Each point is a reading as reported by ${p.name}, plotted at its measurement time. ${p.quota.note ? esc(p.quota.note) : ''}`,
+        kpis, chart: c.html,
+        legend: `<span><i class="lg-line"></i>% ${w.basis}</span><span><i class="lg-reset"></i>Reset</span><span><i class="lg-stale"></i>No new reading since the last one</span><span>“gap” = expected readings missing</span><span><i style="background:var(--au-hover)"></i>No data kept</span>`,
+        coverage: coverage + staleNote + mixedNote,
+        table: `<table class="tbl"><caption class="sr-only">Latest quota readings for ${esc(p.name)} ${esc(w.label)}</caption><thead><tr><th scope="col">Measured</th><th scope="col">Value</th><th scope="col">Window resets</th><th scope="col">Note</th></tr></thead><tbody>${rows}</tbody></table><p class="caption" style="margin:8px 0 0">Latest 15 readings in the selected range, newest first.</p>`,
+        tableH: 'Readings'
+      };
+    }
+
+    function accounting(p) {
+      const c = p.costs;
+      return `<div class="panel"><dl class="facts">
+        <div><dt>Subscription price</dt><dd>${c.subscriptionMonthlyUsd != null ? `${fmt.usd(c.subscriptionMonthlyUsd)} per month<small>Entered by you · recorded for Sep 2026 (monthly rate)</small>` : fmt.na('Not set')}</dd></div>
+        <div><dt>Reported usage cost</dt><dd>${c.reported ? `${fmt.usd(c.reported.amountUsd)}<small>Billing period ${fmt.day(c.reported.periodStart)}–${fmt.day(c.reported.periodEnd - 1)}, to ${fmt.stamp(c.reported.measuredAt, snap.now)}</small><small>${esc(c.reported.basis)}</small>` : fmt.na(c.reportedNote || 'Not reported')}</dd></div>
+      </dl><p class="caption" style="margin:6px 0 0">Two different things with different periods. Neither is derived from tokens or quota.</p></div>`;
+    }
+
+    function renderMain() {
+      const p = prov();
+      const hasQuota = quotaWindows(p).length > 0;
+      if (st.metric === 'quota' && !hasQuota) st.metric = 'tokens';
+      const empty = !p.days.length;
+      const ranges = st.metric === 'tokens' ? [[7, '7 days'], [30, '30 days'], [90, '90 days']] : [[1, '24 hours'], [7, '7 days'], [30, '30 days'], [90, '90 days']];
+      const cur = st.metric === 'tokens' ? st.trange : st.qrange;
+      const v = empty ? null : st.metric === 'tokens' ? tokensView(p) : quotaView(p);
+      main.innerHTML = `
+        <div class="toolbar">
+          <h2>${esc(p.name)}</h2>
+          <span class="caption num">${snap.collection.lastAttemptAt ? `Last check ${fmt.stamp(snap.collection.lastAttemptAt, snap.now)}` : 'No checks yet'}${p.enabled ? '' : ' · collection off, cached data'}</span>
+          <span class="seg-s" role="group" aria-label="Metric">
+            <button type="button" data-m="tokens" aria-pressed="${st.metric === 'tokens'}">Tokens</button>
+            <button type="button" data-m="quota" aria-pressed="${st.metric === 'quota'}" ${hasQuota ? '' : 'disabled'}>Quota</button>
+          </span>
+          ${v && v.winSel ? v.winSel : ''}
+          <span class="seg-s" role="group" aria-label="Date range">${ranges.map(([r, l]) => `<button type="button" data-r="${r}" aria-pressed="${cur === r}">${l}</button>`).join('')}</span>
+        </div>
+        ${!hasQuota && p.setup !== 'not_configured' ? `<p class="caption" style="margin:0">Quota: ${p.quota.status === 'unsupported' ? 'not available for this provider' : 'no readings yet'}.</p>` : ''}
+        ${empty ? `<div class="notice info" style="margin-top:16px">${I('hourglass')}<span class="n-body"><span class="n-title">No history for ${esc(p.name)} yet</span><span>${p.setup === 'not_configured' ? 'Turn on usage telemetry in Settings to start collecting.' : 'History appears after the first successful check.'}</span></span></div>` : `
+        <h3 class="view-h">${esc(v.heading)}</h3>
+        <p class="view-sub">${v.sub}</p>
+        <div class="kpis">${v.kpis}</div>
+        <div class="panel">${v.chart}<div class="legend">${v.legend}</div>${v.coverage}</div>
+        <div class="two" style="margin-top:12px">
+          <section><div class="section-label" style="margin-top:0">${v.tableH}</div><div class="panel" style="overflow-x:auto">${v.table}</div></section>
+          <section><div class="section-label" style="margin-top:0">Accounting</div>${accounting(p)}</section>
+        </div>`}`;
+    }
+
+    side.addEventListener('click', (e) => { const b = e.target.closest('[data-p]'); if (!b) return; st.provider = b.dataset.p; st.win = null; renderSide(); renderMain(); side.querySelector(`[data-p="${st.provider}"]`).focus(); });
+    side.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const items = [...side.querySelectorAll('[data-p]')]; const i = items.indexOf(document.activeElement); if (i < 0) return;
+      e.preventDefault(); items[Math.max(0, Math.min(items.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+    });
+    main.addEventListener('click', (e) => {
+      const m = e.target.closest('[data-m]'); const r = e.target.closest('[data-r]');
+      if (m && !m.disabled) { st.metric = m.dataset.m; renderSide(); renderMain(); main.querySelector(`[data-m="${st.metric}"]`).focus(); }
+      if (r) { if (st.metric === 'tokens') st.trange = Number(r.dataset.r); else st.qrange = Number(r.dataset.r); renderSide(); renderMain(); main.querySelector(`[data-r="${r.dataset.r}"]`).focus(); }
+    });
+    main.addEventListener('change', (e) => { if (e.target.id === 'win-sel') { st.win = e.target.value; renderMain(); main.querySelector('#win-sel').focus(); } });
+    function keyOfActive() {
+      const a = document.activeElement; if (!a) return null;
+      for (const k of ['data-p', 'data-m', 'data-r']) { const v = a.getAttribute && a.getAttribute(k); if (v) return `[${k}="${v}"]`; }
+      return a.id ? `#${a.id}` : null;
+    }
+    function rerender() {
+      const k = keyOfActive();
+      renderSide(); renderMain(); showSync();
+      if (k && document.querySelector(k)) document.querySelector(k).focus({ preventScroll: true });
+    }
+    // Live updates from the popover keep the provider, metric, window, and range selection.
+    const sub = AIU.shared.subscribe((payload) => { if (!linked) return; lastPayload = payload; snap = payload.snap; rerender(); });
+    if (lastPayload) sub.mark(lastPayload.rev);
+    sel.addEventListener('change', () => { linked = false; snap = F.getSnapshot(sel.value); rerender(); });
+    relink.addEventListener('click', () => { const pl = AIU.shared.read(); if (!pl) return; linked = true; lastPayload = pl; snap = pl.snap; sub.mark(pl.rev); rerender(); });
+    renderSide(); renderMain(); showSync();
+  })();
+  </script>
+</body>
+</html>

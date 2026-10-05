@@ -1,0 +1,62 @@
+schema: blessed/design-handoff/v1
+surface: app
+status: accepted
+# Accepted handoff 0.1.1 (documentation-only correction of 0.1.0), built on the
+# accepted design checkpoint 0.1.3. The prototype is unchanged from 0.1.3.
+# Acceptance is recorded here; visual and interactive verification is still
+# outstanding (see docs/design/app/design.md#verification).
+version: 0.1.1
+accepted_at: "2026-10-05"
+
+source:
+  tool: open-design
+  archive: docs/design/app/source/ai-usage-design-0.1.1.zip
+  sha256: a3a0f5cfff6162456e6147d73daccf936b3d0d73a599e3bcea5227e48899fb3e
+
+authority:
+  design: DESIGN.md
+  engineering: DESIGN_SYSTEM.md
+  tokens: macos/design/tokens.json
+  production_components: macos/Sources/AIUsageDesign
+
+stack:
+  framework: swiftui
+  package_manager: swiftpm
+  styling:
+    profile: other
+    canonical_tokens: dtcg
+    generated_theme: macos/Sources/AIUsageDesign/DesignTokens.generated.swift
+
+implementation:
+  design_system_root: macos
+  screen_inventory: docs/APP.md
+  interaction_state_inventory: docs/APP.md
+  responsive_contract: DESIGN_SYSTEM.md
+  accessibility_contract: DESIGN_SYSTEM.md
+  asset_inventory: docs/design/app/assets.yml
+  component_manifest: macos/design/components.manifest.json
+  visual_baselines: docs/design/app/references
+  migration_notes: DESIGN_SYSTEM.md
+
+checks:
+  - make design-check
+  - make design-build-check
+  - make spec-check
+  - make test
+
+waivers:
+  - check: tailwind-v4-profile
+    reason: >-
+      Native macOS menu-bar app implemented in SwiftUI (approved 2026-10-05).
+      There is no web/CSS runtime to style, so Tailwind v4 does not apply.
+      Canonical DTCG tokens generate Swift constants instead of a Tailwind theme.
+    owner: Jonathan
+    review_by: "2027-04-05"
+  - check: implementation.visual_baselines
+    reason: >-
+      The handoff ships no screenshots and nothing in it has been rendered or
+      interactively verified. Accepted native visual baselines are pending
+      human verification of the first working build at 420 pt, in a short
+      viewport, and in light and dark appearances.
+    owner: Jonathan
+    review_by: "2026-12-31"

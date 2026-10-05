@@ -1,0 +1,70 @@
+schema: blessed/design-assets/v1
+surface: app
+
+# Accepted design source and provenance. Prototype HTML, JavaScript, CSS, and
+# fixtures are design references only: they are never shipped as application
+# code, and fixture values are illustrative sample data.
+required:
+  - id: handoff_archive
+    path: source/ai-usage-design-0.1.1.zip
+    purpose: Accepted handoff 0.1.1 archive, byte-identical to the delivered file
+    sha256: a3a0f5cfff6162456e6147d73daccf936b3d0d73a599e3bcea5227e48899fb3e
+  - id: handoff_manifest
+    path: source/ai-usage-design-0.1.1/_handoff/MANIFEST.json
+    purpose: Handoff payload inventory (13 files) with per-file SHA-256
+  - id: handoff_checksums
+    path: source/ai-usage-design-0.1.1/_handoff/CHECKSUMS.sha256
+    purpose: Payload and metadata checksums; verified at import
+  - id: implementation_guide
+    path: source/ai-usage-design-0.1.1/IMPLEMENTATION.md
+    purpose: Implementation guide (views, shared state, freshness, merge rules, SF Symbols mapping)
+  - id: design_notes
+    path: source/ai-usage-design-0.1.1/design-notes.md
+    purpose: Behaviour, data semantics, scenarios, verification record, open questions
+  - id: popover_prototype
+    path: source/ai-usage-design-0.1.1/popover.html
+    purpose: Primary design reference — interactive popover (overview, detail, Monitoring, Settings)
+  - id: history_prototype
+    path: source/ai-usage-design-0.1.1/history-window.html
+    purpose: History window design reference
+  - id: prototype_styles
+    path: source/ai-usage-design-0.1.1/app/styles.css
+    purpose: Source of the visual values transcribed into macos/design/tokens.json
+  - id: prototype_components
+    path: source/ai-usage-design-0.1.1/app/components.js
+    purpose: Render and chart behaviour reference (not production code)
+  - id: prototype_fixtures
+    path: source/ai-usage-design-0.1.1/app/fixtures.js
+    purpose: Reference data model, finalize() derivation and applyCollectResult() merge (illustrative values)
+  - id: prototype_icons
+    path: source/ai-usage-design-0.1.1/app/icons.js
+    purpose: Prototype outline icon family; native app uses SF Symbols per IMPLEMENTATION.md §12
+
+optional:
+  - id: review_entry
+    path: source/ai-usage-design-0.1.1/index.html
+    purpose: Prototype review launcher (scenario picker, appearance, Collect now outcome)
+  - id: provider_boards
+    path: source/ai-usage-design-0.1.1/provider-details.html
+    purpose: Static provider-detail boards in light and dark
+  - id: state_gallery
+    path: source/ai-usage-design-0.1.1/state-gallery.html
+    purpose: Every scenario in light and dark
+  - id: menu_bar_icons
+    path: source/ai-usage-design-0.1.1/menu-bar-icons.html
+    purpose: Menu-bar glyph state candidates (see docs/design/icon/)
+  - id: original_concept
+    path: source/ai-usage-design-0.1.1/ai-usage-popover-reference.html
+    purpose: Originally approved concept; loads icons from a CDN, so view it offline with care
+  - id: visual_baselines
+    path: references/
+    purpose: Accepted native screenshots for regression comparison
+    notes: Pending — waived in handoff.yml until the first native build is verified
+
+runtime:
+  - id: design_tokens
+    path: ../../../macos/design/tokens.json
+    purpose: Canonical DTCG tokens (light/dark pairs via codes.porta.appearance extension)
+  - id: generated_tokens
+    path: ../../../macos/Sources/AIUsageDesign/DesignTokens.generated.swift
+    purpose: Generated Swift constants; `make design-build`, drift-checked by `make design-build-check`

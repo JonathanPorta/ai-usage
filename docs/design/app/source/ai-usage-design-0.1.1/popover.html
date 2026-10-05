@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Usage — menu-bar popover (interactive prototype)</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  body.embedded .review-bar { display: none; }
+  body.embedded .stage { min-height: 100dvh; }
+  .closed-hint { margin-top: 24px; font-size: var(--fs-caption); color: var(--au-muted); text-align: center; max-width: 360px; }
+</style>
+</head>
+<body>
+  <!-- Review controls: not part of the product UI -->
+  <div class="review-bar" role="region" aria-label="Review controls (not part of the app)">
+    <span class="review-tag">Review</span>
+    <span class="illustrative">All values are illustrative sample data</span>
+    <label>Scenario <select id="rv-scenario"></select></label>
+    <label>Collect now result
+      <select id="rv-outcome">
+        <option value="">Scenario default</option>
+        <option value="success">Success</option>
+        <option value="partial">Partial — Codex fails entirely</option>
+        <option value="partial-quota">Partial — Codex quota only fails</option>
+        <option value="failure">Failure</option>
+      </select>
+    </label>
+    <span class="seg" role="group" aria-label="Appearance">
+      <button type="button" data-theme-btn="light">Light</button>
+      <button type="button" data-theme-btn="dark">Dark</button>
+      <button type="button" data-theme-btn="system">System</button>
+    </span>
+    <a href="index.html" style="color:var(--au-blue)">All targets</a>
+  </div>
+
+  <div class="stage" id="app">
+    <div data-slot="menubar" style="width:min(100%,720px)"></div>
+    <div class="pop-anchor">
+      <section class="popover" data-slot="popover" role="dialog" aria-label="AI Usage">
+        <div class="pop-view"></div>
+      </section>
+    </div>
+    <p class="closed-hint" id="closed-hint" hidden>Popover closed. The collector keeps running in the background. Click the menu-bar icon to reopen — cached values show immediately.</p>
+  </div>
+
+  <script src="app/icons.js"></script>
+  <script src="app/fixtures.js"></script>
+  <script src="app/components.js"></script>
+  <script>
+  (function () {
+    const q = new URLSearchParams(location.search);
+    if (q.get('embed') === '1') document.body.classList.add('embedded');
+
+    // Appearance
+    function setTheme(t) {
+      if (t === 'system') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+      document.querySelectorAll('[data-theme-btn]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeBtn === t)));
+    }
+    setTheme(q.get('theme') || 'system');
+    document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themeBtn)));
+
+    // Scenario selector
+    const sel = document.getElementById('rv-scenario');
+    AIU_FIXTURES.scenarios.forEach((s) => { const o = document.createElement('option'); o.value = s.id; o.textContent = s.label; o.title = s.summary; sel.appendChild(o); });
+    const scenario = q.get('scenario') || 'healthy';
+    sel.value = scenario;
+
+    const app = document.getElementById('app');
+    const hint = document.getElementById('closed-hint');
+    const ctl = AIU.mountPopover(app, {
+      scenario,
+      outcome: q.get('outcome') || null,
+      onHistory(pid) {
+        // linked=1: History reads the popover's active state instead of rebuilding the scenario.
+        const url = `history-window.html?provider=${encodeURIComponent(pid || 'codex')}&linked=1${document.documentElement.dataset.theme ? `&theme=${document.documentElement.dataset.theme}` : ''}`;
+        const w = window.open(url, 'aiu-history', 'width=960,height=640');
+        if (!w) location.href = url;
+      },
+      onChange() { hint.hidden = !document.querySelector('[data-slot="popover"]').hidden; }
+    });
+    sel.addEventListener('change', () => { ctl.setScenario(sel.value); hint.hidden = true; });
+    document.getElementById('rv-outcome').addEventListener('change', (e) => ctl.setOutcome(e.target.value));
+
+    const view = q.get('view');
+    if (view === 'monitor' || view === 'settings') ctl.show(view);
+    else if (view) ctl.show('provider', view);
+
+    // Parent launcher can drive this frame.
+    window.addEventListener('message', (e) => {
+      if (e.origin !== location.origin && location.origin !== 'null') return;
+      const d = e.data || {};
+      if (d.type === 'aiu:scenario') { sel.value = d.value; ctl.setScenario(d.value); }
+      if (d.type === 'aiu:theme') setTheme(d.value);
+      if (d.type === 'aiu:outcome') { document.getElementById('rv-outcome').value = d.value; ctl.setOutcome(d.value); }
+    });
+  })();
+  </script>
+</body>
+</html>

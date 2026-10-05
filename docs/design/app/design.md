@@ -1,0 +1,99 @@
+---
+status: approved
+owner: Jonathan
+updated: 2026-10-05
+---
+
+# App design handoff index
+
+**Accepted handoff:** 0.1.1. **Accepted design baseline:** checkpoint 0.1.3.
+**Source:** `source/ai-usage-design-0.1.1.zip`, SHA-256
+`a3a0f5cfff6162456e6147d73daccf936b3d0d73a599e3bcea5227e48899fb3e`.
+**Source authority:** Open Design project "ai-usage - Design" (namespace
+`release-stable`). The handoff archive is the authority for accepted design
+intent. Runtime authority is mapped in [`handoff.yml`](handoff.yml) and
+[`DESIGN_SYSTEM.md`](../../../DESIGN_SYSTEM.md#authority-map).
+**Acceptance vs verification:** the design is **accepted**. Visual and
+interactive verification is **outstanding**. These are separate facts.
+
+## Where to start
+
+1. [`DESIGN.md`](../../../DESIGN.md) gives the product character and language.
+2. `source/ai-usage-design-0.1.1/IMPLEMENTATION.md` is the implementation guide:
+   - views and navigation (§3);
+   - the shared store (§4);
+   - freshness (§5);
+   - Collect now merge rules (§6);
+   - accounting (§7);
+   - chart semantics (§8);
+   - existing vs proposed capabilities (§9);
+   - open service decisions (§10);
+   - SF Symbols (§12).
+3. `source/ai-usage-design-0.1.1/design-notes.md` covers data semantics, scenarios and the reproductions to check.
+4. [`docs/APP.md`](../../APP.md) holds the screen and state inventory and the implementation map.
+5. [`docs/CLI.md`](../../CLI.md) defines the reporting contract that feeds the app.
+
+## How the pieces fit
+
+```text
+~/.ai-usage/usage.csv, state.json, collector.log, launchctl
+        │  (read-only)
+        ▼
+ai_usage_report.py  ──►  JSON report (ai-usage/report/v1)
+        │                         │
+        │                         ▼
+        │              AppStore (@Observable, one instance)
+        │               ├─► MenuBarExtra popover (overview, provider detail)
+        │               └─► History Window
+        ▼
+collector.py once  ◄── Collect now (existing one-time path, flock-serialized)
+```
+
+## Proposed capabilities (not built; never shown as if they were)
+
+These come from `IMPLEMENTATION.md` §9:
+
+- Pause and resume of scheduled checks.
+- Per-provider collection progress.
+- Claude "Recent sessions" as a separate source. The repository now ingests Claude session transcripts (`claude-session-log`), which covers the same need. This is recorded in DECISIONS.
+- Notifications.
+- Open at login.
+
+## Verification
+
+### Performed by the design agent (from the handoff)
+
+- Static code review of the merge, freshness and sync logic.
+- A walkthrough of the two review reproductions.
+- ZIP integrity check.
+
+### Performed at import (2026-10-05)
+
+- Archive SHA-256 matched the expected value.
+- All 15 entries in `_handoff/CHECKSUMS.sha256` verified (13 payload files plus `README.md` and `MANIFEST.json`).
+- The prototype was rendered once in headless Chrome to orient the implementation. This is **not** design verification.
+
+### Outstanding (not yet verified)
+
+- [ ] Popover at 420 pt and in a short (about 700 pt) viewport, with header, status and footer pinned.
+- [ ] Light and dark appearances.
+- [ ] Chart legibility (11 pt or larger), keyboard readouts, scrolling.
+- [ ] Both mixed-freshness quota scenarios on screen.
+- [ ] Collect now followed by Open history, with values and times matching.
+- [ ] Price edits and collection results reaching an already-open History window. Price edits depend on Settings, which is a later task.
+- [ ] Accepted native visual baselines in `references/` (waived in `handoff.yml`).
+
+Native-app verification results are recorded below as they are performed.
+
+### Native verification log
+
+_No native verification has been recorded yet._
+
+## Related archives not imported
+
+| Archive | SHA-256 | Status |
+| --- | --- | --- |
+| `ai-usage-design-0.1.0.zip` | `84b8a42e8f1bc6c716782c55cc55b19a3955651af044d8098262203812af3a60` | Superseded by 0.1.1 (documentation-only corrections) |
+| `ai-usage-design-checkpoint-0.1.3.zip` | `316280d391d05e6739d3fd81f13aeb641167b90c721ecb2418683faee9a6f4be` | Accepted design baseline; its prototype is included unchanged in 0.1.1 |
+| `ai-usage-design-checkpoint-0.1.2.zip` | `2d0fc82ac7334039cb7081e3cbe4b86a01a4e904af83d66e7e3af94b01965dd9` | Packaging-only checkpoint |
+| `ai-usage-menu-bar-design-checkpoint-0.1.0.zip`, `-0.1.1.zip` | not recorded | Earlier name for the same series |
