@@ -2424,3 +2424,72 @@ sys.exit(code)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not installed", result.stderr)
         self.assertFalse((self.case.root / "launchctl-calls.log").exists())
+
+
+class PausedSchedulerLoopTests(unittest.TestCase):
+    """Drive the real run_daemon loop with a virtual clock; no real waiting."""
+
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+
+    def test_pause_after_an_established_deadline_waits_positively_and_never_collects(self) -> None:
+        config = self.case.provider_config("codex", executable_names=["definitely-missing-codex"])
+        config["providers"]["codex"]["enabled"] = False
+        config.update(poll_on_start=True, poll_interval_seconds=3600)
+        self.case.write_config(config)
+        clock = {"now": 1000.0}
+        waits: list[tuple[float, float]] = []  # (virtual time, requested wait)
+        collections: list[float] = []
+        real_collect = SERVICE.collect_snapshot
+        case = self.case
+
+        def counting_collect(*args, **kwargs):
+            collections.append(clock["now"])
+            return real_collect(*args, **kwargs)
+
+        class VirtualEvent:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def is_set(self) -> bool:
+                return self.stopped
+
+            def set(self) -> None:
+                self.stopped = True
+
+            def wait(self, seconds: float) -> bool:
+                waits.append((clock["now"], seconds))
+                if len(waits) == 1:
+                    # The first collection set a deadline one interval ahead; pause now.
+                    paused = json.loads(case.config.read_text(encoding="utf-8"))
+                    paused["poll_paused"] = True
+                    case.write_config(paused)
+                clock["now"] += max(seconds, 0.0)
+                # Run well past the original deadline (1000 + 3600), then stop.
+                if clock["now"] > 1000.0 + 3 * 3600 or len(waits) > 2000:
+                    self.stopped = True
+                return self.stopped
+
+        with mock.patch.object(SERVICE.threading, "Event", VirtualEvent), \
+                mock.patch.object(SERVICE.time, "monotonic", lambda: clock["now"]), \
+                mock.patch.object(SERVICE, "collect_snapshot", counting_collect), \
+                mock.patch.object(SERVICE.signal, "signal"), \
+                mock.patch.dict(os.environ, {SERVICE.SCHEDULE_TICK_ENV: "15"}):
+            SERVICE.run_daemon(self.case.config)
+
+        self.assertEqual(collections, [1000.0], "only the start-up check; no scheduled check while paused")
+        self.assertLess(len(waits), 2000, "a zero-wait loop would never advance virtual time")
+        past_deadline = [seconds for at, seconds in waits if at > 1000.0 + 3600]
+        self.assertTrue(past_deadline, "the scenario must run beyond the expired deadline")
+        self.assertTrue(all(0 < seconds <= 15 for _, seconds in waits[1:]), waits[:5])
+        self.assertEqual(set(past_deadline), {15.0}, "paused waits use the bounded config-check tick")
+
+    def test_wait_function_bounds(self) -> None:
+        wait = SERVICE.schedule_wait_seconds
+        self.assertEqual(wait("paused", next_due=10.0, now=500.0, tick=15.0), 15.0)
+        self.assertEqual(wait("pause", next_due=10.0, now=500.0, tick=15.0), 15.0)
+        self.assertEqual(wait("wait", next_due=505.0, now=500.0, tick=15.0), 5.0)
+        self.assertEqual(wait("resume", next_due=4100.0, now=500.0, tick=15.0), 15.0)
+        self.assertGreater(wait("wait", next_due=500.0, now=500.0, tick=15.0), 0)
+        self.assertEqual(wait("wait", next_due=None, now=0.0, tick=0.1), 0.1)

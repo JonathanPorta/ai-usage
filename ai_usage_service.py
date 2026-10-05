@@ -5091,6 +5091,18 @@ def schedule_decision(
     return "collect", next_due
 
 
+def schedule_wait_seconds(action: str, next_due: Optional[float], now: float, tick: float) -> float:
+    """How long an idle daemon sleeps before re-reading its config.
+
+    Always positive and at most `tick`, so pause/resume and shutdown stay
+    responsive. While paused the collection deadline is irrelevant: an
+    expired deadline must not turn the pause into a zero-wait loop.
+    """
+    if action in ("pause", "paused") or next_due is None:
+        return tick
+    return min(tick, max(next_due - now, 0.01))
+
+
 def run_daemon(config_path: Path) -> int:
     stop_event = threading.Event()
 
@@ -5139,8 +5151,7 @@ def run_daemon(config_path: Path) -> int:
                 was_paused = False
                 LOGGER.info("scheduled checks resumed next_poll_seconds=%d", interval)
             if action != "collect":
-                remaining = (next_due - time.monotonic()) if next_due is not None else tick
-                stop_event.wait(max(0.0, min(tick, remaining)))
+                stop_event.wait(schedule_wait_seconds(action, next_due, time.monotonic(), tick))
                 continue
 
             with state_transaction_lock(state_path):
