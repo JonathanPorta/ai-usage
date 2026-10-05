@@ -36,6 +36,36 @@ sys.modules[SPEC.name] = SERVICE
 SPEC.loader.exec_module(SERVICE)
 
 
+_GUARD_DIR: Optional[tempfile.TemporaryDirectory] = None
+_PREVIOUS_LAUNCHCTL: Optional[str] = None
+
+
+def setUpModule() -> None:
+    """Defense in depth for in-process tests: any unmocked launchctl call
+    reaches a refusing fake, never the developer's real launchd domain."""
+    global _GUARD_DIR, _PREVIOUS_LAUNCHCTL
+    _GUARD_DIR = tempfile.TemporaryDirectory(prefix="ai-usage-launchctl-guard-")
+    guard = Path(_GUARD_DIR.name) / "refusing-launchctl"
+    guard.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> '{Path(_GUARD_DIR.name) / 'calls.log'}'\n"
+        'case "$1" in print) exit 113 ;; *) exit 97 ;; esac\n',
+        encoding="utf-8",
+    )
+    guard.chmod(0o755)
+    _PREVIOUS_LAUNCHCTL = os.environ.get(SERVICE.LAUNCHCTL_OVERRIDE_ENV)
+    os.environ[SERVICE.LAUNCHCTL_OVERRIDE_ENV] = str(guard)
+
+
+def tearDownModule() -> None:
+    if _PREVIOUS_LAUNCHCTL is None:
+        os.environ.pop(SERVICE.LAUNCHCTL_OVERRIDE_ENV, None)
+    else:
+        os.environ[SERVICE.LAUNCHCTL_OVERRIDE_ENV] = _PREVIOUS_LAUNCHCTL
+    if _GUARD_DIR is not None:
+        _GUARD_DIR.cleanup()
+
+
 class IsolatedHome:
     def __init__(self) -> None:
         self._temporary = tempfile.TemporaryDirectory(prefix="ai-usage-test-")
@@ -71,7 +101,25 @@ class IsolatedHome:
         environment["TEST_CHILD_EXIT"] = str(self.child_exit)
         environment["TEST_CHILD_PID"] = str(self.child_pid)
         environment["TEST_CHILD_READY"] = str(self.child_ready)
+        environment["AI_USAGE_LAUNCHCTL"] = str(self.fake_launchctl())
         return environment
+
+    def fake_launchctl(self) -> Path:
+        """A launchctl stand-in: records calls and reports the service as not loaded.
+
+        Without it, black-box install/uninstall runs reach the real per-user
+        launchd domain and boot out the developer's installed collector.
+        """
+        path = self.root / "fake-launchctl"
+        if not path.exists():
+            path.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\n' \"$*\" >> '{self.root / 'launchctl-calls.log'}'\n"
+                'case "$1" in print) exit 113 ;; *) exit 0 ;; esac\n',
+                encoding="utf-8",
+            )
+            path.chmod(0o755)
+        return path
 
     def provider_config(self, enabled: str, **settings: object) -> dict[str, object]:
         providers: dict[str, dict[str, object]] = {
@@ -1596,6 +1644,89 @@ for line in sys.stdin:
             Path(telemetry["outfile"]).resolve(),
             (root / "cache" / "gemini-telemetry.log").resolve(),
         )
+
+    def test_every_collector_subprocess_carries_the_isolated_launcher(self) -> None:
+        environment = self.case.environment()
+        self.assertEqual(environment[SERVICE.LAUNCHCTL_OVERRIDE_ENV], str(self.case.fake_launchctl()))
+        self.assertTrue(str(self.case.fake_launchctl()).startswith(str(self.case.root)))
+        # In-process code is guarded too (setUpModule), never the system binary.
+        self.assertNotIn(os.environ[SERVICE.LAUNCHCTL_OVERRIDE_ENV], ("/bin/launchctl", "/usr/bin/launchctl", ""))
+
+    def test_explicit_launcher_that_is_missing_or_invalid_fails_closed(self) -> None:
+        directory = self.case.root / "launcher-dir"
+        directory.mkdir()
+        not_executable = self.case.root / "launcher.txt"
+        not_executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        for value in ("", str(self.case.root / "missing-launchctl"), str(directory), str(not_executable)):
+            with self.subTest(value=value):
+                with mock.patch.dict(os.environ, {SERVICE.LAUNCHCTL_OVERRIDE_ENV: value}):
+                    self.assertIsNone(SERVICE.find_launchctl(), "must not fall back to /bin/launchctl")
+                    with self.assertRaisesRegex(FileNotFoundError, "AI_USAGE_LAUNCHCTL is set"):
+                        SERVICE.run_launchctl(["print", "gui/0/none"])
+        with mock.patch.dict(os.environ, {SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(self.case.fake_launchctl())}):
+            self.assertEqual(SERVICE.find_launchctl(), self.case.fake_launchctl())
+
+    def test_relative_launcher_override_runs_the_validated_file_not_a_path_lookup(self) -> None:
+        workdir = self.case.root / "relative-launcher"
+        trap_dir = self.case.root / "path-trap"
+        workdir.mkdir()
+        trap_dir.mkdir()
+        marker = self.case.root / "which-launcher-ran"
+        for directory, label in ((workdir, "validated"), (trap_dir, "path-trap")):
+            fake = directory / "launchctl"
+            fake.write_text(f"#!/bin/sh\necho {label} >> '{marker}'\n", encoding="utf-8")
+            fake.chmod(0o755)
+        previous = os.getcwd()
+        os.chdir(workdir)
+        self.addCleanup(os.chdir, previous)
+        overrides = {SERVICE.LAUNCHCTL_OVERRIDE_ENV: "./launchctl", "PATH": f"{trap_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"}
+        with mock.patch.dict(os.environ, overrides):
+            found = SERVICE.find_launchctl()
+            self.assertIsNotNone(found)
+            self.assertTrue(found.is_absolute(), found)
+            self.assertEqual(found.resolve(), (workdir / "launchctl").resolve())
+            SERVICE.run_launchctl(["print", "gui/0/none"])
+        self.assertEqual(marker.read_text(encoding="utf-8").split(), ["validated"],
+                         "the PATH executable named launchctl must never run")
+        # Relative values that don't name an executable still fail closed.
+        with mock.patch.dict(os.environ, {SERVICE.LAUNCHCTL_OVERRIDE_ENV: "./missing-launchctl"}):
+            self.assertIsNone(SERVICE.find_launchctl())
+
+    def test_invalid_explicit_launcher_blocks_lifecycle_commands_without_changes(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        before = sorted(str(p.relative_to(self.case.home)) for p in self.case.home.rglob("*"))
+        missing = str(self.case.root / "missing-launchctl")
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: missing})
+        commands = [["status"]]
+        if sys.platform == "darwin":
+            commands += [["uninstall", "--config", str(config)], ["install", "--config", str(config)]]
+        for command in commands:
+            with self.subTest(command=command[0]):
+                result = subprocess.run([sys.executable, str(SCRIPT), *command], env=environment,
+                                        capture_output=True, text=True, timeout=30, check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("unavailable", result.stdout + result.stderr)
+        after = sorted(str(p.relative_to(self.case.home)) for p in self.case.home.rglob("*"))
+        self.assertEqual(before, after, "a failed-closed lifecycle command changed files")
+        self.assertFalse((self.case.root / "launchctl-calls.log").exists()
+                         and "bootout" in (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8"))
+
+    def test_black_box_uninstall_never_reaches_the_real_launchd_domain(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        self.case.run("uninstall", "--config", str(config))
+
+        calls_log = self.case.root / "launchctl-calls.log"
+        if sys.platform != "darwin":
+            # Off macOS, uninstall never consults launchctl at all.
+            self.assertFalse(calls_log.exists())
+            return
+        calls = calls_log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(calls, "uninstall did not consult the isolated launchctl")
+        self.assertTrue(all(call.startswith("print ") for call in calls), calls)
 
     def test_uninstall_detaches_only_managed_hooks_and_preserves_data(self) -> None:
         self.case.write_executable("agy")
