@@ -431,8 +431,10 @@ public extension Report {
             provider.today = nil
             provider.modelsToday = []
             let count = provider.days.count
+            // A provider that has never collected stays "not collected", as a fresh report would say.
+            let newState: Day.State = provider.coverageStart == nil ? .notCollected : .missing
             provider.days += added.map {
-                Day(date: $0, state: .missing, input: nil, output: nil, total: nil, cacheRead: nil, cacheWrite: nil,
+                Day(date: $0, state: newState, input: nil, output: nil, total: nil, cacheRead: nil, cacheWrite: nil,
                     incompleteEvents: 0, asOf: nil)
             }
             provider.days = Array(provider.days.suffix(count))

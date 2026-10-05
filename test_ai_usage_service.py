@@ -2311,9 +2311,10 @@ class MenuAppCommandTests(unittest.TestCase):
             daemon.terminate()
             daemon.wait(timeout=15)
 
-    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool) -> Path:
+    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool, linger_prints: int = 0) -> Path:
         state = self.case.root / "launchd-state.json"
-        state.write_text(json.dumps({"loaded": loaded, "running": running, "disabled": disabled}), encoding="utf-8")
+        state.write_text(json.dumps({"loaded": loaded, "running": running, "disabled": disabled,
+                                     "linger_prints": linger_prints}), encoding="utf-8")
         calls = self.case.root / "launchctl-calls.log"
         script = self.case.root / "stateful-launchctl"
         script.write_text(f"""#!{sys.executable}
@@ -2324,7 +2325,13 @@ args = sys.argv[1:]
 open({str(calls)!r}, "a").write(" ".join(args) + "\\n")
 cmd = args[0]
 code = 0
-if cmd == "print":
+if cmd == "print" and s.get("linger"):
+    s["linger"] -= 1
+    if not s["linger"]:
+        s["loaded"] = False; s["running"] = False
+    print("state = running")
+    print("pid = 4242")
+elif cmd == "print":
     if not s["loaded"]:
         code = 113
     else:
@@ -2338,7 +2345,10 @@ elif cmd == "disable":
 elif cmd == "enable":
     s["disabled"] = False
 elif cmd == "bootout":
-    s["loaded"] = False; s["running"] = False
+    # Like launchd, bootout may return while the job is still exiting.
+    s["linger"] = s.get("linger_prints", 0)
+    if not s["linger"]:
+        s["loaded"] = False; s["running"] = False
 elif cmd == "bootstrap":
     if s["disabled"]:
         code = 5
@@ -2393,6 +2403,19 @@ sys.exit(code)
         mutations = [c for c in calls if not c.startswith("print")]
         plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
         self.assertEqual(mutations, [f"enable {target}", f"bootstrap gui/{self.uid} {plist}"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_stop_reports_stopped_only_after_a_slow_job_has_exited(self) -> None:
+        root = self.case.home / ".ai-usage"
+        self.case.run("install", "--config", str(root / "config.json"), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False, linger_prints=3)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        result = subprocess.run([sys.executable, str(SCRIPT), "stop"], env=environment,
+                                capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stopped = json.loads(result.stdout)
+        self.assertEqual((stopped["state"], stopped["pid"], stopped["disabled"]), ("stopped", None, True),
+                         "stop must not report a job that is still exiting as its final state")
 
     @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
     def test_reinstall_after_stop_clears_the_disable_flag_and_runs(self) -> None:

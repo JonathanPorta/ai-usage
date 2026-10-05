@@ -220,3 +220,6 @@ routine choice made within the approved scope; change it freely with a new entry
     - reinstall after Stop;
     - failed install → rollback → prior service restarted.
   - **Residue:** launchd keeps a `=> enabled` override entry per disposable label, which launchctl can't delete. Nothing else remains.
+- **Settled service state (found by the real-launchd check):** `launchctl bootout` can return while the job is still exiting. `stop` now re-reads the state until it is stopped, and `start` until it is running, both bounded at 10 s, so the app never shows a stopped collector as running (or the reverse). Regression: a stateful fake whose job lingers after `bootout`; the test was mutation-checked.
+- **Upgrade path verified:** the integration check now also performs a successful install over a *running* agent: a newer collector is installed, the agent restarts with a new pid and stays enabled, and config is preserved. This is the path a real upgrade takes. The check uses one fixed label (`codes.porta.ai-usage.test.integration`), so repeated runs reuse a single launchd override entry. Four entries from earlier random-label runs remain.
+- **Rollover detail:** a provider that has never collected stays `not_collected` on the new day instead of `missing`.

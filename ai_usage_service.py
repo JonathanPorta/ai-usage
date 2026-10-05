@@ -4819,6 +4819,22 @@ def service_status() -> dict[str, Any]:
     return status
 
 
+SERVICE_SETTLE_SECONDS = 10.0
+
+
+def wait_for_service_state(accept: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+    """Poll service_status() until `accept` holds or SERVICE_SETTLE_SECONDS pass.
+
+    launchctl bootout/bootstrap can return before the job has finished exiting
+    or starting, so the reported state is re-read until it settles."""
+    deadline = time.monotonic() + SERVICE_SETTLE_SECONDS
+    status = service_status()
+    while not accept(status) and time.monotonic() < deadline:
+        time.sleep(0.2)
+        status = service_status()
+    return status
+
+
 def start_service() -> dict[str, Any]:
     """Re-enable the LaunchAgent and start it. Never rewrites installed files."""
     if sys.platform != "darwin" or find_launchctl() is None:
@@ -4832,10 +4848,10 @@ def start_service() -> dict[str, Any]:
     run_launchctl(["enable", target], check=True)
     if run_launchctl(["print", target], check=False).returncode != 0:
         run_launchctl(["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=True)
-    status = service_status()
+    status = wait_for_service_state(lambda current: current["state"] == "running")
     if status["state"] != "running":
         run_launchctl(["kickstart", target], check=True)
-        status = service_status()
+        status = wait_for_service_state(lambda current: current["state"] == "running")
     return status
 
 
@@ -4850,7 +4866,8 @@ def stop_service() -> dict[str, Any]:
     run_launchctl(["disable", target], check=True)
     if run_launchctl(["print", target], check=False).returncode == 0:
         run_launchctl(["bootout", target], check=True)
-    return service_status()
+    # bootout can return while the job is still exiting; report the settled state.
+    return wait_for_service_state(lambda current: current["state"] in ("stopped", "not_installed"))
 
 
 CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}

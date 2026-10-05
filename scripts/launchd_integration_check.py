@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -66,8 +65,11 @@ def main() -> int:
         print(f"launchd-integration-check: no launchd GUI session ({domain}) available here; "
               "run it from a logged-in desktop session")
         return 2
-    label = f"{REAL_LABEL}.test.{secrets.token_hex(4)}"
+    # One fixed disposable label, so repeated runs reuse a single launchd
+    # override entry instead of accumulating one per run.
+    label = f"{REAL_LABEL}.test.integration"
     target = f"{domain}/{label}"
+    launchctl("bootout", target)  # leftovers from an interrupted earlier run
     home = Path(tempfile.mkdtemp(prefix="ai-usage-launchd-check-"))
     root = home / ".ai-usage"
     config_path = root / "config.json"
@@ -155,7 +157,20 @@ def main() -> int:
         expect(running["state"] == "running" and running["disabled"] is False,
                f"reinstall after stop leaves it running and enabled ({running})")
 
-        print("6. failed install recovers the prior service")
+        print("6. upgrade while running: install a newer collector over the running agent")
+        upgrade = home / "ai_usage_service_upgrade.py"
+        upgrade.write_bytes(SCRIPT.read_bytes() + b"\n# integration-check upgrade\n")
+        prior_pid = status()["pid"]
+        run("install", "--config", str(config_path), script=upgrade)
+        upgraded = wait_running()
+        expect((root / "collector.py").read_bytes() == upgrade.read_bytes(), "the newer collector.py is installed")
+        expect(upgraded["state"] == "running" and upgraded["disabled"] is False,
+               f"running and enabled after the upgrade ({upgraded})")
+        expect(upgraded["pid"] != prior_pid, "the old daemon was replaced by a new process")
+        expect(config_path.is_file() and json.loads(config_path.read_text())["poll_on_start"] is False,
+               "config preserved across the upgrade")
+
+        print("7. failed install recovers the prior service")
         # A newer collector copy must replace collector.py after the running agent
         # is booted out; making the installed file user-immutable makes that
         # replacement fail, which exercises the installer's real rollback.

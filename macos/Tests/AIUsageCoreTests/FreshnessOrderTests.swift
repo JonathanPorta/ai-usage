@@ -111,7 +111,8 @@ final class CalendarRolloverTests: XCTestCase {
             XCTAssertTrue(provider.modelsToday.isEmpty, "\(provider.id): model totals belong to yesterday")
             XCTAssertEqual(provider.days.count, original.days.count, "window length is kept")
             XCTAssertEqual(provider.days.last?.date, "2026-09-30", "the window ends on the new day")
-            XCTAssertEqual(provider.days.last?.state, original.days.last?.state == .notCollected ? .missing : .missing)
+            XCTAssertEqual(provider.days.last?.state, original.coverageStart == nil ? .notCollected : .missing,
+                           "never-collected providers stay not collected; others show a missing new day")
             if let yesterday = provider.days.first(where: { $0.date == "2026-09-29" }), original.today != nil {
                 XCTAssertEqual(yesterday.state, .partial)
                 XCTAssertEqual(yesterday.total, original.today?.total, "yesterday's measurement itself is unchanged")
