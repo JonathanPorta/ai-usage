@@ -29,12 +29,14 @@ enum SnapshotRenderer {
             try shoot("popover-overview", width: popoverWidth, PopoverRoot(screenHeight: 1000))
             try shoot("popover-overview-short", width: popoverWidth, PopoverRoot(screenHeight: 700))
             for provider in report.providers {
-                try shoot("detail-\(provider.id)-tokens", width: popoverWidth, PopoverRoot(initialDetail: provider.id, screenHeight: 1000))
+                try shoot("detail-\(provider.id)-tokens", width: popoverWidth, PopoverRoot(initialScreen: .detail(provider.id), screenHeight: 1000))
                 if !provider.activeWindows.isEmpty {
                     try shoot("detail-\(provider.id)-quota", width: popoverWidth,
-                              PopoverRoot(initialDetail: provider.id, detailMetric: .quota, screenHeight: 1000))
+                              PopoverRoot(initialScreen: .detail(provider.id), detailMetric: .quota, screenHeight: 1000))
                 }
             }
+            try shoot("popover-monitoring", width: popoverWidth, PopoverRoot(initialScreen: .monitoring, screenHeight: 1000))
+            try shoot("popover-settings", width: popoverWidth, PopoverRoot(initialScreen: .settings, screenHeight: 1000))
             let first = report.providers.first { !$0.activeWindows.isEmpty }?.id
             try shoot("history-tokens", width: 920, height: 1400, HistoryView(providerId: report.providers.first?.id))
             try shoot("history-quota", width: 920, height: 1400, HistoryView(providerId: first, metric: .quota))

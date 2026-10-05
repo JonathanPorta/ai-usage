@@ -288,11 +288,22 @@ public final class AppStore {
 
     // MARK: Internals
 
+    /// Called on the main actor after every new snapshot (not for cache loads);
+    /// the app uses it to plan notifications.
+    public var onSnapshotChange: ((Report) -> Void)?
+
     func apply(_ newReport: Report, cached: Bool) {
         snapshot = newReport
         isCachedReport = cached
         phase = .ready
         revision += 1
+        if !cached, let report { onSnapshotChange?(report) }
+    }
+
+    /// Current Collect now progress, when the installed collector reports it.
+    public var collectProgress: CollectProgress? {
+        if case let .running(_, progress) = collect { return progress }
+        return nil
     }
 
     private func loadCache() {

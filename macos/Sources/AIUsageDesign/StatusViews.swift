@@ -40,6 +40,7 @@ public struct StatusRow: View {
         case .attention: Image(systemName: Symbols.failure).foregroundStyle(T.Color.danger.color)
         case .stopped: Image(systemName: Symbols.stopped).foregroundStyle(T.Color.danger.color)
         case .waiting: Image(systemName: Symbols.waiting).foregroundStyle(T.Color.muted.color)
+        case .paused: Image(systemName: Symbols.paused).foregroundStyle(T.Color.accent.color)
         }
     }
 
@@ -56,11 +57,16 @@ public struct NoticeBanner: View {
     private let notice: Presentation.Notice
     private let more: Int
     private let action: (() -> Void)?
+    private let actionTitle: String
+    private let moreAction: (() -> Void)?
 
-    public init(notice: Presentation.Notice, more: Int, action: (() -> Void)?) {
+    public init(notice: Presentation.Notice, more: Int, action: (() -> Void)?, actionTitle: String = "Details",
+                moreAction: (() -> Void)? = nil) {
         self.notice = notice
         self.more = more
         self.action = action
+        self.actionTitle = actionTitle
+        self.moreAction = moreAction
     }
 
     private var symbol: String {
@@ -85,14 +91,20 @@ public struct NoticeBanner: View {
             Image(systemName: symbol).foregroundStyle(foreground)
             VStack(alignment: .leading, spacing: 2) {
                 Text(notice.title).font(.auBody.weight(.semibold)).foregroundStyle(T.Color.text.color)
-                Text(notice.detail).font(.auCaption).foregroundStyle(T.Color.muted.color).lineLimit(3)
+                if !notice.detail.isEmpty {
+                    Text(notice.detail).font(.auCaption).foregroundStyle(T.Color.muted.color).lineLimit(3)
+                }
                 if more > 0 {
-                    Text("+\(more) more").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    if let moreAction {
+                        Button("+\(more) more in Monitoring", action: moreAction).buttonStyle(.link).font(.auCaption)
+                    } else {
+                        Text("+\(more) more").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    }
                 }
             }
             Spacer(minLength: 0)
             if let action {
-                Button("Details", action: action).buttonStyle(.link).font(.auCaption)
+                Button(actionTitle, action: action).buttonStyle(.link).font(.auCaption)
             }
         }
         .padding(T.Space.s3)

@@ -327,6 +327,34 @@ final class FingerprintBox: @unchecked Sendable {
 }
 
 final class PresentationTests: XCTestCase {
+    func testNotificationsFireOncePerLimitPeriodAndPerFailedCheck() throws {
+        let report = try fixture()
+        let now = report.generatedAt
+        let prefs = NotificationPreferences(limits: true, failures: true)
+        let first = NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: [])
+        XCTAssertTrue(first.contains { $0.title == "Codex weekly limit reached" })
+        XCTAssertTrue(first.contains { $0.title == "Grok Build check failed" })
+        XCTAssertFalse(first.contains { $0.title.contains("5-hour") }, "stale windows never notify")
+        let again = NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: Set(first.map(\.key)))
+        XCTAssertTrue(again.isEmpty, "each alert is delivered once")
+        let quiet = NotificationPlanner.alerts(for: report, now: now, preferences: .init(limits: false, failures: false), delivered: [])
+        XCTAssertTrue(quiet.isEmpty)
+        let late = NotificationPlanner.alerts(for: report, now: now.addingTimeInterval(3 * 3600),
+                                              preferences: .init(limits: false, failures: true), delivered: [])
+        XCTAssertTrue(late.isEmpty, "old failures don't notify")
+    }
+
+    func testPausedStatusKeepsCollectNowAvailable() throws {
+        var report = try fixture()
+        report.schedule.state = "paused"
+        let status = Presentation.status(report, collecting: false, now: report.generatedAt)
+        XCTAssertEqual(status.tone, .paused)
+        XCTAssertTrue(status.detail.hasSuffix("Collect now still works"))
+        report.collector.capabilities?.pause = false
+        report.collector.installedVersion = "2.1.0"
+        XCTAssertNotNil(MonitoringText.pauseUnavailable(report))
+    }
+
     func testConfigAssignmentsMatchTheCollectorContract() {
         XCTAssertEqual(ConfigChange.pollPaused(true).assignment, "poll_paused=true")
         XCTAssertEqual(ConfigChange.pollIntervalSeconds(1800).assignment, "poll_interval_seconds=1800")

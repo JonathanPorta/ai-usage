@@ -101,15 +101,19 @@ public enum Format {
 // MARK: - Status row
 
 public struct StatusSummary: Equatable {
-    public enum Tone: Equatable { case healthy, collecting, attention, stopped, waiting }
+    public enum Tone: Equatable { case healthy, collecting, attention, stopped, waiting, paused }
     public var tone: Tone
     public var title: String
     public var detail: String
 }
 
 public enum Presentation {
-    public static func status(_ report: Report?, collecting: Bool, now: Date) -> StatusSummary {
+    public static func status(_ report: Report?, collecting: Bool, now: Date, progress: CollectProgress? = nil) -> StatusSummary {
         if collecting {
+            if let progress, let name = report?.provider(progress.providerId)?.name {
+                return StatusSummary(tone: .collecting, title: "Checking providers…",
+                                     detail: "Reading \(name) · \(progress.index) of \(progress.total)")
+            }
             return StatusSummary(tone: .collecting, title: "Checking providers…",
                                  detail: "Values from the last check stay visible")
         }
@@ -120,13 +124,18 @@ public enum Presentation {
         let checked = collection.lastAttemptAt.map { "Last check \(Format.ago($0, now: now))" } ?? "No checks yet"
         switch report.service.state {
         case .stopped:
-            return StatusSummary(tone: .stopped, title: "Collector stopped", detail: checked)
+            let atLogin = report.service.disabled == true ? " · stays stopped at login" : ""
+            return StatusSummary(tone: .stopped, title: "Collector stopped", detail: checked + atLogin)
         case .notInstalled:
             return StatusSummary(tone: .stopped, title: "Collector not installed", detail: checked)
         default: break
         }
         guard let attempt = collection.lastAttemptAt else {
             return StatusSummary(tone: .waiting, title: "Waiting for the first check", detail: "Nothing has been measured yet")
+        }
+        if report.schedule.isPaused {
+            return StatusSummary(tone: .paused, title: "Scheduled checks paused",
+                                 detail: "\(checked) · Collect now still works")
         }
         if collection.lastAttemptResult == .failed {
             return StatusSummary(tone: .attention, title: "Last check failed", detail: "\(Format.ago(attempt, now: now))")
@@ -303,5 +312,121 @@ public enum Presentation {
 
     public static func sum(_ days: [Day]) -> Double {
         days.reduce(0) { $0 + ($1.hasValue ? ($1.total ?? 0) : 0) }
+    }
+}
+
+// MARK: - Data age and refresh state
+
+public enum DataStatus {
+    /// "Data read 3 min ago", "Refreshing…", or the refresh error, for the footer and Monitoring.
+    public static func text(generatedAt: Date?, refreshing: Bool, error: String?, cached: Bool, now: Date) -> (text: String, warning: Bool) {
+        if refreshing { return ("Reading collector data…", false) }
+        if let error { return ("Couldn’t refresh: \(error)", true) }
+        guard let generatedAt else { return ("No data yet", false) }
+        let age = Format.ago(generatedAt, now: now)
+        return (cached ? "Showing saved data from \(age)" : "Data read \(age)", cached)
+    }
+}
+
+// MARK: - Monitoring copy
+
+public enum MonitoringText {
+    public static func service(_ service: Service) -> (title: String, detail: String) {
+        switch service.state {
+        case .running:
+            return ("Running", service.pid.map { "Background collector (pid \($0)) · keeps running when this app quits" }
+                    ?? "Keeps running when this app quits")
+        case .loaded: return ("Loaded, not running", "launchd has the collector but it isn’t running right now")
+        case .stopped:
+            return ("Stopped", service.disabled == true
+                    ? "Stays stopped, including after you log in, until you start it. Data and settings are kept."
+                    : "Not running. Data and settings are kept.")
+        case .notInstalled: return ("Not installed", "Install it from the repository: python3 ai_usage_service.py install")
+        case .unknown: return ("Unknown", service.detail)
+        }
+    }
+
+    public static func schedule(_ report: Report, now: Date) -> (title: String, detail: String) {
+        let every = "Every \(Format.duration(Double(report.schedule.intervalMinutes * 60)))"
+        if report.service.state != .running {
+            return ("No scheduled checks", "The collector isn’t running. Collect now still runs a one-time check.")
+        }
+        if report.schedule.isPaused {
+            return ("Paused", "Scheduled checks are skipped; the collector keeps running and Collect now still works.")
+        }
+        if let next = report.schedule.nextScheduledAt {
+            return (every, next > now ? "Next check \(Format.until(next, now: now)) (\(Format.clock(next)))" : "Next check is due")
+        }
+        return (every, "Next check time not known yet")
+    }
+
+    /// Why Pause can't be offered, if it can't.
+    public static func pauseUnavailable(_ report: Report) -> String? {
+        if report.collector.capabilities?.pause == true { return nil }
+        let installed = report.collector.installedVersion ?? "unknown"
+        var text = "Pause needs collector 2.2.0 or newer (installed: \(installed)). Reinstall it from the repository with python3 ai_usage_service.py install to enable pausing."
+        if report.schedule.pauseRequested == true {
+            text += " config.json already asks for a pause, but the installed collector ignores it."
+        }
+        return text
+    }
+
+    public static func lastAttempt(_ collection: CollectionState, now: Date) -> String {
+        guard let at = collection.lastAttemptAt else { return "No checks yet" }
+        let result: String
+        switch collection.lastAttemptResult {
+        case .success?: result = "complete"
+        case .partial?: result = "partly complete"
+        case .failed?: result = "failed"
+        case nil: result = "unknown result"
+        }
+        return "Last check \(Format.moment(at, now: now)) · \(result)"
+    }
+}
+
+// MARK: - Notifications
+
+public struct NotificationPreferences: Equatable, Sendable {
+    public var limits: Bool
+    public var failures: Bool
+    public init(limits: Bool, failures: Bool) {
+        self.limits = limits
+        self.failures = failures
+    }
+}
+
+public struct PlannedAlert: Equatable, Sendable {
+    public var key: String
+    public var title: String
+    public var body: String
+}
+
+/// Decides which notifications a snapshot warrants. Keys make each one fire
+/// once: per window and reset period for limits, per check for failures.
+public enum NotificationPlanner {
+    public static func alerts(for report: Report, now: Date, preferences: NotificationPreferences,
+                              delivered: Set<String>) -> [PlannedAlert] {
+        var out: [PlannedAlert] = []
+        if preferences.limits {
+            for provider in report.providers where provider.enabled {
+                for window in provider.activeWindows where window.status == .current && window.limit == .reached {
+                    let period = window.resetsAt.map(ReportDate.format) ?? "none"
+                    let key = "limit|\(provider.id)|\(window.id)|\(period)"
+                    let reset = window.resetsAt.map { " It resets \(Format.reset($0, now: now))." } ?? ""
+                    out.append(PlannedAlert(key: key, title: "\(provider.name) \(window.short.lowercased()) limit reached",
+                                            body: "Measured \(Format.moment(window.measuredAt, now: now)).\(reset)"))
+                }
+            }
+        }
+        if preferences.failures, let attempt = report.collection.lastAttemptAt, now.timeIntervalSince(attempt) < 2 * 3600 {
+            for failure in report.collection.failures {
+                let key = "failure|\(failure.provider ?? "collector")|\(failure.source ?? "")|\(ReportDate.format(attempt))"
+                let name = failure.provider.flatMap { report.provider($0)?.name } ?? "The collector"
+                let title = failure.auth ? "\(name) needs you to sign in" :
+                    (failure.kind == "collector" ? "The last check failed" : "\(name) check failed")
+                out.append(PlannedAlert(key: key, title: title, body: (failure.message ?? "") + " Cached values are kept."))
+            }
+        }
+        return out.filter { !delivered.contains($0.key) }
     }
 }

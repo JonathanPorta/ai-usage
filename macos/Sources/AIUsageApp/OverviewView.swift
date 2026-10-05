@@ -7,6 +7,8 @@ struct OverviewView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let openDetail: (String) -> Void
     let openHistory: (String?) -> Void
+    let openMonitoring: () -> Void
+    let openSettings: () -> Void
     @Binding var returnFocus: String?
     let maxHeight: CGFloat
 
@@ -21,10 +23,19 @@ struct OverviewView: View {
         VStack(spacing: 0) {
             VStack(spacing: T.Space.s2) {
                 header
-                StatusRow(summary: Presentation.status(store.report, collecting: store.isCollecting, now: now),
-                          reduceMotion: reduceMotion)
-                    .focusable()
-                    .focused($focus, equals: .status)
+                Button(action: openMonitoring) {
+                    HStack(spacing: 0) {
+                        StatusRow(summary: Presentation.status(store.report, collecting: store.isCollecting, now: now,
+                                                               progress: store.collectProgress),
+                                  reduceMotion: reduceMotion)
+                        Image(systemName: Symbols.forward).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                            .padding(.trailing, T.Space.s2)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focused($focus, equals: .status)
+                .accessibilityHint("Opens Monitoring")
                 notice(now: now)
             }
             .padding([.horizontal, .top], T.Space.s4)
@@ -79,7 +90,8 @@ struct OverviewView: View {
             let notices = Presentation.notices(report, now: now)
             if let first = notices.first {
                 NoticeBanner(notice: first, more: notices.count - 1,
-                             action: first.providerId.map { id in { openDetail(id) } })
+                             action: first.providerId.map { id in { openDetail(id) } },
+                             moreAction: openMonitoring)
             } else if let error = store.refreshError {
                 NoticeBanner(notice: .init(id: "refresh", tone: .stale, title: "Showing the last report",
                                            detail: error, providerId: nil), more: 0, action: nil)
@@ -92,7 +104,7 @@ struct OverviewView: View {
         if let report = store.report {
             LazyVStack(spacing: T.Space.s2) {
                 ForEach(report.providers) { provider in
-                    ProviderCard(provider: provider, now: now, checking: store.isCollecting && provider.isActive,
+                    ProviderCard(provider: provider, now: now, checking: checking(provider),
                                  open: { openDetail(provider.id) })
                         .focused($focus, equals: .card(provider.id))
                 }
@@ -106,7 +118,30 @@ struct OverviewView: View {
         }
     }
 
+    private func checking(_ provider: Provider) -> Bool {
+        guard store.isCollecting, provider.isActive else { return false }
+        // With per-provider progress, tag only the provider being read.
+        if let progress = store.collectProgress { return progress.providerId == provider.id }
+        return true
+    }
+
     private var footer: some View {
+        VStack(spacing: 2) {
+            footerButtons
+            let status = DataStatus.text(generatedAt: store.snapshot?.generatedAt, refreshing: store.isRefreshing,
+                                         error: store.refreshError, cached: store.isCachedReport, now: store.now)
+            HStack(spacing: 4) {
+                if store.isRefreshing { ProgressView().controlSize(.mini) }
+                Text(status.text).lineLimit(1).truncationMode(.tail)
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(status.warning ? T.Color.warning.color : T.Color.muted.color)
+            .padding(.bottom, T.Space.s2)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var footerButtons: some View {
         HStack {
             Button {
                 Task { await store.collectNow() }
@@ -123,10 +158,15 @@ struct OverviewView: View {
             Button { openHistory(nil) } label: { Label("Open history", systemImage: Symbols.history) }
                 .buttonStyle(.borderless)
                 .foregroundStyle(T.Color.text.color)
+            Button(action: openSettings) { Image(systemName: Symbols.settings) }
+                .buttonStyle(.borderless)
+                .foregroundStyle(T.Color.text.color)
+                .help("Settings (⌘,)")
+                .accessibilityLabel("Settings")
         }
         .font(.auBody)
         .padding(.horizontal, T.Space.s4)
-        .padding(.vertical, T.Space.s3)
+        .padding(.top, T.Space.s3)
     }
 
     private func moveFocus(_ delta: Int) -> KeyPress.Result {

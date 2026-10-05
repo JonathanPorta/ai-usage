@@ -27,7 +27,9 @@ struct AIUsageApp: App {
             SnapshotRenderer.run(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]),
                                  live: CommandLine.arguments.contains("--live"))
         }
+        if CommandLine.arguments.contains("--measure") { MeasureHarness.run() }
         let store = AppStore.live()
+        store.onSnapshotChange = { report in NotificationCenterBridge.handle(report, now: Date()) }
         store.start()
         self.store = store
     }
@@ -69,6 +71,7 @@ struct MenuBarLabel: View {
         case .stopped, .notInstalled: return Symbols.Badge.stopped
         default: break
         }
+        if report.schedule.isPaused { return Symbols.Badge.paused }
         if report.collection.lastAttemptResult == .failed || !report.collection.failures.isEmpty { return Symbols.Badge.attention }
         return nil
     }

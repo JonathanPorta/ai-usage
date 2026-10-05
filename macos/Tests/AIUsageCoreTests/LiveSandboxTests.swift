@@ -47,5 +47,29 @@ final class LiveSandboxTests: XCTestCase {
         // cached measurements survive a check that found nothing new.
         XCTAssertEqual(after.provider("grok")?.costs.reported?.amountUsd, before.provider("grok")?.costs.reported?.amountUsd)
         XCTAssertNil(store.refreshError)
+
+        // Settings go through the real collector `configure`: atomic, validated, other keys kept.
+        let configURL = root.appendingPathComponent("config.json")
+        let store2 = AppStore(environment: environment,
+                              reporter: LiveReportClient(environment: environment, runner: runner),
+                              collector: LiveCollectorClient(environment: environment, runner: runner),
+                              config: LiveConfigWriter(environment: environment, runner: runner))
+        await store2.applySettings([.pollPaused(true), .monthlySubscription("grok", 30), .providerEnabled("gemini_cli", false)])
+        XCTAssertEqual(store2.action, .done("Settings saved"))
+        let written = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any])
+        XCTAssertEqual(written["poll_paused"] as? Bool, true)
+        let providers = try XCTUnwrap(written["providers"] as? [String: [String: Any]])
+        XCTAssertEqual(providers["grok"]?["monthly_subscription_usd"] as? Double, 30)
+        XCTAssertEqual(providers["gemini_cli"]?["enabled"] as? Bool, false)
+        XCTAssertNotNil(providers["claude"]?["projects_dir"], "unrelated settings are preserved")
+        XCTAssertEqual(store2.report?.schedule.pauseRequested, true)
+        XCTAssertEqual(store2.report?.provider("grok")?.costs.subscription?.monthlyUsd, 30)
+
+        await store2.applySettings([.pollIntervalSeconds(5)])
+        if case let .failed(message) = store2.action {
+            XCTAssertTrue(message.contains("at least 60"), message)
+        } else { XCTFail("invalid interval must be rejected") }
+        let rejected = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any])
+        XCTAssertEqual(rejected["poll_interval_seconds"] as? Int, 3600, "a rejected setting leaves config.json unchanged")
     }
 }
