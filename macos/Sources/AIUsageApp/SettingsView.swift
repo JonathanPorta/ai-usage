@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage(NotificationCenterBridge.limitsKey) private var notifyLimits = true
     @AppStorage(NotificationCenterBridge.failuresKey) private var notifyFailures = true
     @State private var prices: [String: String] = [:]
+    /// The last value loaded from the report, to tell an in-progress edit from a stale field.
+    @State private var loadedPrices: [String: String] = [:]
     @State private var loginStatus = LoginItem.status
     @State private var loginError: String?
 
@@ -48,12 +50,16 @@ struct SettingsView: View {
 
     private func loadPrices() {
         guard let report = store.report else { return }
-        for provider in report.providers where prices[provider.id] == nil || !store.isActing {
-            if let monthly = provider.costs.subscription?.monthlyUsd, provider.costs.subscription?.source == "config" {
-                prices[provider.id] = monthly == monthly.rounded() ? String(Int(monthly)) : String(monthly)
-            } else if provider.costs.subscription == nil {
-                prices[provider.id] = ""
+        for provider in report.providers {
+            var current = ""
+            if let monthly = provider.costs.subscription?.monthlyUsd {
+                current = monthly == monthly.rounded() ? String(Int(monthly)) : String(monthly)
             }
+            // A background refresh must not overwrite a price the user is editing.
+            if prices[provider.id] == nil || prices[provider.id] == loadedPrices[provider.id] {
+                prices[provider.id] = current
+            }
+            loadedPrices[provider.id] = current
         }
     }
 

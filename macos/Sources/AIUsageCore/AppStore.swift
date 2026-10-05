@@ -107,7 +107,8 @@ public final class AppStore {
             environment: environment,
             reporter: LiveReportClient(environment: environment),
             collector: LiveCollectorClient(environment: environment),
-            service: LiveServiceControl(environment: environment),
+            // Sandbox runs (AI_USAGE_SERVICE=skip) must never reach the real launchd domain.
+            service: environment.skipServiceProbe ? NoServiceControl() : LiveServiceControl(environment: environment),
             config: LiveConfigWriter(environment: environment),
             cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json")
         )

@@ -418,6 +418,37 @@ final class PresentationTests: XCTestCase {
     }
 }
 
+// MARK: - Isolation
+
+final class RecordingRunner: ProcessRunning, @unchecked Sendable {
+    var invocations: [[String]] = []
+    func run(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval) async throws -> ProcessResult {
+        invocations.append(arguments)
+        return ProcessResult(exitCode: 0, stdout: Data("{}".utf8), stderr: "", timedOut: false)
+    }
+}
+
+final class SandboxIsolationTests: XCTestCase {
+    func testSandboxEnvironmentNeverRunsServiceControl() async {
+        var sandbox = environment()
+        sandbox.skipServiceProbe = true
+        sandbox.reportScript = URL(fileURLWithPath: "/repo/ai_usage_report.py")
+        let runner = RecordingRunner()
+        let control = LiveServiceControl(environment: sandbox, runner: runner)
+        for action in ["status", "start", "stop"] {
+            do {
+                switch action {
+                case "status": _ = try await control.status()
+                case "start": try await control.start()
+                default: try await control.stop()
+                }
+                XCTFail("\(action) must refuse in a sandbox environment")
+            } catch {}
+        }
+        XCTAssertTrue(runner.invocations.isEmpty, "no launchd command may run for a sandbox data source")
+    }
+}
+
 // MARK: - Environment
 
 final class CollectorEnvironmentTests: XCTestCase {

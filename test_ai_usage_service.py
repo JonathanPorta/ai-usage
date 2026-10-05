@@ -2324,6 +2324,14 @@ elif cmd == "kickstart":
         s["running"] = True
     else:
         code = 3
+elif cmd == "load":
+    # Legacy `load -w` also clears the persistent disable flag.
+    if "-w" in args:
+        s["disabled"] = False
+    if s["disabled"]:
+        code = 5
+    else:
+        s["loaded"] = True; s["running"] = True
 json.dump(s, open(state_path, "w"))
 sys.exit(code)
 """, encoding="utf-8")
@@ -2360,6 +2368,26 @@ sys.exit(code)
         mutations = [c for c in calls if not c.startswith("print")]
         plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
         self.assertEqual(mutations, [f"enable {target}", f"bootstrap gui/{self.uid} {plist}"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_reinstall_after_stop_clears_the_disable_flag_and_runs(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+
+        def run(*command: str) -> subprocess.CompletedProcess[str]:
+            result = subprocess.run([sys.executable, str(SCRIPT), *command], env=environment,
+                                    capture_output=True, text=True, timeout=60, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+
+        run("stop")
+        run("install", "--config", str(config))
+        status = json.loads(run("service-status").stdout)
+        self.assertEqual((status["state"], status["disabled"]), ("running", False),
+                         "reinstalling after Stop must leave the collector enabled and running")
 
     @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
     def test_start_without_installation_changes_nothing(self) -> None:

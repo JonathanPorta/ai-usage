@@ -21,21 +21,30 @@ enum NotificationCenterBridge {
     }
 
     static func handle(_ report: Report, now: Date) {
-        let defaults = UserDefaults.standard
-        var delivered = Set(defaults.stringArray(forKey: deliveredKey) ?? [])
+        let delivered = Set(UserDefaults.standard.stringArray(forKey: deliveredKey) ?? [])
         let alerts = NotificationPlanner.alerts(for: report, now: now, preferences: preferences, delivered: delivered)
         guard !alerts.isEmpty else { return }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
+            // Without permission nothing is shown, so nothing is marked delivered:
+            // current conditions still notify once permission is granted.
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
             for alert in alerts {
                 let content = UNMutableNotificationContent()
                 content.title = alert.title
                 content.body = alert.body
-                center.add(UNNotificationRequest(identifier: alert.key, content: content, trigger: nil))
+                center.add(UNNotificationRequest(identifier: alert.key, content: content, trigger: nil)) { error in
+                    guard error == nil else { return }
+                    Task { @MainActor in markDelivered(alert.key) }
+                }
             }
         }
-        delivered.formUnion(alerts.map(\.key))
-        defaults.set(Array(delivered.suffix(500)), forKey: deliveredKey)
+    }
+
+    private static func markDelivered(_ key: String) {
+        var keys = UserDefaults.standard.stringArray(forKey: deliveredKey) ?? []
+        guard !keys.contains(key) else { return }
+        keys.append(key)
+        UserDefaults.standard.set(Array(keys.suffix(500)), forKey: deliveredKey)
     }
 }

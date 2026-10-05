@@ -77,7 +77,7 @@ into both scenes with `.environment(store)`.
 1. **On launch:** decode the last report cached in `~/Library/Application Support/AI Usage/last-report.json`, then run the report in the background.
    - First render takes about 180 ms.
    - The footer says "Showing saved data from …" until the live report replaces it.
-2. **When the popover opens:** render the store at once. A cheap service probe runs. The report runs only if the CSV, log or config changed since the last scan. It is read-only and never collects.
+2. **When the popover opens:** render the store at once. A cheap service probe runs: the bundled `service-status`, about 150 ms, never a CSV scan. The report runs only if the CSV, log or config changed since the last scan. It is read-only and never collects.
 3. **While running:** every 5 minutes, the same change check.
 4. **Collect now, service actions and settings:** run the action, then refresh. Every view, including an already-open History window, updates from the same store.
 5. **Overlap:** all report runs go through one worker. Overlapping requests share one follow-up run, an older result never replaces a newer one, and a failure keeps the last good snapshot with the error shown.
@@ -93,7 +93,7 @@ into both scenes with `.environment(store)`.
 | `AI_USAGE_PYTHON` | Interpreter. Default: the plist's `ProgramArguments[0]`, or else `/usr/bin/python3`. |
 | `AI_USAGE_COLLECTOR` | Collector script for Collect now. Default: the plist's `ProgramArguments[1]`. |
 | `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/collector/ai_usage_report.py`, next to the bundled `ai_usage_service.py` it imports. |
-| `AI_USAGE_SERVICE` | `skip` passes `--service skip` (sandbox runs). |
+| `AI_USAGE_SERVICE` | `skip` marks an isolated (sandbox) data source. The report skips its launchd probe, and the app disables service probing and Start/Stop entirely, so a sandbox run can never control the real LaunchAgent. |
 | `AI_USAGE_STATE_DIR` | Where the last report is cached. Default: Application Support. |
 
 `make app-run-sandbox` sets all of these to a temporary sandbox, so development

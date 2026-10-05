@@ -144,6 +144,8 @@ Still outstanding (needs a person at the Mac):
 - [ ] An already-open History window updates after Collect now and after a price change.
 - [ ] `popoverOpened()` fires on every reopen of the `.window` MenuBarExtra.
 - [ ] Reduce Motion: no slide transitions, and a static checking symbol.
+- [ ] The Stop confirmation dialog presents correctly from the `.window` MenuBarExtra (sheet and dialog presentation there is known to be fragile).
+- [ ] The interval picker and provider switches settle on the saved value. They show the stored value again until the post-save refresh lands (about 2–3 s).
 - [ ] Large text sizes: quota cells and the footer stay readable.
 - [ ] Notifications appear after permission is granted, once per limit period.
 - [ ] Open at login registers (it may require approval in System Settings).

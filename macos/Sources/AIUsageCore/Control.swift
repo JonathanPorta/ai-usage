@@ -50,6 +50,10 @@ public struct LiveServiceControl: ServiceControlling {
     public func stop() async throws { _ = try await run("stop", timeout: 60) }
 
     private func run(_ command: String, timeout: TimeInterval) async throws -> ServiceStatus {
+        // Defense in depth: an isolated (sandbox) environment never controls or probes launchd.
+        guard !environment.skipServiceProbe else {
+            throw ClientError.processFailed("Service control is disabled for this isolated (sandbox) data source.")
+        }
         guard let module = environment.bundledCollectorModule else { throw ClientError.reportScriptMissing }
         let result = try await runner.run(environment.python, arguments: [module.path, command],
                                           environment: environment.childEnvironment, timeout: timeout)

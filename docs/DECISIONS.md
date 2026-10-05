@@ -192,3 +192,9 @@ routine choice made within the approved scope; change it freely with a new entry
 - Notify on check failures or sign-in needed, once per check and only within 2 h.
 - Two toggles in Settings, both on by default; nothing is delivered until macOS permission is granted.
 - Limits don't badge the menu-bar icon (handoff §10 Q5, current design).
+
+## 2026-10-05 — Isolation for sandbox runs and reinstall after Stop (engineering)
+**Choice:**
+- When the data source is isolated (`AI_USAGE_SERVICE=skip`, as in `make app-run-sandbox` and tests), the app uses no service control at all. `LiveServiceControl` also refuses as a second guard, with a Swift test proving no launchd command runs.
+- **Reinstall after Stop:** `install` falls back to `launchctl load -w` when `bootstrap` refuses a disabled agent. `-w` clears the persistent disable flag. This is tested against a stateful fake that encodes that documented `launchctl` behavior. It has **not** been exercised against the real launchd, which would mean stopping the owner's collector.
+- **Notifications** are recorded as delivered only after the system accepts them while authorized, so granting permission later still shows current conditions once.
