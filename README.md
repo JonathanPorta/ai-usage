@@ -212,12 +212,37 @@ and remain untouched. Config, CSV data, logs, and raw caches are preserved. If
 ownership or provider settings cannot be inspected safely, uninstall fails
 closed before deleting dependent files.
 
+## macOS menu-bar app
+
+`macos/` contains a native SwiftUI menu-bar app (macOS 14 or later) over this
+collector. It shows today's usage, 7-day charts, every quota window with its
+own freshness, provider details and a History window. It reads data through
+the read-only reporting command (`ai_usage_report.py`, schema
+`ai-usage/report/v1`, see [docs/CLI.md](docs/CLI.md)). **Collect now** runs the
+installed collector's existing `once` command. Quitting the app never stops
+the collector.
+
+```bash
+make app-build          # macos/build/AI Usage.app (ad-hoc signed, local use)
+make app-run            # launch against the installed collector
+make app-run-sandbox    # launch against an isolated synthetic sandbox
+make report             # print the JSON report for ~/.ai-usage (read-only)
+```
+
+Design and specs:
+
+- [DESIGN.md](DESIGN.md) and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md);
+- the accepted handoff in [docs/design/app/](docs/design/app/);
+- [docs/APP.md](docs/APP.md).
+
 ## Tests
 
 ```bash
 make help
-make test
+make test        # collector and reporting tests
 make check
+make app-test    # Swift tests, including an isolated sandbox end-to-end run
+make spec-check ARGS=--strict && make design-check ARGS=--strict
 ```
 
 The fixture suite uses fake provider binaries and asserts that only the Codex

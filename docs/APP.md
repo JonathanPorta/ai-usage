@@ -83,9 +83,23 @@ into both scenes with `.environment(store)`.
 | `AI_USAGE_CONFIG` | Config path passed to the report and to `once`. Default: the plist's `--config`, or else `~/.ai-usage/config.json`. |
 | `AI_USAGE_PYTHON` | Interpreter. Default: the plist's `ProgramArguments[0]`, or else `/usr/bin/python3`. |
 | `AI_USAGE_COLLECTOR` | Collector script for Collect now. Default: the plist's `ProgramArguments[1]`. |
-| `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/ai_usage_report.py`. |
+| `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/collector/ai_usage_report.py`, next to the bundled `ai_usage_service.py` it imports. |
 | `AI_USAGE_SERVICE` | `skip` passes `--service skip` (sandbox runs). |
 | `AI_USAGE_STATE_DIR` | Where the last report is cached. Default: Application Support. |
 
 `make app-run-sandbox` sets all of these to a temporary sandbox, so development
 never touches `~/.ai-usage`.
+
+## Offscreen verification
+
+`AIUsage --snapshot DIR [--live]` (also `make app-snapshot` and
+`make app-snapshot-live`) hosts the real SwiftUI views in offscreen windows. It
+writes PNGs of these screens in light and dark, then exits:
+
+- the overview at 420 pt, and in a 700 pt-tall screen;
+- every provider detail, in Tokens and Quota;
+- History in Tokens and Quota.
+
+It needs no screen-recording permission. `--live` renders the live report
+(read-only). Those images contain personal usage data, so they go under the
+git-ignored `.sandbox/`.

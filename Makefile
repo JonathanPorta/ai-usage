@@ -2,9 +2,10 @@ PYTHON ?= python3
 BLESSED := tools/blessed/scripts
 AI_USAGE_CONFIG ?= $(HOME)/.ai-usage/config.json
 SANDBOX ?= $(CURDIR)/.sandbox
+SNAPSHOT_DIR ?= $(CURDIR)/.sandbox/snapshots
 
 .PHONY: help test check spec-check design-check design-build design-build-check \
-	report report-sandbox sandbox fixture fixture-check
+	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-live
 
 help: ## List supported commands
 	@printf '%s\n' \
@@ -19,7 +20,13 @@ help: ## List supported commands
 		'make report-sandbox      Print the JSON report for an isolated synthetic sandbox' \
 		'make sandbox             (Re)create the synthetic sandbox in SANDBOX' \
 		'make fixture             Regenerate the app fixture report' \
-		'make fixture-check       Fail when the committed app fixture is out of date'
+		'make fixture-check       Fail when the committed app fixture is out of date' \
+		'make app-test            Swift unit tests (store, decoding, presentation)' \
+		'make app-build           Build macos/build/AI Usage.app (ad-hoc signed)' \
+		'make app-run             Build and launch against the installed collector' \
+		'make app-run-sandbox     Build and launch against the isolated synthetic sandbox' \
+		'make app-snapshot        Render fixture screens (light/dark, 420 pt, short) to SNAPSHOT_DIR' \
+		'make app-snapshot-live   Render the live report read-only to SNAPSHOT_DIR (personal data; not for git)'
 
 test: ## Run the full unit and black-box suite
 	$(PYTHON) -m unittest -v
@@ -56,3 +63,29 @@ fixture: ## Regenerate the committed app fixture report from the synthetic scena
 
 fixture-check: ## Fail when the committed app fixture drifts from the generator
 	$(PYTHON) ai_usage_fixtures.py fixture-check
+
+APP := macos/build/AI Usage.app
+
+app-test: ## Swift unit tests for the macOS app core, plus an isolated sandbox end-to-end run
+	AI_USAGE_REPO_ROOT="$(CURDIR)" AI_USAGE_TEST_PYTHON="$$(command -v $(PYTHON))" swift test --package-path macos
+
+app-build: ## Assemble and ad-hoc sign macos/build/AI Usage.app
+	bash macos/scripts/build_app.sh
+
+app-run: app-build ## Launch the app against the installed collector (reads ~/.ai-usage)
+	-@pkill -x AIUsage 2>/dev/null; true
+	open "$(APP)"
+
+app-run-sandbox: app-build sandbox ## Launch the app against SANDBOX only (never touches ~/.ai-usage)
+	-@pkill -x AIUsage 2>/dev/null; true
+	AI_USAGE_CONFIG="$(SANDBOX)/config.json" AI_USAGE_SERVICE=skip \
+	AI_USAGE_COLLECTOR="$(CURDIR)/ai_usage_service.py" AI_USAGE_PYTHON="$$(command -v $(PYTHON))" \
+	AI_USAGE_STATE_DIR="$(SANDBOX)/app-state" \
+	"$(APP)/Contents/MacOS/AIUsage" >"$(SANDBOX)/app.log" 2>&1 &
+	@echo "AI Usage running against $(SANDBOX) (log: $(SANDBOX)/app.log)"
+
+app-snapshot: app-build ## Render the real views offscreen from the fixture report (no screen permission needed)
+	TZ=America/Denver "$(APP)/Contents/MacOS/AIUsage" --snapshot "$(SNAPSHOT_DIR)/fixture"
+
+app-snapshot-live: app-build ## Render the live report (read-only) offscreen; output contains personal usage data
+	"$(APP)/Contents/MacOS/AIUsage" --snapshot "$(SNAPSHOT_DIR)/live" --live

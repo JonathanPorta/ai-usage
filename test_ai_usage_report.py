@@ -310,6 +310,23 @@ class SourceAndCacheTests(ReportCase):
         self.assertIsNone(stopped["schedule"]["next_scheduled_at"])
         self.assertFalse(stopped["schedule"]["pause_supported"])
 
+    def test_check_that_detects_nothing_still_counts_as_an_attempt(self) -> None:
+        early = self.now - 3 * HOUR
+        self.check(early, fx.codex_usage_summary(early))
+        ts = self.now - 5 * 60
+        self.builder.transaction([fx.R(ts, "codex", "cost", "monthly_subscription", 20, kind="monthly_rate",
+                                       period_start="2026-09-01", period_end="2026-10-01", unit="USD/month",
+                                       source="config")])
+        built = self.build()
+        self.assertEqual(built["collection"]["last_attempt_at"], report.iso(ts))
+        self.assertEqual(self.provider(built, "codex")["setup"], "not_detected")
+
+    def test_empty_check_is_read_from_the_log(self) -> None:
+        self.check(self.now - 3 * HOUR, fx.codex_usage_summary(self.now - 3 * HOUR))
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.now - 60))
+        built = self.build(log=f"{stamp},000 INFO one-shot collection completed rows=0 errors=0\n")
+        self.assertEqual(built["collection"]["last_attempt_at"], report.iso(self.now - 60))
+
     def test_not_installed_provider_is_not_detected(self) -> None:
         self.check(self.now - 10 * 60, providers=("codex",))
         gemini = self.provider(self.build(), "gemini_cli")

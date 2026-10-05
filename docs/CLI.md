@@ -224,6 +224,7 @@ window's freshness is evaluated on its own.
 2. A failed source keeps its previous measurements and `last_read_at`, and is marked `failed` with the attempt's error. Because failures come from the latest attempt, a successful usage read never refreshes a failed quota source.
 3. A disabled provider (`availability/enabled = false`) keeps its cached data. Its sources become `off`, and its usage and quota age normally.
 4. Collector-level failures (`collection cycle failed` in the log after the latest transaction) set `last_attempt_result: failed` and change no measurement.
+   - **What counts as an attempt:** a CSV transaction with at least one check-time row (any row except event usage rows, which carry their event time). A check that finds nothing writes no transaction; its `collection completed rows=0` log line still counts as the attempt.
 5. Every quota window is evaluated independently. In priority order, a window is stale because of:
    - `auth`;
    - `failed`;

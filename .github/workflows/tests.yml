@@ -42,3 +42,17 @@ jobs:
         run: make design-check ARGS=--strict
       - name: Generated tokens drift
         run: make design-build-check
+
+  macos-app:
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fixture contract
+        run: make fixture-check
+      - name: Swift tests (includes isolated sandbox end-to-end)
+        run: make app-test
+      - name: Build app bundle
+        run: make app-build

@@ -39,6 +39,8 @@ make app-test              # Swift unit tests (store, decoding, formatting)
 make app-build             # build macos/build/AI Usage.app
 make app-run               # build and launch against the installed collector
 make app-run-sandbox       # launch against an isolated sandbox config and fixture data
+make app-snapshot          # render every screen offscreen (light/dark, 420 pt, short viewport)
+make fixture / fixture-check   # regenerate / drift-check the committed fixture report
 ```
 
 The Blessed checkers are vendored under `tools/blessed/` at commit
@@ -116,7 +118,9 @@ over the collector's CSV, its state and `launchctl`.
 | Area | Status |
 | --- | --- |
 | Token source, generator and drift check | Done |
-| Reporting layer and JSON contract | Planned, milestone 1 |
-| Popover overview, provider detail, History window, shared store, Collect now | Planned, milestone 1 |
+| Reporting layer and JSON contract (`ai_usage_report.py`) | Done (milestone 1) |
+| Popover overview, provider detail, History window, shared store, Collect now | Done (milestone 1) |
+| Menu-bar glyph with collecting / stopped / attention badges | Done; paused badge waits on a pause capability |
+| Offscreen visual verification (`make app-snapshot`) | Done; visual baselines still need acceptance |
 | Monitoring view, Settings, service start/stop, pause/resume, notifications, open at login | Planned for later tasks; pause needs a new collector capability |
 | Visual baselines | Pending (waived until verification) |

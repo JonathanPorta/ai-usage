@@ -37,12 +37,15 @@ implementation:
   component_manifest: macos/design/components.manifest.json
   visual_baselines: docs/design/app/references
   migration_notes: DESIGN_SYSTEM.md
+  preview_command: make app-snapshot
 
 checks:
   - make design-check
   - make design-build-check
   - make spec-check
   - make test
+  - make fixture-check
+  - make app-test
 
 waivers:
   - check: tailwind-v4-profile

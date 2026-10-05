@@ -318,7 +318,10 @@ def scan_csv(path: Path) -> Scan:
             if attempt is None:
                 attempt = Attempt(row.tx, len(attempts))
                 attempts[row.tx] = attempt
-            if row.category == "availability" and row.ts is not None:
+            # Every row of a check shares the check time, except event usage rows,
+            # which carry their event time. A transaction with only event rows is
+            # ingestion, not a check.
+            if row.ts is not None and not (row.category in ("usage", "cost") and row.kind in SUMMED_KINDS):
                 attempt.at = row.ts if attempt.at is None else max(attempt.at, row.ts)
             # Event usage rows carry the event time, not the attempt time; they
             # are aggregated by day below and kept out of per-attempt rows.
@@ -336,8 +339,8 @@ def scan_csv(path: Path) -> Scan:
                 scan.api_cost.append(row)
             elif row.category == "cost" and row.kind == "monthly_rate":
                 scan.monthly_rate.setdefault(row.provider, []).append(row)
-    # Attempts are transactions that include availability rows (real checks);
-    # pure ingestion transactions (e.g. a migration backfill) are not attempts.
+    # Attempts are transactions with at least one check-time row; pure event
+    # ingestion transactions (e.g. a migration backfill) are not attempts.
     scan.attempts = sorted((a for a in attempts.values() if a.at is not None), key=lambda a: (a.at, a.order))
     return scan
 
@@ -384,6 +387,14 @@ def evaluate_attempt(state: ProviderState, attempt: Attempt) -> Optional[str]:
         return "skipped"
     state.enabled = True
     detected_row = availability.get("detected")
+    if detected_row is None and all(r.category == "cost" for r in rows):
+        # Only the configured subscription price was recorded: the collector
+        # found nothing to discover or read for this provider.
+        state.setup = "not_detected"
+        state.setup_note = "Not found on this Mac at the last check."
+        for source in state.sources.values():
+            source.status = "not_detected"
+        return None
     if detected_row is not None and detected_row.value in ("0", "False", "false"):
         state.setup = "not_detected"
         state.setup_note = detected_row.message or "Not installed on this Mac."
@@ -900,6 +911,17 @@ def build_report(
                 "skipped": skipped,
             },
         })
+    completions = [e[0] for e in log_events if e[0] <= now
+                   and re.search(r"(^|one-shot )collection completed rows=0\b", e[2])
+                   and (latest is None or e[0] > (latest.at or 0))]
+    if completions:
+        # A check that found nothing writes no CSV transaction; the log still records it.
+        collection["last_attempt_at"] = iso(completions[-1])
+        collection["last_attempt_result"] = "success"
+        collection["last_success_at"] = iso(completions[-1])
+        collection["failures"] = []
+        collection["summary"] = {"providers_attempted": 0, "providers_updated": 0, "providers_partly": 0,
+                                 "providers_failed": 0, "skipped": []}
     cycle_failures = [e for e in log_events if "collection cycle failed" in e[2] and e[0] <= now
                       and (latest is None or e[0] > (latest.at or 0))]
     if cycle_failures:

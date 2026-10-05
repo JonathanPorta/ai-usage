@@ -99,7 +99,9 @@ routine choice made within the approved scope; change it freely with a new entry
 
 ## 2026-10-05 — Collection attempts come from CSV transactions and the log tail (engineering)
 **Choice:**
-- **Attempt time:** each CSV transaction is one attempt. Its time is the `collected_at` of its `availability` rows.
+- **Attempt time:** each CSV transaction that contains a check-time row is one attempt. Its time is the latest `collected_at` among the transaction's non-event rows.
+  - The first approach keyed on `availability` rows. The sandbox end-to-end test showed that a check finding no providers writes only `monthly_rate` rows, so that approach was replaced on 2026-10-05.
+  - A check that writes no rows at all is read from its `collection completed rows=0` log line.
 - **Collector-level failures** write no transaction. They are read from `collection cycle failed` lines in the last 256 KiB of `collector.log`.
 - **Next scheduled check:** the latest daemon `collection completed … next_poll_seconds=N` log line plus N, when the service is running. Otherwise it is null. A `once` run does not move it.
 
@@ -125,3 +127,14 @@ routine choice made within the approved scope; change it freely with a new entry
 
 ## 2026-10-05 — Session state stays off main (process)
 **Choice:** `tasks/session-state-*.md` lives on the feature branch only, and is deleted before the merge to main (`.ai-rules` rule 06).
+
+## 2026-10-05 — Offscreen snapshots for visual verification (engineering)
+**Choice:** the app binary has a `--snapshot DIR [--live]` mode. It renders the real views in offscreen `NSHostingView` windows (light and dark, 420 pt, a short viewport) to PNG, then exits.
+**Reason:**
+- This session had neither screen-recording permission nor a working computer-use daemon, so interactive capture of the menu-bar popover wasn't possible.
+- Snapshots are reproducible and permission-free.
+- They are *not* a substitute for the outstanding interactive checks: keyboard, focus, hover, and live History updates in a running app.
+
+## 2026-10-05 — Test isolation from the real LaunchAgent (engineering, bug fix)
+**Choice:** `find_launchctl()` honors `AI_USAGE_LAUNCHCTL`, and the black-box suite points it at a recording fake.
+**Reason:** the black-box `uninstall` tests booted out the developer's installed collector on every `make test` run on a Mac. This was observed during this work, and the service was re-bootstrapped.

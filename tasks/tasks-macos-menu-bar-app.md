@@ -24,26 +24,26 @@
   - [x] 1.3 Add the canonical DTCG tokens, the generator and the generated Swift. *Validation:* `make design-build-check` passes, and fails against an edited copy.
   - [x] 1.4 Vendor the Blessed checkers and add the Make targets and CI job. *Validation:* `make design-check ARGS=--strict` exits 0 and fails on a bad checksum (negative control).
   - [x] 1.5 Commit the import on its own. *Validation:* `git log --stat`.
-- [ ] 2.0 Reporting layer (`ai_usage_report.py`)
-  - [ ] 2.1 Read the CSV in a single pass, group transactions and work out attempt times. *Validation:* unit test of attempt and summary values.
-  - [ ] 2.2 Aggregate days by `record_kind` and assign day states. *Validation:* tests for sums, latest period total, zero vs missing vs not collected.
-  - [ ] 2.3 Quota windows: readings, resets, per-window freshness, limits, omitted and retired windows. *Validation:* mixed-freshness tests in both directions, plus `reset_passed` boundary tests.
-  - [ ] 2.4 Sources and failures, cache preservation, disabled providers, log cycle failures. *Validation:* partial-failure and disabled tests.
-  - [ ] 2.5 Costs, models, service and schedule. *Validation:* tests; service probing skipped in tests.
-  - [ ] 2.6 Read-only guarantee and performance. *Validation:* sentinel-binary and file-snapshot test; timed real run under 10 s.
-- [ ] 3.0 Native app core
-  - [ ] 3.1 SwiftPM package (Core, Design, App) and a bundle script. *Validation:* `make app-build` produces the `.app`.
-  - [ ] 3.2 Report models and decoding against the committed fixture. *Validation:* `make app-test`.
-  - [ ] 3.3 `ReportClient` and `CollectorClient`, resolved from the plist plus environment overrides. *Validation:* unit tests with a temporary plist.
-  - [ ] 3.4 `AppStore`: cached load, refresh policy, single-flight Collect now, observers. *Validation:* store tests, AC-16 and AC-20.
-  - [ ] 3.5 Popover overview (status, notice, cards, footer). *Validation:* run the app; walk the accessibility tree.
-  - [ ] 3.6 Provider detail. *Validation:* manual walkthrough.
-  - [ ] 3.7 History window. *Validation:* manual walkthrough, plus an update test while it is open.
-  - [ ] 3.8 Menu-bar glyph states. *Validation:* manual check.
+- [x] 2.0 Reporting layer (`ai_usage_report.py`)
+  - [x] 2.1 Read the CSV in a single pass, group transactions and work out attempt times. *Validation:* unit test of attempt and summary values.
+  - [x] 2.2 Aggregate days by `record_kind` and assign day states. *Validation:* tests for sums, latest period total, zero vs missing vs not collected.
+  - [x] 2.3 Quota windows: readings, resets, per-window freshness, limits, omitted and retired windows. *Validation:* mixed-freshness tests in both directions, plus `reset_passed` boundary tests.
+  - [x] 2.4 Sources and failures, cache preservation, disabled providers, log cycle failures. *Validation:* partial-failure and disabled tests.
+  - [x] 2.5 Costs, models, service and schedule. *Validation:* tests; service probing skipped in tests.
+  - [x] 2.6 Read-only guarantee and performance. *Validation:* sentinel-binary and file-snapshot test; timed real run under 10 s.
+- [x] 3.0 Native app core
+  - [x] 3.1 SwiftPM package (Core, Design, App) and a bundle script. *Validation:* `make app-build` produces the `.app`.
+  - [x] 3.2 Report models and decoding against the committed fixture. *Validation:* `make app-test`.
+  - [x] 3.3 `ReportClient` and `CollectorClient`, resolved from the plist plus environment overrides. *Validation:* unit tests with a temporary plist.
+  - [x] 3.4 `AppStore`: cached load, refresh policy, single-flight Collect now, observers. *Validation:* store tests, AC-16 and AC-20.
+  - [x] 3.5 Popover overview (status, notice, cards, footer). *Validation:* run the app; walk the accessibility tree.
+  - [x] 3.6 Provider detail. *Validation:* manual walkthrough.
+  - [x] 3.7 History window. *Validation:* manual walkthrough, plus an update test while it is open.
+  - [x] 3.8 Menu-bar glyph states. *Validation:* manual check.
 - [ ] 4.0 Validation and documentation
-  - [ ] 4.1 `make check`, `make app-test`, and the strict checks in CI.
-  - [ ] 4.2 Run against real data (read-only) and against the sandbox (Collect now). Record the results in the design.md verification log.
-  - [ ] 4.3 Update DESIGN_SYSTEM implementation status and the component manifest status.
+  - [x] 4.1 `make check`, `make app-test`, and the strict checks in CI.
+  - [x] 4.2 Run against real data (read-only) and against the sandbox (Collect now). Record the results in the design.md verification log.
+  - [x] 4.3 Update DESIGN_SYSTEM implementation status and the component manifest status.
 - [ ] 5.0 Later tasks (accepted design, not in milestone 1)
   - [ ] 5.1 Monitoring view: service, schedule, collection attempts, failures, sources.
   - [ ] 5.2 Service start and stop through `launchctl bootstrap`/`bootout`, with confirmation. Needs a decision on handoff §10 Q1.

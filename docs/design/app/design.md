@@ -87,7 +87,36 @@ Native-app verification results are recorded below as they are performed.
 
 ### Native verification log
 
-_No native verification has been recorded yet._
+#### 2026-10-05: milestone 1 (agent; offscreen snapshots plus automated tests)
+
+Performed:
+
+- **`make app-snapshot`:** rendered all 24 fixture screens, in light and dark.
+  - The popover is 420 pt wide. Its height is bounded at 770 pt on a 1000 pt screen, and at 594 pt in a 700 pt screen (`min(780, screen − 96)`).
+  - In the short viewport the header, status, notice and footer stay pinned while the cards scroll.
+  - Chart text is 11 pt or larger.
+  - All five day-state marks render distinctly.
+- **Mixed-freshness scenario on screen:** the Codex weekly window is current and at its limit, with "Limit reached" visible, while the 5-hour window is stale ("Not reported since 08:17").
+- **Partial failure:** Grok's billing failed, so its quota shows as a stale "Check failed" with the cached 18% kept, while usage stays current.
+- **Live real data** (`--live`, read-only, CSV row count unchanged): every provider renders. A real Codex account-usage timeout is surfaced, with its cached values kept.
+- **Collect now plus a shared-store update:** an end-to-end test (`LiveSandboxTests`) runs the real `once` in an isolated sandbox. The store's revision advances, and every observer sees the new attempt.
+- **Quitting the app:** the collector LaunchAgent keeps running (`launchctl print` shows the same daemon still `running`).
+
+Defects found and fixed in the process:
+
+- The quota-cell limit label wrapped awkwardly.
+- The chart legend wrapped mid-word at 420 pt.
+- Attempt detection missed checks that found no providers.
+
+Still outstanding (needs a person at the Mac):
+
+- the real menu-bar popover opened from the status item;
+- keyboard focus order (`↑`/`↓`, chart `←`/`→`, `Esc`, `⌘R`);
+- hover readouts;
+- an already-open History window updating on screen after Collect now (proven by test, not yet observed);
+- Reduce Motion;
+- large text sizes;
+- accepting native visual baselines into `references/`.
 
 ## Related archives not imported
 
