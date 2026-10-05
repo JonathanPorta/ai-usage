@@ -1756,6 +1756,114 @@ def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> 
     return claude_usage_rows_from_metrics(record, fallback_collected_at, metrics)
 
 
+def claude_stored_offset(offsets: Mapping[str, Any], path: Path) -> int:
+    raw = offsets.get(str(path), 0)
+    if isinstance(raw, Mapping):
+        try:
+            return max(0, int(raw.get("offset", 0)))
+        except (TypeError, ValueError):
+            return 0
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
+def fold_claude_usage_snapshot(
+    snapshots: dict[str, dict[str, Any]],
+    order: list[str],
+    record: Mapping[str, Any],
+    metrics: Mapping[str, Union[int, float]],
+    message_id: str,
+) -> None:
+    previous = snapshots.get(message_id)
+    if previous is None:
+        snapshots[message_id] = {
+            "first_record": record,
+            "first_metrics": dict(metrics),
+            "best_record": record,
+            "best_metrics": dict(metrics),
+        }
+        order.append(message_id)
+        return
+    best_metrics = merge_claude_metrics(previous["best_metrics"], metrics)
+    if (metrics.get("output_tokens") or 0) >= (
+        previous["best_metrics"].get("output_tokens") or 0
+    ):
+        best_record = record
+    else:
+        best_record = previous["best_record"]
+    snapshots[message_id] = {
+        "first_record": previous["first_record"],
+        "first_metrics": previous["first_metrics"],
+        "best_record": best_record,
+        "best_metrics": best_metrics,
+    }
+
+
+def claude_snapshots_from_records(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[
+    dict[str, dict[str, Any]],
+    list[str],
+    list[tuple[Mapping[str, Any], dict[str, Union[int, float]]]],
+]:
+    snapshots: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    anonymous: list[tuple[Mapping[str, Any], dict[str, Union[int, float]]]] = []
+    for record in records:
+        message_id = claude_message_id(record)
+        metrics = claude_usage_metrics(record)
+        if not message_id:
+            if metrics:
+                anonymous.append((record, metrics))
+            continue
+        if not metrics:
+            continue
+        fold_claude_usage_snapshot(snapshots, order, record, metrics, message_id)
+    return snapshots, order, anonymous
+
+
+def merge_claude_snapshots(
+    prefix: Mapping[str, dict[str, Any]],
+    incoming: Mapping[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    merged = {key: dict(value) for key, value in prefix.items()}
+    for message_id, snap in incoming.items():
+        previous = merged.get(message_id)
+        if previous is None:
+            merged[message_id] = dict(snap)
+            continue
+        best_metrics = merge_claude_metrics(
+            previous["best_metrics"], snap["best_metrics"]
+        )
+        if (snap["best_metrics"].get("output_tokens") or 0) >= (
+            previous["best_metrics"].get("output_tokens") or 0
+        ):
+            best_record = snap["best_record"]
+        else:
+            best_record = previous["best_record"]
+        merged[message_id] = {
+            "first_record": previous["first_record"],
+            "first_metrics": previous["first_metrics"],
+            "best_record": best_record,
+            "best_metrics": best_metrics,
+        }
+    return merged
+
+
+def claude_snapshots_before_offset(
+    path: Path, end_offset: int
+) -> tuple[dict[str, dict[str, Any]], list[str], int]:
+    if end_offset <= 0:
+        return {}, [], 0
+    records, errors, _new_offset, _consumed, _size = read_json_lines_at(
+        path, 0, end_offset
+    )
+    snapshots, order, _anonymous = claude_snapshots_from_records(records)
+    return snapshots, order, errors
+
+
 def collect_claude_session_logs(
     collected_at: str,
     projects_dir: Path,
@@ -1780,6 +1888,11 @@ def collect_claude_session_logs(
     else:
         accounted = {}
     state["claude_accounted_usage"] = accounted
+    legacy_ids = {
+        message_id
+        for message_id in recent_ids
+        if not isinstance(accounted.get(message_id), Mapping)
+    }
     parse_errors = 0
     rotation_losses: list[str] = []
     raw_session_budget = provider_config.get(
@@ -1794,6 +1907,7 @@ def collect_claude_session_logs(
         if remaining_session_bytes <= 0:
             deferred_files = len(session_files) - index
             break
+        start_offset = claude_stored_offset(offsets, session_file)
         records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
             session_file,
             offsets,
@@ -1803,59 +1917,99 @@ def collect_claude_session_logs(
         parse_errors += errors
         rotation_losses.extend(file_rotation_losses)
         file_key = str(session_file)
-        best_by_id: dict[str, tuple[Mapping[str, Any], dict[str, Union[int, float]]]] = {}
-        best_order: list[str] = []
-        for record in records:
-            message_id = claude_message_id(record)
-            metrics = claude_usage_metrics(record)
-            if not message_id:
-                rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
-                continue
-            if not metrics:
-                continue
-            previous_best = best_by_id.get(message_id)
-            if previous_best is None:
-                best_by_id[message_id] = (record, metrics)
-                best_order.append(message_id)
-                continue
-            previous_record, previous_metrics = previous_best
-            merged = merge_claude_metrics(previous_metrics, metrics)
-            if (metrics.get("output_tokens") or 0) >= (
-                previous_metrics.get("output_tokens") or 0
-            ):
-                best_by_id[message_id] = (record, merged)
-            else:
-                best_by_id[message_id] = (previous_record, merged)
-        for message_id in best_order:
-            record, metrics = best_by_id[message_id]
-            prior = accounted.get(message_id)
-            if not isinstance(prior, Mapping):
-                if message_id in recent_ids:
-                    continue
-                rows.extend(
-                    claude_usage_rows_from_metrics(record, collected_at, metrics)
-                )
-                accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
-                recent_ids.add(message_id)
-                new_ids.append(message_id)
-                continue
-            prior_file = str(prior.get("file") or "")
-            if prior_file and prior_file != file_key:
-                continue
-            prior_metrics_raw = prior.get("metrics")
-            prior_metrics = (
-                claude_accounted_metrics(prior_metrics_raw)
-                if isinstance(prior_metrics_raw, Mapping)
-                else {}
+        new_snapshots, new_order, anonymous = claude_snapshots_from_records(records)
+        for record, metrics in anonymous:
+            rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
+        prefix_snapshots: dict[str, dict[str, Any]] = {}
+        prefix_order: list[str] = []
+        if legacy_ids and start_offset > 0:
+            prefix_snapshots, prefix_order, prefix_errors = (
+                claude_snapshots_before_offset(session_file, start_offset)
             )
-            deltas = claude_metric_deltas(prior_metrics, metrics)
-            if not deltas:
+            parse_errors += prefix_errors
+        combined = merge_claude_snapshots(prefix_snapshots, new_snapshots)
+        visit_order: list[str] = []
+        visited = set()
+        for message_id in new_order + prefix_order:
+            if message_id in visited:
                 continue
-            rows.extend(claude_usage_rows_from_metrics(record, collected_at, deltas))
-            accounted[message_id] = {
-                "file": prior_file or file_key,
-                "metrics": merge_claude_metrics(prior_metrics, metrics),
-            }
+            visit_order.append(message_id)
+            visited.add(message_id)
+        for message_id in visit_order:
+            snap = combined[message_id]
+            record = snap["best_record"]
+            metrics = snap["best_metrics"]
+            prior = accounted.get(message_id)
+            if isinstance(prior, Mapping):
+                if prior.get("unrecoverable"):
+                    continue
+                prior_file = str(prior.get("file") or "")
+                if prior_file and prior_file != file_key:
+                    continue
+                prior_metrics_raw = prior.get("metrics")
+                prior_metrics = (
+                    claude_accounted_metrics(prior_metrics_raw)
+                    if isinstance(prior_metrics_raw, Mapping)
+                    else {}
+                )
+                deltas = claude_metric_deltas(prior_metrics, metrics)
+                if deltas:
+                    rows.extend(
+                        claude_usage_rows_from_metrics(record, collected_at, deltas)
+                    )
+                    accounted[message_id] = {
+                        "file": prior_file or file_key,
+                        "metrics": merge_claude_metrics(prior_metrics, metrics),
+                    }
+                continue
+            if message_id in recent_ids:
+                prefix_snap = prefix_snapshots.get(message_id)
+                if prefix_snap is None:
+                    continue
+                baseline = prefix_snap["first_metrics"]
+                deltas = claude_metric_deltas(baseline, metrics)
+                if deltas:
+                    rows.extend(
+                        claude_usage_rows_from_metrics(record, collected_at, deltas)
+                    )
+                accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
+                legacy_ids.discard(message_id)
+                continue
+            rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
+            accounted[message_id] = {"file": file_key, "metrics": dict(metrics)}
+            recent_ids.add(message_id)
+            new_ids.append(message_id)
+    if not deferred_files:
+        leftover_legacy = [
+            message_id
+            for message_id in recent_ids_list
+            if message_id in legacy_ids
+            and not isinstance(accounted.get(message_id), Mapping)
+        ]
+        if leftover_legacy:
+            for message_id in leftover_legacy:
+                accounted[message_id] = {
+                    "file": "",
+                    "metrics": {},
+                    "unrecoverable": True,
+                }
+            rows.append(
+                metric_row(
+                    collected_at,
+                    "claude",
+                    "collection",
+                    "legacy_message_baselines_unrecovered",
+                    record_kind="interval_total",
+                    value=len(leftover_legacy),
+                    unit="messages",
+                    source="claude-session-log",
+                    status="partial",
+                    message=(
+                        "Message ids marked seen before usage baselines existed "
+                        "could not be recovered from retained transcripts"
+                    ),
+                )
+            )
     kept_ids = (recent_ids_list + new_ids)[-CLAUDE_RECENT_MESSAGE_ID_CAP:]
     state["claude_recent_message_ids"] = kept_ids
     kept_id_set = set(kept_ids)

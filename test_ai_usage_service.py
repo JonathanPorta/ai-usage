@@ -647,6 +647,143 @@ for line in sys.stdin:
         self.assertEqual(sum(int(row["value"]) for row in output_rows), 34)
         self.assertFalse(self.case.tripwire.exists())
 
+    def _claude_state(self) -> dict:
+        return json.loads(self.case.state.read_text(encoding="utf-8"))
+
+    def _write_claude_state(self, state: dict) -> None:
+        self.case.state.write_text(
+            json.dumps(state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _output_token_total(self, session_id: str, model: str) -> int:
+        scope = SERVICE.stable_scope(session_id) + ":" + model
+        return sum(
+            int(row["value"])
+            for row in self.rows_matching(
+                provider="claude",
+                source="claude-session-log",
+                metric="output_tokens",
+                scope=scope,
+            )
+        )
+
+    def test_claude_upgrade_from_first_seen_state_keeps_final_usage(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        parent = projects / "workspace" / "session-one.jsonl"
+        subagent = projects / "workspace" / "session-one" / "subagents" / "agent-a.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+            extra={"stop_reason": None},
+        )
+        self._write_claude_assistant_line(
+            parent,
+            message_id="msg_parent",
+            session_id="overlap-session",
+            model="claude-opus-5",
+            timestamp="2026-08-20T12:00:00.000Z",
+            usage={"input_tokens": 3, "output_tokens": 11},
+        )
+        self._write_claude_assistant_line(
+            subagent,
+            message_id="msg_parent",
+            session_id="overlap-session",
+            model="claude-opus-5",
+            timestamp="2026-08-20T12:00:00.000Z",
+            usage={"input_tokens": 999, "output_tokens": 999},
+        )
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+
+        self.case.run("once", "--config", str(self.case.config))
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 1)
+        self.assertEqual(self._output_token_total("overlap-session", "claude-opus-5"), 11)
+        state = self._claude_state()
+        self.assertIn("msg_stream", state.get("claude_recent_message_ids", []))
+        state.pop("claude_accounted_usage", None)
+        self._write_claude_state(state)
+
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+            extra={"stop_reason": "tool_use"},
+        )
+        self.case.run("once", "--config", str(self.case.config))
+
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertEqual(self._output_token_total("overlap-session", "claude-opus-5"), 11)
+        self.assertFalse(
+            any(
+                row["source"] == "claude-session-log" and row["value"] == "999"
+                for row in self.case.rows()
+            ),
+            "overlapping subagent message was double-counted after upgrade",
+        )
+        self.assertFalse(self.case.tripwire.exists())
+
+    def test_claude_upgrade_recovers_final_usage_already_behind_offset(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 1},
+        )
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config))
+        state = self._claude_state()
+        state.pop("claude_accounted_usage", None)
+        self._write_claude_state(state)
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:01.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+        )
+        state = self._claude_state()
+        file_key = str(session)
+        cursor = state.setdefault("claude_offsets", {}).get(file_key, {})
+        if not isinstance(cursor, dict):
+            cursor = {}
+        cursor["offset"] = session.stat().st_size
+        cursor["inode"] = session.stat().st_ino
+        state["claude_offsets"][file_key] = cursor
+        self._write_claude_state(state)
+
+        self.case.run("once", "--config", str(self.case.config))
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertFalse(self.case.tripwire.exists())
+
     def test_antigravity_callback_sanitizes_then_collector_reads_cache(self) -> None:
         fake = self.case.write_executable("agy")
         cache = self.case.cache / "antigravity.json"
