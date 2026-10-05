@@ -1666,6 +1666,32 @@ for line in sys.stdin:
         with mock.patch.dict(os.environ, {SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(self.case.fake_launchctl())}):
             self.assertEqual(SERVICE.find_launchctl(), self.case.fake_launchctl())
 
+    def test_relative_launcher_override_runs_the_validated_file_not_a_path_lookup(self) -> None:
+        workdir = self.case.root / "relative-launcher"
+        trap_dir = self.case.root / "path-trap"
+        workdir.mkdir()
+        trap_dir.mkdir()
+        marker = self.case.root / "which-launcher-ran"
+        for directory, label in ((workdir, "validated"), (trap_dir, "path-trap")):
+            fake = directory / "launchctl"
+            fake.write_text(f"#!/bin/sh\necho {label} >> '{marker}'\n", encoding="utf-8")
+            fake.chmod(0o755)
+        previous = os.getcwd()
+        os.chdir(workdir)
+        self.addCleanup(os.chdir, previous)
+        overrides = {SERVICE.LAUNCHCTL_OVERRIDE_ENV: "./launchctl", "PATH": f"{trap_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"}
+        with mock.patch.dict(os.environ, overrides):
+            found = SERVICE.find_launchctl()
+            self.assertIsNotNone(found)
+            self.assertTrue(found.is_absolute(), found)
+            self.assertEqual(found.resolve(), (workdir / "launchctl").resolve())
+            SERVICE.run_launchctl(["print", "gui/0/none"])
+        self.assertEqual(marker.read_text(encoding="utf-8").split(), ["validated"],
+                         "the PATH executable named launchctl must never run")
+        # Relative values that don't name an executable still fail closed.
+        with mock.patch.dict(os.environ, {SERVICE.LAUNCHCTL_OVERRIDE_ENV: "./missing-launchctl"}):
+            self.assertIsNone(SERVICE.find_launchctl())
+
     def test_invalid_explicit_launcher_blocks_lifecycle_commands_without_changes(self) -> None:
         root = self.case.home / ".ai-usage"
         config = root / "config.json"
