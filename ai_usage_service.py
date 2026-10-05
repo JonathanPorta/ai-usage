@@ -4425,10 +4425,14 @@ def find_launchctl() -> Optional[Path]:
     # override fails closed: when set (even empty) but not an executable file,
     # there is no launchctl, and the system binary is never used instead.
     if LAUNCHCTL_OVERRIDE_ENV in os.environ:
-        candidate = Path(os.environ[LAUNCHCTL_OVERRIDE_ENV])
-        if os.environ[LAUNCHCTL_OVERRIDE_ENV] and is_executable_file(candidate):
-            return candidate
-        return None
+        value = os.environ[LAUNCHCTL_OVERRIDE_ENV]
+        if not value:
+            return None
+        # Resolve to an absolute path now: a relative value such as ./launchctl
+        # would otherwise reach subprocess as a bare name and be looked up on
+        # PATH, executing a different binary from the one validated here.
+        candidate = Path(os.path.abspath(os.path.expanduser(value)))
+        return candidate if is_executable_file(candidate) else None
     for candidate in (Path("/bin/launchctl"), Path("/usr/bin/launchctl")):
         if is_executable_file(candidate):
             return candidate
