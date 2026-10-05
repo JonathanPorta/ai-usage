@@ -1693,7 +1693,12 @@ for line in sys.stdin:
         self.case.run("install", "--config", str(config), "--no-start")
         self.case.run("uninstall", "--config", str(config))
 
-        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        calls_log = self.case.root / "launchctl-calls.log"
+        if sys.platform != "darwin":
+            # Off macOS, uninstall never consults launchctl at all.
+            self.assertFalse(calls_log.exists())
+            return
+        calls = calls_log.read_text(encoding="utf-8").splitlines()
         self.assertTrue(calls, "uninstall did not consult the isolated launchctl")
         self.assertTrue(all(call.startswith("print ") for call in calls), calls)
 
