@@ -4416,7 +4416,19 @@ def build_launch_agent_plist(
     return plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
+LAUNCHCTL_OVERRIDE_ENV = "AI_USAGE_LAUNCHCTL"
+
+
 def find_launchctl() -> Optional[Path]:
+    # Test seam: hermetic suites point this at a fake so they can never
+    # bootstrap or boot out the real per-user LaunchAgent. An explicit
+    # override fails closed: when set (even empty) but not an executable file,
+    # there is no launchctl, and the system binary is never used instead.
+    if LAUNCHCTL_OVERRIDE_ENV in os.environ:
+        candidate = Path(os.environ[LAUNCHCTL_OVERRIDE_ENV])
+        if os.environ[LAUNCHCTL_OVERRIDE_ENV] and is_executable_file(candidate):
+            return candidate
+        return None
     for candidate in (Path("/bin/launchctl"), Path("/usr/bin/launchctl")):
         if is_executable_file(candidate):
             return candidate
@@ -4426,6 +4438,11 @@ def find_launchctl() -> Optional[Path]:
 def run_launchctl(arguments: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
     launchctl = find_launchctl()
     if launchctl is None:
+        if LAUNCHCTL_OVERRIDE_ENV in os.environ:
+            raise FileNotFoundError(
+                f"{LAUNCHCTL_OVERRIDE_ENV} is set but is not an executable file: "
+                f"{os.environ[LAUNCHCTL_OVERRIDE_ENV]!r}"
+            )
         raise FileNotFoundError("launchctl was not found")
     result = subprocess.run(
         [str(launchctl), *arguments],
