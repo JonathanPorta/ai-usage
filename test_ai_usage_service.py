@@ -979,6 +979,76 @@ for line in sys.stdin:
         self.assertFalse(self._unrecoverable_legacy_rows())
         self.assertFalse(self.case.tripwire.exists())
 
+    def test_claude_upgrade_prefix_replay_bounds_a_line_larger_than_poll_budget(self) -> None:
+        fake = self.case.write_executable("claude")
+        projects = self.case.root / "claude-projects"
+        session = projects / "workspace" / "session-stream.jsonl"
+        self._write_claude_assistant_line(
+            session,
+            message_id="msg_stream",
+            session_id="stream-session",
+            model="claude-opus-5",
+            timestamp="2026-09-01T12:00:00.000Z",
+            usage={"input_tokens": 10, "output_tokens": 34},
+            text="x" * 2_200_000,
+        )
+        self.assertGreater(session.stat().st_size, 2_200_000)
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+            )
+        )
+        self.case.run("once", "--config", str(self.case.config), timeout_seconds=40)
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.case.write_config(
+            self.case.provider_config(
+                "claude",
+                executable=str(fake),
+                stats_file=str(self.case.root / "missing-stats.json"),
+                projects_dir=str(projects),
+                max_session_bytes_per_poll=1024 * 1024,
+            )
+        )
+        state = self._claude_state()
+        state.pop("claude_accounted_usage", None)
+        state["claude_recent_message_ids"] = ["msg_stream"]
+        size = session.stat().st_size
+        inode = session.stat().st_ino
+        for cursor in state.setdefault("claude_offsets", {}).values():
+            if isinstance(cursor, dict):
+                cursor["offset"] = size
+                cursor["inode"] = inode
+        self._write_claude_state(state)
+
+        previous_offset = 0
+        budget = 1024 * 1024
+        finished = False
+        for _ in range(8):
+            self.case.run("once", "--config", str(self.case.config), timeout_seconds=40)
+            after = self._claude_state()
+            scans = [
+                entry
+                for entry in (after.get("claude_legacy_scan") or {}).values()
+                if isinstance(entry, dict)
+            ]
+            self.assertTrue(scans)
+            scan_offset = int(scans[0].get("offset", 0))
+            self.assertLessEqual(scan_offset - previous_offset, budget)
+            previous_offset = scan_offset
+            self.assertEqual(
+                self._output_token_total("stream-session", "claude-opus-5"), 34
+            )
+            self.assertFalse(self._unrecoverable_legacy_rows())
+            if scan_offset >= size:
+                finished = True
+                break
+        self.assertTrue(finished, "prefix replay never finished the oversized line")
+        self.assertEqual(self._output_token_total("stream-session", "claude-opus-5"), 34)
+        self.assertFalse(self.case.tripwire.exists())
+
     def test_antigravity_callback_sanitizes_then_collector_reads_cache(self) -> None:
         fake = self.case.write_executable("agy")
         cache = self.case.cache / "antigravity.json"

@@ -874,10 +874,12 @@ def read_new_json_lines(
     except OSError:
         return [], 0, 0, []
     raw_state = offset_state.get(key, 0)
-    pending_inodes: list[dict[str, int]] = []
+    pending_inodes: list[dict[str, Any]] = []
+    current_partial = b""
     if isinstance(raw_state, Mapping):
         raw_offset = raw_state.get("offset", 0)
         previous_inode = raw_state.get("inode")
+        current_partial = decode_jsonl_partial(raw_state.get("partial_line"))
         raw_pending = raw_state.get("pending_inodes", [])
         if isinstance(raw_pending, list):
             for item in raw_pending:
@@ -888,9 +890,14 @@ def read_new_json_lines(
                     pending_offset = max(0, int(item.get("offset", 0)))
                 except (TypeError, ValueError):
                     continue
-                pending_inodes.append(
-                    {"inode": pending_inode, "offset": pending_offset}
-                )
+                pending_entry: dict[str, Any] = {
+                    "inode": pending_inode,
+                    "offset": pending_offset,
+                }
+                pending_partial = decode_jsonl_partial(item.get("partial_line"))
+                if pending_partial:
+                    pending_entry["partial_line"] = encode_jsonl_partial(pending_partial)
+                pending_inodes.append(pending_entry)
         if previous_inode is not None and previous_inode != file_stat.st_ino:
             try:
                 previous_inode_value = int(previous_inode)
@@ -901,13 +908,15 @@ def read_new_json_lines(
             if previous_inode_value and not any(
                 item["inode"] == previous_inode_value for item in pending_inodes
             ):
-                pending_inodes.append(
-                    {
-                        "inode": previous_inode_value,
-                        "offset": previous_offset_value,
-                    }
-                )
+                rotated: dict[str, Any] = {
+                    "inode": previous_inode_value,
+                    "offset": previous_offset_value,
+                }
+                if current_partial:
+                    rotated["partial_line"] = encode_jsonl_partial(current_partial)
+                pending_inodes.append(rotated)
             raw_offset = 0
+            current_partial = b""
     else:
         raw_offset = raw_state
     try:
@@ -921,12 +930,13 @@ def read_new_json_lines(
                 f"inode {file_stat.st_ino} was truncated before offset {offset} could be read"
             )
         offset = 0
+        current_partial = b""
 
     records: list[dict[str, Any]] = []
     parse_errors = 0
     bytes_read = 0
     remaining = max(0, max_bytes)
-    still_pending: list[dict[str, int]] = []
+    still_pending: list[dict[str, Any]] = []
     for pending_index, pending in enumerate(pending_inodes):
         old_path = find_file_by_inode(path.parent, pending["inode"])
         if old_path is None:
@@ -936,24 +946,41 @@ def read_new_json_lines(
             )
             continue
         budget_before = remaining
-        old_records, old_errors, new_old_offset, consumed, old_size = read_json_lines_at(
+        (
+            old_records,
+            old_errors,
+            new_old_offset,
+            consumed,
+            old_size,
+            old_leftover,
+        ) = read_json_lines_at(
             old_path,
             pending["offset"],
             remaining,
+            partial=decode_jsonl_partial(pending.get("partial_line")),
         )
         records.extend(old_records)
         parse_errors += old_errors
         bytes_read += consumed
         remaining = max(0, remaining - consumed)
+        if old_leftover and new_old_offset >= old_size:
+            losses.append(
+                f"rotated inode {pending['inode']} ended with an incomplete JSONL record"
+            )
+            continue
         if new_old_offset < old_size:
-            if consumed < budget_before:
+            if consumed < budget_before and not old_leftover:
                 losses.append(
                     f"rotated inode {pending['inode']} ended with an incomplete JSONL record"
                 )
                 continue
-            still_pending.append(
-                {"inode": pending["inode"], "offset": new_old_offset}
-            )
+            pending_entry: dict[str, Any] = {
+                "inode": pending["inode"],
+                "offset": new_old_offset,
+            }
+            if old_leftover:
+                pending_entry["partial_line"] = encode_jsonl_partial(old_leftover)
+            still_pending.append(pending_entry)
             still_pending.extend(pending_inodes[pending_index + 1 :])
             break
         if remaining <= 0:
@@ -961,18 +988,34 @@ def read_new_json_lines(
             break
 
     new_offset = offset
+    leftover = b""
     if not still_pending and remaining > 0:
-        current_records, current_errors, new_offset, consumed, _current_size = (
-            read_json_lines_at(path, offset, remaining)
+        (
+            current_records,
+            current_errors,
+            new_offset,
+            consumed,
+            _current_size,
+            leftover,
+        ) = read_json_lines_at(
+            path,
+            offset,
+            remaining,
+            partial=current_partial,
         )
         records.extend(current_records)
         parse_errors += current_errors
         bytes_read += consumed
-    offset_state[key] = {
+    elif not still_pending:
+        leftover = current_partial
+    stored_cursor: dict[str, Any] = {
         "offset": new_offset,
         "inode": file_stat.st_ino,
         "pending_inodes": still_pending,
     }
+    if leftover:
+        stored_cursor["partial_line"] = encode_jsonl_partial(leftover)
+    offset_state[key] = stored_cursor
     return records, parse_errors, bytes_read, losses
 
 
@@ -991,34 +1034,54 @@ def find_file_by_inode(directory: Path, inode: int) -> Optional[Path]:
     return None
 
 
+def encode_jsonl_partial(data: bytes) -> str:
+    return data.decode("latin-1")
+
+
+def decode_jsonl_partial(value: Any) -> bytes:
+    if not isinstance(value, str) or not value:
+        return b""
+    return value.encode("latin-1")
+
+
 def read_json_lines_at(
-    path: Path, offset: int, max_bytes: int
-) -> tuple[list[dict[str, Any]], int, int, int, int]:
+    path: Path, offset: int, max_bytes: int, partial: bytes = b""
+) -> tuple[list[dict[str, Any]], int, int, int, int, bytes]:
     records: list[dict[str, Any]] = []
     parse_errors = 0
+    leftover = partial
+    incoming_partial = bool(partial)
     with path.open("rb") as handle:
         file_size = os.fstat(handle.fileno()).st_size
         safe_offset = offset if 0 <= offset <= file_size else 0
         handle.seek(safe_offset)
         consumed = 0
         while consumed < max_bytes:
+            remaining = max_bytes - consumed
             line_start = handle.tell()
-            line = handle.readline()
-            if not line:
+            chunk = handle.readline(remaining)
+            if not chunk:
                 break
-            if not line.endswith(b"\n"):
-                handle.seek(line_start)
-                break
-            consumed += len(line)
-            try:
-                decoded = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                parse_errors += 1
+            consumed += len(chunk)
+            leftover += chunk
+            if leftover.endswith(b"\n"):
+                try:
+                    decoded = json.loads(leftover.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    parse_errors += 1
+                else:
+                    if isinstance(decoded, dict):
+                        records.append(decoded)
+                leftover = b""
                 continue
-            if isinstance(decoded, dict):
-                records.append(decoded)
+            at_eof = handle.tell() >= file_size
+            if at_eof and not incoming_partial and leftover == chunk:
+                handle.seek(line_start)
+                leftover = b""
+                consumed -= len(chunk)
+            break
         new_offset = handle.tell()
-    return records, parse_errors, new_offset, new_offset - safe_offset, file_size
+    return records, parse_errors, new_offset, consumed, file_size, leftover
 
 
 def rotation_loss_row(
@@ -1895,25 +1958,26 @@ def claude_snapshots_in_byte_range(
     start_offset: int,
     end_offset: int,
     max_bytes: int,
-) -> tuple[dict[str, dict[str, Any]], list[str], int, int, int]:
+    partial: bytes = b"",
+) -> tuple[dict[str, dict[str, Any]], list[str], int, int, int, bytes]:
     if end_offset <= start_offset or max_bytes <= 0:
-        return {}, [], 0, start_offset, 0
+        return {}, [], 0, start_offset, 0, partial
     try:
         file_size = path.stat().st_size
     except OSError:
-        return {}, [], 0, start_offset, 0
+        return {}, [], 0, start_offset, 0, b""
     if start_offset < 0 or start_offset > file_size:
-        return {}, [], 0, start_offset, 0
+        return {}, [], 0, start_offset, 0, b""
     limit = min(max_bytes, end_offset - start_offset, file_size - start_offset)
     if limit <= 0:
-        return {}, [], 0, start_offset, 0
-    records, errors, new_offset, consumed, _size = read_json_lines_at(
-        path, start_offset, limit
+        return {}, [], 0, start_offset, 0, partial
+    records, errors, new_offset, consumed, _size, leftover = read_json_lines_at(
+        path, start_offset, limit, partial=partial
     )
-    if new_offset > end_offset:
+    if new_offset > end_offset and not leftover:
         new_offset = end_offset
     snapshots, order, _anonymous = claude_snapshots_from_records(records)
-    return snapshots, order, errors, new_offset, consumed
+    return snapshots, order, errors, new_offset, consumed, leftover
 
 
 def collect_claude_session_logs(
@@ -1993,6 +2057,7 @@ def collect_claude_session_logs(
             except OSError:
                 target_inode = None
         scan_entry = legacy_scan.get(file_key)
+        scan_partial = b""
         if (
             isinstance(scan_entry, Mapping)
             and scan_entry.get("inode") == target_inode
@@ -2001,17 +2066,18 @@ def collect_claude_session_logs(
                 scan_at = max(0, int(scan_entry.get("offset", 0)))
             except (TypeError, ValueError):
                 scan_at = 0
+            scan_partial = decode_jsonl_partial(scan_entry.get("partial_line"))
         else:
             scan_at = 0
         scan_in_progress = (
             isinstance(scan_entry, Mapping)
             and scan_entry.get("inode") == target_inode
-            and scan_at < stored_offset
+            and (scan_at < stored_offset or bool(scan_partial))
         )
         needs_prefix = (
             prefix_source is not None
             and stored_offset > 0
-            and scan_at < stored_offset
+            and (scan_at < stored_offset or bool(scan_partial))
             and (legacy_ids or scan_in_progress)
         )
         if needs_prefix and remaining_session_bytes <= 0:
@@ -2023,20 +2089,25 @@ def collect_claude_session_logs(
                 prefix_errors,
                 scan_at,
                 prefix_consumed,
+                scan_partial,
             ) = claude_snapshots_in_byte_range(
                 prefix_source,
                 scan_at,
                 stored_offset,
                 remaining_session_bytes,
+                partial=scan_partial,
             )
             parse_errors += prefix_errors
             remaining_session_bytes -= prefix_consumed
             if target_inode is not None:
-                legacy_scan[file_key] = {
+                scan_record: dict[str, Any] = {
                     "inode": target_inode,
                     "offset": scan_at,
                 }
-            if scan_at < stored_offset:
+                if scan_partial:
+                    scan_record["partial_line"] = encode_jsonl_partial(scan_partial)
+                legacy_scan[file_key] = scan_record
+            if scan_at < stored_offset or scan_partial:
                 incomplete_legacy_scans = True
         combined = merge_claude_snapshots(prefix_snapshots, new_snapshots)
         visit_order: list[str] = []
