@@ -22,6 +22,10 @@ struct HistoryView: View {
     }
 
     var body: some View {
+        TimelineView(.everyMinute) { _ in content }
+    }
+
+    private var content: some View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: 210)

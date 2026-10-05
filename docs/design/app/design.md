@@ -114,6 +114,7 @@ Still outstanding (needs a person at the Mac):
 - keyboard focus order (`↑`/`↓`, chart `←`/`→`, `Esc`, `⌘R`);
 - hover readouts;
 - an already-open History window updating on screen after Collect now (proven by test, not yet observed);
+- whether `popoverOpened()` fires on every open of the `.window`-style `MenuBarExtra`, or only on first appearance. The 60 s refresh-on-open policy depends on it; the 5-minute timer masks a miss;
 - Reduce Motion;
 - large text sizes;
 - accepting native visual baselines into `references/`.

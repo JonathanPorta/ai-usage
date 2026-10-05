@@ -40,7 +40,7 @@
   - [x] 3.6 Provider detail. *Validation:* manual walkthrough.
   - [x] 3.7 History window. *Validation:* manual walkthrough, plus an update test while it is open.
   - [x] 3.8 Menu-bar glyph states. *Validation:* manual check.
-- [ ] 4.0 Validation and documentation
+- [x] 4.0 Validation and documentation
   - [x] 4.1 `make check`, `make app-test`, and the strict checks in CI.
   - [x] 4.2 Run against real data (read-only) and against the sandbox (Collect now). Record the results in the design.md verification log.
   - [x] 4.3 Update DESIGN_SYSTEM implementation status and the component manifest status.
