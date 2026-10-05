@@ -5028,11 +5028,13 @@ def run_once(config_path: Path, progress: bool = False) -> int:
         candidate_state = copy.deepcopy(state)
         local_date = datetime_module.datetime.now().date().isoformat()
         include_history = state.get("history_date") != local_date
+        # Without --progress the call is unchanged from earlier versions.
+        progress_argument = {"progress": emit_progress} if progress else {}
         rows = collect_snapshot(
             config,
             include_history=include_history,
             state=candidate_state,
-            progress=emit_progress if progress else None,
+            **progress_argument,
         )
         candidate_state["history_date"] = local_date
         commit_collection_transaction(
