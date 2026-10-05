@@ -287,15 +287,20 @@ public enum Presentation {
         return text
     }
 
-    public static func readout(_ provider: Provider, day: Day, asOf: Date?) -> String {
+    public static func readout(_ provider: Provider, day: Day, asOf: Date?, today: String) -> String {
         let date = Format.longDay(day.date)
         switch day.state {
         case .missing: return "\(date): no data — missing reading, not zero"
         case .notCollected: return "\(date): not collected (before \(provider.name) data began)"
         case .zero: return "\(date): 0 tokens — measured, no usage"
         case .partial:
-            let time = asOf.map { " (as of \(Format.clock($0)))" } ?? ""
-            return "Today so far\(time): \(tokenBreakdown(provider, day))"
+            let readAt = day.asOf ?? asOf
+            if day.date == today {
+                let time = readAt.map { " (as of \(Format.clock($0)))" } ?? ""
+                return "Today so far\(time): \(tokenBreakdown(provider, day))"
+            }
+            let time = readAt.map { "read until \(Format.clock($0))" } ?? "not fully read"
+            return "\(date): \(tokenBreakdown(provider, day)) so far — day incomplete (\(time))"
         case .measured:
             var text = "\(date): \(tokenBreakdown(provider, day))"
             if day.incompleteEvents > 0 { text += " · \(day.incompleteEvents) turns reported incomplete usage" }

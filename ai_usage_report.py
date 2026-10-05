@@ -545,7 +545,7 @@ def build_days(definition: ProviderDef, aggregated: dict[str, dict[str, float]],
         bucket = aggregated.get(date)
         record: dict[str, Any] = {
             "date": date, "state": "missing", "input": None, "output": None, "total": None,
-            "cache_read": None, "cache_write": None, "incomplete_events": 0,
+            "cache_read": None, "cache_write": None, "incomplete_events": 0, "as_of": None,
         }
         if coverage_start is None or date < coverage_start:
             record["state"] = "not_collected"
@@ -563,6 +563,11 @@ def build_days(definition: ProviderDef, aggregated: dict[str, dict[str, float]],
                 record["cache_write"] = clean(bucket["cache_write"])
             record["incomplete_events"] = int(bucket.get("incomplete", 0))
             record["state"] = "measured" if (record["total"] or 0) > 0 else "zero"
+            if date < today and (usage_read_at is None or usage_read_at < local_midnight(date) + DAY):
+                # The source was last read before this day ended (e.g. the
+                # collector stopped): its totals are a partial day, not complete.
+                record["state"] = "partial"
+                record["as_of"] = iso(usage_read_at) if usage_read_at is not None else None
         elif date in loss_dates:
             record["state"] = "missing"
         elif (definition.record_kind in SUMMED_KINDS and reads_complete
@@ -583,6 +588,7 @@ def build_days(definition: ProviderDef, aggregated: dict[str, dict[str, float]],
                     if definition.split == "input_output":
                         record.update({"input": 0, "output": 0})
                 record["state"] = "partial"
+                record["as_of"] = iso(min(now, usage_read_at)) if usage_read_at else None
                 today_record = {k: record[k] for k in ("date", "input", "output", "total", "cache_read", "cache_write")}
                 today_record["as_of"] = iso(min(now, usage_read_at)) if usage_read_at else None
                 today_record["partial"] = True

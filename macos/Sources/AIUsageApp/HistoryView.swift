@@ -172,12 +172,12 @@ struct TokenHistory: View {
             }
             Panel {
                 VStack(alignment: .leading, spacing: T.Space.s2) {
-                    DayBarChart(provider: provider, days: days, style: .full)
+                    DayBarChart(provider: provider, days: days, style: .full, today: today)
                     DayChartLegend(split: provider.usage.hasSplit)
                 }
             }
             SectionLabel("Daily detail")
-            DailyTable(provider: provider, days: days.reversed())
+            DailyTable(provider: provider, days: days.reversed(), today: today)
         }
     }
 
@@ -200,6 +200,7 @@ struct TokenHistory: View {
 struct DailyTable: View {
     let provider: Provider
     let days: [Day]
+    let today: String
 
     var body: some View {
         Panel(padding: 0) {
@@ -225,7 +226,9 @@ struct DailyTable: View {
         case .measured: return day.incompleteEvents > 0 ? "Measured · \(day.incompleteEvents) incomplete" : "Measured"
         case .zero: return "Measured zero"
         case .missing: return "Missing (not zero)"
-        case .partial: return "Today so far"
+        case .partial:
+            if day.date == today { return "Today so far" }
+            return day.asOf.map { "Partial (read until \(Format.clock($0)))" } ?? "Partial"
         case .notCollected: return "Not collected"
         }
     }

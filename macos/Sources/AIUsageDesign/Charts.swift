@@ -14,13 +14,16 @@ public struct DayBarChart: View {
     private let provider: Provider
     private let days: [Day]
     private let style: Style
+    private let today: String
     @State private var selected: Int?
     @FocusState private var focused: Bool
 
-    public init(provider: Provider, days: [Day], style: Style) {
+    /// `today`: the report's current local date; only that day is labelled "Today".
+    public init(provider: Provider, days: [Day], style: Style, today: String) {
         self.provider = provider
         self.days = days
         self.style = style
+        self.today = today
     }
 
     private var plotHeight: CGFloat { style == .mini ? 40 : 180 }
@@ -103,7 +106,7 @@ public struct DayBarChart: View {
 
     private var readout: String {
         if let selected, days.indices.contains(selected) {
-            return Presentation.readout(provider, day: days[selected], asOf: provider.today?.asOf)
+            return Presentation.readout(provider, day: days[selected], asOf: provider.today?.asOf, today: today)
         }
         return Presentation.chartCaption(provider, days: days)
     }
@@ -184,8 +187,9 @@ public struct DayBarChart: View {
                 Spacer()
             }
             if let last = days.last {
-                Text(last.state == .partial ? (style == .mini ? "Today" : "\(Format.dayLabel(last.date)) · today") : Format.dayLabel(last.date))
-                    .fontWeight(last.state == .partial ? .semibold : .regular)
+                let isToday = last.date == today
+                Text(isToday ? (style == .mini ? "Today" : "\(Format.dayLabel(last.date)) · today") : Format.dayLabel(last.date))
+                    .fontWeight(isToday ? .semibold : .regular)
             }
         }
         .font(.auChart)

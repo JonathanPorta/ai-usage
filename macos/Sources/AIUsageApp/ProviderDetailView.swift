@@ -108,7 +108,7 @@ struct ProviderDetailView: View {
                 }
                 if metric == .tokens || provider.activeWindows.isEmpty {
                     let days = Presentation.recentDays(provider, count: tokenRange)
-                    DayBarChart(provider: provider, days: days, style: .full)
+                    DayBarChart(provider: provider, days: days, style: .full, today: store.report?.today ?? "")
                     DayChartLegend(split: provider.usage.hasSplit)
                     Text(provider.usage.hasSplit ? "Cache tokens are counted separately." : "This provider reports one daily total; input and output aren’t split.")
                         .font(.auCaption).foregroundStyle(T.Color.muted.color)

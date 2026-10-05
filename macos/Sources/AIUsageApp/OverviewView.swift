@@ -104,7 +104,7 @@ struct OverviewView: View {
         if let report = store.report {
             LazyVStack(spacing: T.Space.s2) {
                 ForEach(report.providers) { provider in
-                    ProviderCard(provider: provider, now: now, checking: checking(provider),
+                    ProviderCard(provider: provider, now: now, today: report.today, checking: checking(provider),
                                  open: { openDetail(provider.id) })
                         .focused($focus, equals: .card(provider.id))
                 }
@@ -184,6 +184,7 @@ struct OverviewView: View {
 struct ProviderCard: View {
     let provider: Provider
     let now: Date
+    let today: String
     let checking: Bool
     let open: () -> Void
 
@@ -248,7 +249,7 @@ struct ProviderCard: View {
             .frame(width: 104, alignment: .leading)
             .accessibilityElement(children: .combine)
             if measuredDays >= 2 {
-                DayBarChart(provider: provider, days: recent, style: .mini)
+                DayBarChart(provider: provider, days: recent, style: .mini, today: today)
             } else {
                 Text("Not enough days measured for a 7-day chart yet.")
                     .font(.auCaption).foregroundStyle(T.Color.muted.color)

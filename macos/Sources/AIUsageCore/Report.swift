@@ -159,6 +159,8 @@ public struct Day: Codable, Equatable, Identifiable, Sendable {
     public var cacheRead: Double?
     public var cacheWrite: Double?
     public var incompleteEvents: Int
+    /// For a partial day: when its source was last read (today so far, or a past day cut short).
+    public var asOf: Date?
 
     public var id: String { date }
     public var hasValue: Bool { state == .measured || state == .zero || state == .partial }
@@ -358,7 +360,7 @@ public extension Report {
     /// so a cached or aging snapshot can never present stale readings as current.
     /// Measurements and their timestamps are never changed.
     func evaluated(at now: Date) -> Report {
-        var copy = self
+        var copy = self.rolledOver(to: now)
         for index in copy.providers.indices {
             var provider = copy.providers[index]
             if provider.usage.status == .current, let deadline = provider.usage.becomesStaleAt, deadline <= now {
@@ -383,6 +385,57 @@ public extension Report {
                 else if statuses.count > 1 { provider.quota.status = .mixed }
                 provider.quota.staleCause = active.first { $0.status == .stale }?.staleCause
             }
+            copy.providers[index] = provider
+        }
+        return copy
+    }
+}
+
+// MARK: - Calendar rollover
+
+public extension Report {
+    /// The local calendar date of `date` in the report's timezone.
+    func localDay(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timezone) ?? .current
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// A snapshot carried past midnight (in its timezone) no longer describes
+    /// "today": today's totals and models are dropped, the old day stays a
+    /// partial day with its as-of time, and the daily window slides onto the
+    /// new date with missing (not zero) days until the report is re-read.
+    func rolledOver(to now: Date) -> Report {
+        let newToday = localDay(now)
+        guard newToday > today else { return self }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timezone) ?? .current
+        var added: [String] = []
+        var cursor = ReportDate.day(today, in: calendar.timeZone)
+        while let current = cursor, added.count < 400 {
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            let label = localDay(next)
+            if label > newToday { break }
+            added.append(label)
+            cursor = next
+        }
+        var copy = self
+        copy.today = newToday
+        for index in copy.providers.indices {
+            var provider = copy.providers[index]
+            let asOf = provider.today?.asOf
+            for d in provider.days.indices where provider.days[d].date == today && provider.days[d].state == .partial {
+                provider.days[d].asOf = provider.days[d].asOf ?? asOf
+            }
+            provider.today = nil
+            provider.modelsToday = []
+            let count = provider.days.count
+            provider.days += added.map {
+                Day(date: $0, state: .missing, input: nil, output: nil, total: nil, cacheRead: nil, cacheWrite: nil,
+                    incompleteEvents: 0, asOf: nil)
+            }
+            provider.days = Array(provider.days.suffix(count))
             copy.providers[index] = provider
         }
         return copy

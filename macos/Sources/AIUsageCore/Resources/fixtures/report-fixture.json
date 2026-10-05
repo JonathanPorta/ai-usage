@@ -96,7 +96,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-03",
@@ -106,7 +107,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-04",
@@ -116,7 +118,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-05",
@@ -126,7 +129,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-06",
@@ -136,7 +140,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-07",
@@ -146,7 +151,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-08",
@@ -156,7 +162,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-09",
@@ -166,7 +173,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-10",
@@ -176,7 +184,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-11",
@@ -186,7 +195,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-12",
@@ -196,7 +206,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-13",
@@ -206,7 +217,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-14",
@@ -216,7 +228,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-15",
@@ -226,7 +239,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-16",
@@ -236,7 +250,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-17",
@@ -246,7 +261,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-18",
@@ -256,7 +272,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-19",
@@ -266,7 +283,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-20",
@@ -276,7 +294,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-21",
@@ -286,7 +305,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-22",
@@ -296,7 +316,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-23",
@@ -306,7 +327,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-24",
@@ -316,7 +338,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-25",
@@ -326,7 +349,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-26",
@@ -336,7 +360,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-27",
@@ -346,7 +371,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-28",
@@ -356,7 +382,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-29",
@@ -366,7 +393,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-30",
@@ -376,7 +404,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-31",
@@ -386,7 +415,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-01",
@@ -396,7 +426,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-02",
@@ -406,7 +437,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-03",
@@ -416,7 +448,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-04",
@@ -426,7 +459,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-05",
@@ -436,7 +470,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-06",
@@ -446,7 +481,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-07",
@@ -456,7 +492,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-08",
@@ -466,7 +503,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-09",
@@ -476,7 +514,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-10",
@@ -486,7 +525,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-11",
@@ -496,7 +536,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-12",
@@ -506,7 +547,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-13",
@@ -516,7 +558,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-14",
@@ -526,7 +569,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-15",
@@ -536,7 +580,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-16",
@@ -546,7 +591,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-17",
@@ -556,7 +602,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-18",
@@ -566,7 +613,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-19",
@@ -576,7 +624,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-20",
@@ -586,7 +635,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-21",
@@ -596,7 +646,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-22",
@@ -606,7 +657,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-23",
@@ -616,7 +668,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-24",
@@ -626,7 +679,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-25",
@@ -636,7 +690,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-26",
@@ -646,7 +701,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-27",
@@ -656,7 +712,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-28",
@@ -666,7 +723,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-29",
@@ -676,7 +734,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-30",
@@ -686,7 +745,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-31",
@@ -696,7 +756,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-01",
@@ -706,7 +767,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-02",
@@ -716,7 +778,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-03",
@@ -726,7 +789,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-04",
@@ -736,7 +800,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-05",
@@ -746,7 +811,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-06",
@@ -756,7 +822,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-07",
@@ -766,7 +833,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-08",
@@ -776,7 +844,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-09",
@@ -786,7 +855,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-10",
@@ -796,7 +866,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-11",
@@ -806,7 +877,8 @@
           "total": 1178733,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-12",
@@ -816,7 +888,8 @@
           "total": 1186652,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-13",
@@ -826,7 +899,8 @@
           "total": 1194571,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-14",
@@ -836,7 +910,8 @@
           "total": 702490,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-15",
@@ -846,7 +921,8 @@
           "total": 710409,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-16",
@@ -856,7 +932,8 @@
           "total": 718328,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-17",
@@ -866,7 +943,8 @@
           "total": 726247,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-18",
@@ -876,7 +954,8 @@
           "total": 734166,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-19",
@@ -886,7 +965,8 @@
           "total": 742085,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-20",
@@ -896,7 +976,8 @@
           "total": 750004,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-21",
@@ -906,7 +987,8 @@
           "total": 757923,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-22",
@@ -916,7 +998,8 @@
           "total": 765842,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-23",
@@ -926,7 +1009,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-24",
@@ -936,7 +1020,8 @@
           "total": 781680,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-25",
@@ -946,7 +1031,8 @@
           "total": 789599,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-26",
@@ -956,7 +1042,8 @@
           "total": 797518,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-27",
@@ -966,7 +1053,8 @@
           "total": 805437,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-28",
@@ -976,7 +1064,8 @@
           "total": 838356,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-29",
@@ -986,7 +1075,8 @@
           "total": 821275,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": "2026-09-29T16:17:00Z"
         }
       ],
       "models_today": [],
@@ -4397,7 +4487,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-03",
@@ -4407,7 +4498,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-04",
@@ -4417,7 +4509,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-05",
@@ -4427,7 +4520,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-06",
@@ -4437,7 +4531,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-07",
@@ -4447,7 +4542,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-08",
@@ -4457,7 +4553,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-09",
@@ -4467,7 +4564,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-10",
@@ -4477,7 +4575,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-11",
@@ -4487,7 +4586,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-12",
@@ -4497,7 +4597,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-13",
@@ -4507,7 +4608,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-14",
@@ -4517,7 +4619,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-15",
@@ -4527,7 +4630,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-16",
@@ -4537,7 +4641,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-17",
@@ -4547,7 +4652,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-18",
@@ -4557,7 +4663,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-19",
@@ -4567,7 +4674,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-20",
@@ -4577,7 +4685,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-21",
@@ -4587,7 +4696,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-22",
@@ -4597,7 +4707,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-23",
@@ -4607,7 +4718,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-24",
@@ -4617,7 +4729,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-25",
@@ -4627,7 +4740,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-26",
@@ -4637,7 +4751,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-27",
@@ -4647,7 +4762,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-28",
@@ -4657,7 +4773,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-29",
@@ -4667,7 +4784,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-30",
@@ -4677,7 +4795,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-31",
@@ -4687,7 +4806,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-01",
@@ -4697,7 +4817,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-02",
@@ -4707,7 +4828,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-03",
@@ -4717,7 +4839,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-04",
@@ -4727,7 +4850,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-05",
@@ -4737,7 +4861,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-06",
@@ -4747,7 +4872,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-07",
@@ -4757,7 +4883,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-08",
@@ -4767,7 +4894,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-09",
@@ -4777,7 +4905,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-10",
@@ -4787,7 +4916,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-11",
@@ -4797,7 +4927,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-12",
@@ -4807,7 +4938,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-13",
@@ -4817,7 +4949,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-14",
@@ -4827,7 +4960,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-15",
@@ -4837,7 +4971,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-16",
@@ -4847,7 +4982,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-17",
@@ -4857,7 +4993,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-18",
@@ -4867,7 +5004,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-19",
@@ -4877,7 +5015,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-20",
@@ -4887,7 +5026,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-21",
@@ -4897,7 +5037,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-22",
@@ -4907,7 +5048,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-23",
@@ -4917,7 +5059,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-24",
@@ -4927,7 +5070,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-25",
@@ -4937,7 +5081,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-26",
@@ -4947,7 +5092,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-27",
@@ -4957,7 +5103,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-28",
@@ -4967,7 +5114,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-29",
@@ -4977,7 +5125,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-30",
@@ -4987,7 +5136,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-31",
@@ -4997,7 +5147,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-01",
@@ -5007,7 +5158,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-02",
@@ -5017,7 +5169,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-03",
@@ -5027,7 +5180,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-04",
@@ -5037,7 +5191,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-05",
@@ -5047,7 +5202,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-06",
@@ -5057,7 +5213,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-07",
@@ -5067,7 +5224,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-08",
@@ -5077,7 +5235,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-09",
@@ -5087,7 +5246,8 @@
           "total": 470400,
           "cache_read": 3600000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-10",
@@ -5097,7 +5257,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-11",
@@ -5107,7 +5268,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-12",
@@ -5117,7 +5279,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-13",
@@ -5127,7 +5290,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-14",
@@ -5137,7 +5301,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-15",
@@ -5147,7 +5312,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-16",
@@ -5157,7 +5323,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-17",
@@ -5167,7 +5334,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-18",
@@ -5177,7 +5345,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-19",
@@ -5187,7 +5356,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-20",
@@ -5197,7 +5367,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-21",
@@ -5207,7 +5378,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-22",
@@ -5217,7 +5389,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-23",
@@ -5227,7 +5400,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-24",
@@ -5237,7 +5411,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-25",
@@ -5247,7 +5422,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-26",
@@ -5257,7 +5433,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-27",
@@ -5267,7 +5444,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-28",
@@ -5277,7 +5455,8 @@
           "total": 568700,
           "cache_read": 4400000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-29",
@@ -5287,7 +5466,8 @@
           "total": 143300,
           "cache_read": 1200000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": "2026-09-29T16:17:00Z"
         }
       ],
       "models_today": [
@@ -5384,7 +5564,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-03",
@@ -5394,7 +5575,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-04",
@@ -5404,7 +5586,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-05",
@@ -5414,7 +5597,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-06",
@@ -5424,7 +5608,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-07",
@@ -5434,7 +5619,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-08",
@@ -5444,7 +5630,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-09",
@@ -5454,7 +5641,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-10",
@@ -5464,7 +5652,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-11",
@@ -5474,7 +5663,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-12",
@@ -5484,7 +5674,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-13",
@@ -5494,7 +5685,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-14",
@@ -5504,7 +5696,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-15",
@@ -5514,7 +5707,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-16",
@@ -5524,7 +5718,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-17",
@@ -5534,7 +5729,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-18",
@@ -5544,7 +5740,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-19",
@@ -5554,7 +5751,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-20",
@@ -5564,7 +5762,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-21",
@@ -5574,7 +5773,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-22",
@@ -5584,7 +5784,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-23",
@@ -5594,7 +5795,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-24",
@@ -5604,7 +5806,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-25",
@@ -5614,7 +5817,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-26",
@@ -5624,7 +5828,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-27",
@@ -5634,7 +5839,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-28",
@@ -5644,7 +5850,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-29",
@@ -5654,7 +5861,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-30",
@@ -5664,7 +5872,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-31",
@@ -5674,7 +5883,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-01",
@@ -5684,7 +5894,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-02",
@@ -5694,7 +5905,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-03",
@@ -5704,7 +5916,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-04",
@@ -5714,7 +5927,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-05",
@@ -5724,7 +5938,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-06",
@@ -5734,7 +5949,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-07",
@@ -5744,7 +5960,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-08",
@@ -5754,7 +5971,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-09",
@@ -5764,7 +5982,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-10",
@@ -5774,7 +5993,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-11",
@@ -5784,7 +6004,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-12",
@@ -5794,7 +6015,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-13",
@@ -5804,7 +6026,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-14",
@@ -5814,7 +6037,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-15",
@@ -5824,7 +6048,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-16",
@@ -5834,7 +6059,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-17",
@@ -5844,7 +6070,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-18",
@@ -5854,7 +6081,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-19",
@@ -5864,7 +6092,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-20",
@@ -5874,7 +6103,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-21",
@@ -5884,7 +6114,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-22",
@@ -5894,7 +6125,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-23",
@@ -5904,7 +6136,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-24",
@@ -5914,7 +6147,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-25",
@@ -5924,7 +6158,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-26",
@@ -5934,7 +6169,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-27",
@@ -5944,7 +6180,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-28",
@@ -5954,7 +6191,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-29",
@@ -5964,7 +6202,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-30",
@@ -5974,7 +6213,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-31",
@@ -5984,7 +6224,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-01",
@@ -5994,7 +6235,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-02",
@@ -6004,7 +6246,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-03",
@@ -6014,7 +6257,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-04",
@@ -6024,7 +6268,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-05",
@@ -6034,7 +6279,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-06",
@@ -6044,7 +6290,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-07",
@@ -6054,7 +6301,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-08",
@@ -6064,7 +6312,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-09",
@@ -6074,7 +6323,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-10",
@@ -6084,7 +6334,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-11",
@@ -6094,7 +6345,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-12",
@@ -6104,7 +6356,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-13",
@@ -6114,7 +6367,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-14",
@@ -6124,7 +6378,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-15",
@@ -6134,7 +6389,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-16",
@@ -6144,7 +6400,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-17",
@@ -6154,7 +6411,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-18",
@@ -6164,7 +6422,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-19",
@@ -6174,7 +6433,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-20",
@@ -6184,7 +6444,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-21",
@@ -6194,7 +6455,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-22",
@@ -6204,7 +6466,8 @@
           "total": 25100,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-23",
@@ -6214,7 +6477,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-24",
@@ -6224,7 +6488,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-25",
@@ -6234,7 +6499,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-26",
@@ -6244,7 +6510,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-27",
@@ -6254,7 +6521,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-28",
@@ -6264,7 +6532,8 @@
           "total": 50200,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-29",
@@ -6274,7 +6543,8 @@
           "total": 25100,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": "2026-09-29T16:17:00Z"
         }
       ],
       "models_today": [
@@ -6462,7 +6732,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-03",
@@ -6472,7 +6743,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-04",
@@ -6482,7 +6754,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-05",
@@ -6492,7 +6765,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-06",
@@ -6502,7 +6776,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-07",
@@ -6512,7 +6787,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-08",
@@ -6522,7 +6798,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-09",
@@ -6532,7 +6809,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-10",
@@ -6542,7 +6820,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-11",
@@ -6552,7 +6831,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-12",
@@ -6562,7 +6842,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-13",
@@ -6572,7 +6853,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-14",
@@ -6582,7 +6864,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-15",
@@ -6592,7 +6875,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-16",
@@ -6602,7 +6886,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-17",
@@ -6612,7 +6897,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-18",
@@ -6622,7 +6908,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-19",
@@ -6632,7 +6919,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-20",
@@ -6642,7 +6930,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-21",
@@ -6652,7 +6941,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-22",
@@ -6662,7 +6952,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-23",
@@ -6672,7 +6963,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-24",
@@ -6682,7 +6974,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-25",
@@ -6692,7 +6985,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-26",
@@ -6702,7 +6996,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-27",
@@ -6712,7 +7007,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-28",
@@ -6722,7 +7018,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-29",
@@ -6732,7 +7029,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-30",
@@ -6742,7 +7040,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-31",
@@ -6752,7 +7051,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-01",
@@ -6762,7 +7062,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-02",
@@ -6772,7 +7073,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-03",
@@ -6782,7 +7084,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-04",
@@ -6792,7 +7095,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-05",
@@ -6802,7 +7106,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-06",
@@ -6812,7 +7117,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-07",
@@ -6822,7 +7128,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-08",
@@ -6832,7 +7139,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-09",
@@ -6842,7 +7150,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-10",
@@ -6852,7 +7161,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-11",
@@ -6862,7 +7172,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-12",
@@ -6872,7 +7183,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-13",
@@ -6882,7 +7194,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-14",
@@ -6892,7 +7205,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-15",
@@ -6902,7 +7216,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-16",
@@ -6912,7 +7227,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-17",
@@ -6922,7 +7238,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-18",
@@ -6932,7 +7249,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-19",
@@ -6942,7 +7260,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-20",
@@ -6952,7 +7271,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-21",
@@ -6962,7 +7282,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-22",
@@ -6972,7 +7293,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-23",
@@ -6982,7 +7304,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-24",
@@ -6992,7 +7315,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-25",
@@ -7002,7 +7326,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-26",
@@ -7012,7 +7337,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-27",
@@ -7022,7 +7348,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-28",
@@ -7032,7 +7359,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-29",
@@ -7042,7 +7370,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-30",
@@ -7052,7 +7381,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-31",
@@ -7062,7 +7392,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-01",
@@ -7072,7 +7403,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-02",
@@ -7082,7 +7414,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-03",
@@ -7092,7 +7425,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-04",
@@ -7102,7 +7436,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-05",
@@ -7112,7 +7447,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-06",
@@ -7122,7 +7458,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-07",
@@ -7132,7 +7469,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-08",
@@ -7142,7 +7480,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-09",
@@ -7152,7 +7491,8 @@
           "total": 82400,
           "cache_read": 216000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-10",
@@ -7162,7 +7502,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-11",
@@ -7172,7 +7513,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-12",
@@ -7182,7 +7524,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-13",
@@ -7192,7 +7535,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-14",
@@ -7202,7 +7546,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-15",
@@ -7212,7 +7557,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-16",
@@ -7222,7 +7568,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-17",
@@ -7232,7 +7579,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-18",
@@ -7242,7 +7590,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-19",
@@ -7252,7 +7601,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-20",
@@ -7262,7 +7612,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-21",
@@ -7272,7 +7623,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-22",
@@ -7282,7 +7634,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-23",
@@ -7292,7 +7645,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-24",
@@ -7302,7 +7656,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-25",
@@ -7312,7 +7667,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-26",
@@ -7322,7 +7678,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-27",
@@ -7332,7 +7689,8 @@
           "total": 0,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-28",
@@ -7342,7 +7700,8 @@
           "total": 92700,
           "cache_read": 243000,
           "cache_write": null,
-          "incomplete_events": 1
+          "incomplete_events": 1,
+          "as_of": null
         },
         {
           "date": "2026-09-29",
@@ -7352,7 +7711,8 @@
           "total": 20600,
           "cache_read": 54000,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": "2026-09-29T16:17:00Z"
         }
       ],
       "models_today": [
@@ -9872,7 +10232,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-03",
@@ -9882,7 +10243,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-04",
@@ -9892,7 +10254,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-05",
@@ -9902,7 +10265,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-06",
@@ -9912,7 +10276,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-07",
@@ -9922,7 +10287,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-08",
@@ -9932,7 +10298,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-09",
@@ -9942,7 +10309,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-10",
@@ -9952,7 +10320,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-11",
@@ -9962,7 +10331,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-12",
@@ -9972,7 +10342,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-13",
@@ -9982,7 +10353,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-14",
@@ -9992,7 +10364,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-15",
@@ -10002,7 +10375,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-16",
@@ -10012,7 +10386,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-17",
@@ -10022,7 +10397,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-18",
@@ -10032,7 +10408,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-19",
@@ -10042,7 +10419,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-20",
@@ -10052,7 +10430,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-21",
@@ -10062,7 +10441,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-22",
@@ -10072,7 +10452,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-23",
@@ -10082,7 +10463,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-24",
@@ -10092,7 +10474,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-25",
@@ -10102,7 +10485,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-26",
@@ -10112,7 +10496,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-27",
@@ -10122,7 +10507,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-28",
@@ -10132,7 +10518,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-29",
@@ -10142,7 +10529,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-30",
@@ -10152,7 +10540,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-07-31",
@@ -10162,7 +10551,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-01",
@@ -10172,7 +10562,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-02",
@@ -10182,7 +10573,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-03",
@@ -10192,7 +10584,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-04",
@@ -10202,7 +10595,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-05",
@@ -10212,7 +10606,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-06",
@@ -10222,7 +10617,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-07",
@@ -10232,7 +10628,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-08",
@@ -10242,7 +10639,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-09",
@@ -10252,7 +10650,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-10",
@@ -10262,7 +10661,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-11",
@@ -10272,7 +10672,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-12",
@@ -10282,7 +10683,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-13",
@@ -10292,7 +10694,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-14",
@@ -10302,7 +10705,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-15",
@@ -10312,7 +10716,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-16",
@@ -10322,7 +10727,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-17",
@@ -10332,7 +10738,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-18",
@@ -10342,7 +10749,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-19",
@@ -10352,7 +10760,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-20",
@@ -10362,7 +10771,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-21",
@@ -10372,7 +10782,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-22",
@@ -10382,7 +10793,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-23",
@@ -10392,7 +10804,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-24",
@@ -10402,7 +10815,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-25",
@@ -10412,7 +10826,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-26",
@@ -10422,7 +10837,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-27",
@@ -10432,7 +10848,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-28",
@@ -10442,7 +10859,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-29",
@@ -10452,7 +10870,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-30",
@@ -10462,7 +10881,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-08-31",
@@ -10472,7 +10892,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-01",
@@ -10482,7 +10903,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-02",
@@ -10492,7 +10914,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-03",
@@ -10502,7 +10925,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-04",
@@ -10512,7 +10936,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-05",
@@ -10522,7 +10947,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-06",
@@ -10532,7 +10958,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-07",
@@ -10542,7 +10969,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-08",
@@ -10552,7 +10980,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-09",
@@ -10562,7 +10991,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-10",
@@ -10572,7 +11002,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-11",
@@ -10582,7 +11013,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-12",
@@ -10592,7 +11024,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-13",
@@ -10602,7 +11035,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-14",
@@ -10612,7 +11046,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-15",
@@ -10622,7 +11057,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-16",
@@ -10632,7 +11068,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-17",
@@ -10642,7 +11079,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-18",
@@ -10652,7 +11090,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-19",
@@ -10662,7 +11101,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-20",
@@ -10672,7 +11112,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-21",
@@ -10682,7 +11123,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-22",
@@ -10692,7 +11134,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-23",
@@ -10702,7 +11145,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-24",
@@ -10712,7 +11156,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-25",
@@ -10722,7 +11167,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-26",
@@ -10732,7 +11178,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-27",
@@ -10742,7 +11189,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-28",
@@ -10752,7 +11200,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         },
         {
           "date": "2026-09-29",
@@ -10762,7 +11211,8 @@
           "total": null,
           "cache_read": null,
           "cache_write": null,
-          "incomplete_events": 0
+          "incomplete_events": 0,
+          "as_of": null
         }
       ],
       "models_today": [],

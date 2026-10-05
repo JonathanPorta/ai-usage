@@ -52,15 +52,20 @@ public final class AppStore {
     public private(set) var isCachedReport = false
     /// Number of full report runs (each scans the CSV). Used by tests and measurement.
     public private(set) var reportRuns = 0
-    /// A fresher service probe than the snapshot's (cheap `launchctl print`).
-    public private(set) var liveService: ServiceStatus?
+    /// The latest cheap service probe, with when it was taken.
+    public private(set) var liveService: ServiceObservation?
     /// Lifecycle and settings actions (start/stop, pause/resume, config writes).
     public private(set) var action: ActionState = .idle
 
-    /// The snapshot as it reads now: deadlines applied, live service state merged in.
+    /// The snapshot as it reads now: calendar rollover and deadlines applied, and
+    /// the service state taken from whichever observation is newer (probe or report).
     public var report: Report? {
-        guard var current = snapshot?.evaluated(at: clock()) else { return nil }
-        if let liveService { current.service = liveService.asReportService }
+        guard let snapshot else { return nil }
+        var current = snapshot.evaluated(at: clock())
+        if let liveService,
+           snapshot.service.state == .unknown || liveService.observedAt > snapshot.generatedAt {
+            current.service = liveService.status.asReportService
+        }
         return current
     }
 
@@ -78,6 +83,8 @@ public final class AppStore {
     private var completed = 0
     private var worker: Task<Void, Never>?
     private var scannedFingerprint: SourceFingerprint?
+    /// Local date (report timezone) when the last successful scan started.
+    private var scannedDay: String?
 
     public static let backgroundCheckInterval: TimeInterval = 5 * 60
 
@@ -148,7 +155,11 @@ public final class AppStore {
         Task { await refresh() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: Self.backgroundCheckInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refreshIfSourcesChanged() }
+            Task { @MainActor in
+                // Service state is checked independently of any CSV change.
+                await self?.probeService()
+                await self?.refreshIfSourcesChanged()
+            }
         }
     }
 
@@ -161,9 +172,13 @@ public final class AppStore {
         }
     }
 
-    /// Re-run the report only if the CSV, log or config changed since the last scan.
+    /// Re-run the report only if the CSV, log or config changed since the last scan,
+    /// or the calendar date (in the report's timezone) moved past the snapshot's day.
     public func refreshIfSourcesChanged() async {
-        if let scannedFingerprint, scannedFingerprint == fingerprint(sourceURLs) { return }
+        // One re-read per new calendar day, judged against when we last scanned,
+        // so a report that lags the clock can't cause a rescan on every reopen.
+        let dayChanged = snapshot.map { $0.localDay(clock()) != (scannedDay ?? $0.today) } ?? false
+        if !dayChanged, let scannedFingerprint, scannedFingerprint == fingerprint(sourceURLs) { return }
         await refresh()
     }
 
@@ -183,6 +198,7 @@ public final class AppStore {
             let target = requested
             isRefreshing = true
             let before = fingerprint(sourceURLs)
+            let startedAt = clock()
             reportRuns += 1
             do {
                 let fresh = try await reporter.fetch()
@@ -197,6 +213,7 @@ public final class AppStore {
                 // The first report names the CSV and log; fingerprint those too.
                 let after = fingerprint(sourceURLs)
                 scannedFingerprint = Set(after.entries.keys) == Set(before.entries.keys) ? before : after
+                scannedDay = snapshot?.localDay(startedAt)
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
                 refreshError = message
@@ -250,7 +267,11 @@ public final class AppStore {
     // MARK: Service and settings
 
     public func probeService() async {
-        if let status = try? await service.status() { liveService = status }
+        let started = clock()
+        guard let status = try? await service.status() else { return }
+        // A probe that started earlier than the current observation is older evidence.
+        if let current = liveService, current.observedAt > started { return }
+        liveService = ServiceObservation(status: status, observedAt: started)
     }
 
     public func startService() async { await perform("Starting the collector…", success: "Collector started") { try await self.service.start() } }
@@ -351,4 +372,10 @@ struct NoCollector: CollectorRunning {
     func collectOnce(progressSupported: Bool, onProgress: @escaping @Sendable (CollectProgress) -> Void) async throws -> CollectRun {
         CollectRun(outcome: .failed, message: "Collect now isn’t available in previews.", finishedAt: Date())
     }
+}
+
+/// A service status and when it was observed (probe start time).
+public struct ServiceObservation: Equatable, Sendable {
+    public var status: ServiceStatus
+    public var observedAt: Date
 }

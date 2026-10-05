@@ -410,11 +410,11 @@ final class PresentationTests: XCTestCase {
         let report = try fixture()
         let grok = try XCTUnwrap(report.provider("grok"))
         let missing = try XCTUnwrap(grok.days.first { $0.state == .missing })
-        XCTAssertTrue(Presentation.readout(grok, day: missing, asOf: nil).hasSuffix("missing reading, not zero"))
+        XCTAssertTrue(Presentation.readout(grok, day: missing, asOf: nil, today: report.today).hasSuffix("missing reading, not zero"))
         let zero = try XCTUnwrap(grok.days.first { $0.state == .zero })
-        XCTAssertTrue(Presentation.readout(grok, day: zero, asOf: nil).contains("0 tokens — measured, no usage"))
+        XCTAssertTrue(Presentation.readout(grok, day: zero, asOf: nil, today: report.today).contains("0 tokens — measured, no usage"))
         let today = try XCTUnwrap(grok.days.last)
-        XCTAssertTrue(Presentation.readout(grok, day: today, asOf: grok.today?.asOf).hasPrefix("Today so far"))
+        XCTAssertTrue(Presentation.readout(grok, day: today, asOf: grok.today?.asOf, today: report.today).hasPrefix("Today so far"))
     }
 }
 

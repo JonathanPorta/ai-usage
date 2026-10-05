@@ -147,6 +147,23 @@ class AggregationTests(ReportCase):
         self.assertIsNone(self.day(grok, 2)["total"])
         self.assertEqual(self.day(claude, 0)["state"], "partial")
 
+    def test_stopped_collector_across_midnight_marks_yesterday_partial_and_today_empty(self) -> None:
+        # Last checks at 10:20 on the 29th; the collector then stops. Files never change.
+        for back in (30, 20):
+            self.check(self.now - back * 60, providers=("claude",))
+        self.events(*fx.claude_event(self.now - 15 * 60, "m", 100, 10))
+        self.now = self.now + 22 * HOUR  # 08:40 on the 30th
+        claude = self.provider(self.build(), "claude")
+        self.assertIsNone(claude["today"], "nothing has been read today")
+        self.assertEqual(claude["models_today"], [])
+        yesterday, today = self.day(claude, 1), self.day(claude, 0)
+        self.assertEqual((yesterday["state"], yesterday["total"]), ("partial", 110),
+                         "a day last read before it ended is partial, never complete")
+        self.assertEqual(yesterday["as_of"], report.iso(self.now - 22 * HOUR - 20 * 60))
+        self.assertEqual((today["state"], today["total"]), ("missing", None))
+        self.assertEqual(claude["days"][-1]["date"], time.strftime("%Y-%m-%d", time.localtime(self.now)),
+                         "the daily window ends on the new day")
+
     def test_deferred_session_files_make_empty_days_missing_not_zero(self) -> None:
         ts = self.now - 3 * DAY
         self.events(*fx.claude_event(ts, "m", 10, 1))
