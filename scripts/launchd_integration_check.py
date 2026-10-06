@@ -189,6 +189,20 @@ def main() -> int:
                f"rollback restarted the prior service ({recovered})")
         expect(recovered["pid"] != prior_pid, "the prior service was booted out and started again")
         expect((root / "collector.py").read_bytes() == before_script, "installed collector left unchanged")
+
+        print("8. failed install keeps a stopped, disabled agent stopped and disabled")
+        stopped = json.loads(run("stop").stdout)
+        expect(stopped["state"] == "stopped" and stopped["disabled"] is True, f"stopped and disabled ({stopped})")
+        subprocess.run(["/usr/bin/chflags", "uchg", str(root / "collector.py")], check=True)
+        try:
+            failed = run("install", "--config", str(config_path), ok=False, script=variant)
+        finally:
+            subprocess.run(["/usr/bin/chflags", "nouchg", str(root / "collector.py")], check=False)
+        expect(failed.returncode != 0, "install fails")
+        after = status()
+        expect(after["state"] == "stopped" and after["disabled"] is True,
+               f"still stopped and disabled on real launchd ({after})")
+        expect((root / "collector.py").read_bytes() == before_script, "installed collector left unchanged")
     except CheckFailed as error:
         print(f"  ✗ {error}")
         outcome = 1

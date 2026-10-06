@@ -4643,11 +4643,28 @@ def install_service(config_path: Path, no_start: bool) -> None:
 
     domain = f"gui/{os.getuid()}"
     service_loaded = False
+    prior_disabled: Optional[bool] = None
     if not no_start:
         service_loaded = (
             run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False).returncode
             == 0
         )
+        # Starting re-enables the agent; a failed install must put this back.
+        prior_disabled = launchd_disabled(domain)
+
+    def restore_disabled_state(error: BaseException) -> None:
+        """After a failed install, re-disable an agent that was disabled before."""
+        if prior_disabled is not True or not launch_attempted:
+            return
+        target = f"{domain}/{SERVICE_LABEL}"
+        try:
+            run_launchctl(["disable", target], check=True)
+        except Exception as restore_error:
+            raise RuntimeError(
+                f"installation failed ({error}); files were restored, but the collector "
+                f"could not restore its disabled state ({restore_error}). It was disabled "
+                f"(stopped at login) before this install; run `launchctl disable {target}`"
+            ) from error
 
     tx = FilesystemTransaction(DEFAULT_ROOT.parent)
     service_stopped = False
@@ -4724,6 +4741,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
             except Exception:
                 cleanup_failed = True
         if cleanup_failed:
+            # The new service may still be running: leave launchd as it is.
             raise RuntimeError(
                 f"installation failed ({error}) and the new service could not be "
                 f"stopped safely; installed files and recovery artifacts were preserved at "
@@ -4732,6 +4750,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
         try:
             tx.rollback(preserve_recovery=service_stopped)
         except RuntimeError as rollback_error:
+            restore_disabled_state(error)
             if service_stopped:
                 raise RuntimeError(
                     f"installation failed ({error}); {rollback_error}. The collector was stopped "
@@ -4743,12 +4762,16 @@ def install_service(config_path: Path, no_start: bool) -> None:
             try:
                 launch_agent(domain)
             except Exception as recovery_error:
+                restore_disabled_state(error)
                 raise RuntimeError(
                     f"installation failed ({error}); files were restored but the prior "
                     f"service could not be restarted ({recovery_error}); recovery artifacts: "
                     f"{tx.recovery_dir}"
                 ) from error
             tx.cleanup()
+        # launch_agent() enables the agent; restore a prior disable (applies to
+        # the restarted service too, as a loaded agent can be disabled).
+        restore_disabled_state(error)
         raise
 
     if no_start:
@@ -4777,6 +4800,17 @@ def print_status() -> int:
         return 0
     print("Status: not loaded")
     return 1
+
+
+def launchd_disabled(domain: str) -> Optional[bool]:
+    """launchd's persistent disable flag for the agent, or None if unknown."""
+    result = run_launchctl(["print-disabled", domain], check=False)
+    if result.returncode != 0:
+        return None
+    match = re.search(rf'"{re.escape(SERVICE_LABEL)}"\s*=>\s*(\w+)', result.stdout)
+    if not match:
+        return False
+    return match.group(1) in ("disabled", "true")
 
 
 def service_status() -> dict[str, Any]:
@@ -4808,13 +4842,7 @@ def service_status() -> dict[str, Any]:
                     pass
     else:
         status["state"] = "stopped" if status["installed"] else "not_installed"
-    disabled = run_launchctl(["print-disabled", domain], check=False)
-    if disabled.returncode == 0:
-        match = re.search(rf'"{re.escape(SERVICE_LABEL)}"\s*=>\s*(\w+)', disabled.stdout)
-        if match:
-            status["disabled"] = match.group(1) in ("disabled", "true")
-        else:
-            status["disabled"] = False
+    status["disabled"] = launchd_disabled(domain)
     status["detail"] = f"launchctl: state = {status['state']}"
     return status
 

@@ -2311,10 +2311,11 @@ class MenuAppCommandTests(unittest.TestCase):
             daemon.terminate()
             daemon.wait(timeout=15)
 
-    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool, linger_prints: int = 0) -> Path:
+    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool, linger_prints: int = 0,
+                           fail: tuple[str, ...] = ()) -> Path:
         state = self.case.root / "launchd-state.json"
         state.write_text(json.dumps({"loaded": loaded, "running": running, "disabled": disabled,
-                                     "linger_prints": linger_prints}), encoding="utf-8")
+                                     "linger_prints": linger_prints, "fail": list(fail)}), encoding="utf-8")
         calls = self.case.root / "launchctl-calls.log"
         script = self.case.root / "stateful-launchctl"
         script.write_text(f"""#!{sys.executable}
@@ -2325,6 +2326,10 @@ args = sys.argv[1:]
 open({str(calls)!r}, "a").write(" ".join(args) + "\\n")
 cmd = args[0]
 code = 0
+if cmd in s.get("fail", []):
+    json.dump(s, open(state_path, "w"))
+    sys.stderr.write(cmd + " failed (injected)\\n")
+    sys.exit(37)
 if cmd == "print" and s.get("linger"):
     s["linger"] -= 1
     if not s["linger"]:
@@ -2436,6 +2441,68 @@ sys.exit(code)
         status = json.loads(run("service-status").stdout)
         self.assertEqual((status["state"], status["disabled"]), ("running", False),
                          "reinstalling after Stop must leave the collector enabled and running")
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_keeps_a_stopped_disabled_agent_stopped_and_disabled(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
+        tracked = [root / "collector.py", root / "install-ownership.json", plist, config]
+        before = {path: path.read_bytes() for path in tracked}
+        # Stopped with `stop`: not loaded, disabled. The next install's bootstrap fails.
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True, fail=("bootstrap",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0, "the install must fail when bootstrap fails")
+        state = json.loads((self.case.root / "launchd-state.json").read_text(encoding="utf-8"))
+        self.assertFalse(state["loaded"], "a stopped agent must stay stopped")
+        self.assertTrue(state["disabled"], "a disabled agent must stay disabled (stays stopped at login)")
+        self.assertEqual({path: path.read_bytes() for path in tracked}, before, "installed files restored")
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [call.split()[0] for call in calls if not call.startswith("print")]
+        self.assertEqual(mutations[-1], "disable", f"the prior disabled state is restored last: {calls}")
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_reports_when_the_disabled_state_cannot_be_restored(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True, fail=("bootstrap",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        # After bootstrap fails, `disable` fails too.
+        state_path = self.case.root / "launchd-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["fail"] = ["bootstrap", "disable"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not restore its disabled state", result.stderr)
+        self.assertIn("launchctl disable gui/", result.stderr)
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_still_restarts_a_previously_running_agent(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False, fail=("kickstart",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        # kickstart fails for the new install; the prior service is brought back with bootstrap.
+        state_path = self.case.root / "launchd-state.json"
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(state["loaded"], f"the previously running agent is loaded again: {result.stderr}")
+        self.assertFalse(state["disabled"])
 
     @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
     def test_start_without_installation_changes_nothing(self) -> None:
