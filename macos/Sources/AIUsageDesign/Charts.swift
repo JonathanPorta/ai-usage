@@ -200,13 +200,64 @@ public struct DayBarChart: View {
 }
 
 /// Legend for full token charts.
+/// Places items left to right at their natural size and wraps to a new line
+/// when the next one doesn't fit, so legend labels never overlap.
+public struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    public init(spacing: CGFloat, lineSpacing: CGFloat) {
+        self.spacing = spacing
+        self.lineSpacing = lineSpacing
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        return CGSize(width: rows.map(\.width).max() ?? 0,
+                      height: rows.map(\.height).reduce(0, +) + lineSpacing * CGFloat(max(rows.count - 1, 0)))
+    }
+
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.items {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                                      proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct Row { var items: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = row.items.isEmpty ? size.width : row.width + spacing + size.width
+            if !row.items.isEmpty && needed > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.items.append(index)
+        }
+        if !row.items.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+
 public struct DayChartLegend: View {
     private let split: Bool
     public init(split: Bool) { self.split = split }
 
     public var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: T.Space.s2, alignment: .leading)],
-                  alignment: .leading, spacing: 4) {
+        FlowLayout(spacing: T.Space.s3, lineSpacing: 4) {
             if split {
                 swatch(T.Color.chartInput.color, "Input")
                 swatch(T.Color.chartOutput.color, "Output")
@@ -324,10 +375,14 @@ public struct QuotaLineChart: View {
             }
             .chartXAxis {
                 AxisMarks(values: [start, start.addingTimeInterval(rangeSeconds / 2), now]) { value in
-                    AxisValueLabel {
-                        if let date = value.as(Date.self) {
-                            Text(date == now ? "now" : axisLabel(date)).font(.auChart)
-                        }
+                    // Edge labels are anchored inward; a centered label at the
+                    // trailing edge would overflow the plot and be dropped.
+                    let date = value.as(Date.self) ?? now
+                    let isNow = abs(date.timeIntervalSince(now)) < 1
+                    let isStart = abs(date.timeIntervalSince(start)) < 1
+                    AxisValueLabel(anchor: isNow ? .topTrailing : (isStart ? .topLeading : .top),
+                                   collisionResolution: .disabled) {
+                        Text(isNow ? "now" : axisLabel(date)).font(.auChart)
                     }
                 }
             }

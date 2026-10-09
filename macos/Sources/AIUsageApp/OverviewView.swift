@@ -42,11 +42,18 @@ struct OverviewView: View {
             .padding(.bottom, T.Space.s2)
             .readHeight($pinnedHeight)
 
-            ScrollView {
-                list(now: now)
-                    .padding(.horizontal, T.Space.s4)
-                    .padding(.bottom, T.Space.s3)
-                    .readHeight($listHeight)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    list(now: now)
+                        .padding(.horizontal, T.Space.s4)
+                        .padding(.bottom, T.Space.s3)
+                        .readHeight($listHeight)
+                }
+                // Keyboard focus moving to a card scrolls it fully into view.
+                .onChange(of: focus) { _, target in
+                    guard case let .card(id) = target else { return }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                }
             }
             .frame(height: max(80, min(listHeight, maxHeight - pinnedHeight - 52)))
 
@@ -107,6 +114,7 @@ struct OverviewView: View {
                     ProviderCard(provider: provider, now: now, today: report.today, checking: checking(provider),
                                  open: { openDetail(provider.id) })
                         .focused($focus, equals: .card(provider.id))
+                        .id(provider.id)
                 }
             }
         } else if case .loading = store.phase {

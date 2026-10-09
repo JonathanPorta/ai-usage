@@ -88,6 +88,11 @@ public final class AppStore {
 
     public static let backgroundCheckInterval: TimeInterval = 5 * 60
 
+    /// The daemon applies a pause change on its next tick (at most 15 s) and only
+    /// then logs the new schedule, so a re-read right after the change can't see it.
+    @ObservationIgnored public var scheduleSettleDelay: Duration = .seconds(16)
+    @ObservationIgnored public private(set) var scheduleFollowUp: Task<Void, Never>?
+
     public init(
         environment: CollectorEnvironment,
         reporter: ReportFetching,
@@ -282,6 +287,13 @@ public final class AppStore {
         await perform(paused ? "Pausing scheduled checks…" : "Resuming scheduled checks…",
                       success: paused ? "Scheduled checks paused" : "Scheduled checks resumed") {
             try await self.config.apply([.pollPaused(paused)])
+        }
+        scheduleFollowUp?.cancel()
+        let delay = scheduleSettleDelay
+        scheduleFollowUp = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.refreshIfSourcesChanged()
         }
     }
 

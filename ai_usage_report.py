@@ -30,6 +30,8 @@ import ai_usage_service as collector
 REPORT_SCHEMA = "ai-usage/report/v1"
 LOG_TAIL_BYTES = 256 * 1024
 GROK_BILLING_STALE_SECONDS = 3 * 3600
+# A reset time moving ahead by more than this beyond the elapsed time is an early reset.
+EARLY_RESET_MIN_JUMP_SECONDS = 3600
 LOW_REMAINING_PERCENT = 10.0
 DAY = 86400
 
@@ -665,6 +667,38 @@ def keep_seconds(ranges: list[str]) -> float:
     return float(int(longest[:-1]) * (3600 if longest.endswith("h") else DAY))
 
 
+def collapse_jitter(times: list[float], tolerance: float = 600.0) -> list[float]:
+    """One reset per event: providers report the same reset a few seconds apart."""
+    kept: list[float] = []
+    for t in times:
+        if not kept or t - kept[-1] > tolerance:
+            kept.append(t)
+    return kept
+
+
+def early_resets(ordered: list[dict[str, Any]], window_seconds: Optional[float], *, used_basis: bool) -> set[float]:
+    """Resets that came before the reported reset time.
+
+    Between two readings taken inside the same window, a reset time that jumps
+    ahead by more than the time elapsed (an idle rolling window only moves with
+    the clock) while usage didn't rise means the provider started a new window
+    early. It is placed where that window began when that falls between the two
+    readings, otherwise at the reading that first showed it.
+    """
+    found: set[float] = set()
+    for before, after in zip(ordered, ordered[1:]):
+        if before["resets_at"] is None or after["resets_at"] is None or before["resets_at"] <= after["t"]:
+            continue
+        jump = (after["resets_at"] - before["resets_at"]) - (after["t"] - before["t"])
+        used_before = before["percent"] if used_basis else 100.0 - before["percent"]
+        used_after = after["percent"] if used_basis else 100.0 - after["percent"]
+        if jump <= EARLY_RESET_MIN_JUMP_SECONDS or used_after > used_before:
+            continue
+        start = after["resets_at"] - window_seconds if window_seconds else None
+        found.add(start if start is not None and before["t"] < start <= after["t"] else after["t"])
+    return found
+
+
 def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[str, float], *,
                   now: float, stale_after: float) -> list[dict[str, Any]]:
     definition = state.definition
@@ -701,7 +735,9 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
         last = ordered[-1]
         keep_from = now - keep_seconds(ranges)
         kept = [r for r in ordered if r["t"] >= keep_from] or [last]
-        resets = sorted({r["resets_at"] for r in ordered if r["resets_at"] and ordered[0]["t"] < r["resets_at"] <= now})
+        resets = {r["resets_at"] for r in ordered if r["resets_at"] and ordered[0]["t"] < r["resets_at"] <= now}
+        resets.update(early_resets(ordered, window_seconds, used_basis=basis == "used"))
+        resets = collapse_jitter(sorted(r for r in resets if r <= now))
         measured_at = last["t"]
         resets_at = last["resets_at"]
         reset_passed = bool(resets_at is not None and measured_at < resets_at <= now)

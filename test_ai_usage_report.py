@@ -228,6 +228,32 @@ class QuotaFreshnessTests(ReportCase):
                 self.assertIs(five["reset_passed"], expected)
                 self.assertEqual(five["stale_cause"] == "reset_passed", expected)
 
+    def test_early_reset_is_detected_when_the_reset_time_jumps_ahead(self) -> None:
+        week = 7 * DAY
+        self.codex_check(self.now - 3 * HOUR, five=None, weekly=60, week_reset=self.now + 3 * DAY)
+        self.codex_check(self.now - 2 * HOUR, five=None, weekly=61, week_reset=self.now + 3 * DAY)
+        # The provider reset the week early: usage dropped and the reset moved a whole window ahead.
+        self.codex_check(self.now - 1 * HOUR, five=None, weekly=2, week_reset=self.now - 1.5 * HOUR + week)
+        weekly = self.window(self.provider(self.build(), "codex"), "Weekly limit")
+        self.assertEqual(weekly["resets"], [report.iso(self.now - 1.5 * HOUR)],
+                         "marked where the new window began, between the two readings")
+        self.assertEqual(weekly["status"], "current")
+
+    def test_a_reset_reported_seconds_apart_is_one_reset(self) -> None:
+        reset = self.now - 2 * HOUR
+        self.codex_check(self.now - 3 * HOUR, five=None, weekly=70, week_reset=reset)
+        self.codex_check(self.now - 2.5 * HOUR, five=None, weekly=71, week_reset=reset + 1)
+        self.codex_check(self.now - 1 * HOUR, five=None, weekly=1, week_reset=self.now + 6 * DAY)
+        weekly = self.window(self.provider(self.build(), "codex"), "Weekly limit")
+        self.assertEqual(weekly["resets"], [report.iso(reset)])
+
+    def test_rolling_idle_window_is_not_an_early_reset(self) -> None:
+        for back in (4, 3, 2, 1):
+            ts = self.now - back * HOUR
+            self.codex_check(ts, five=100, weekly=None, five_reset=ts + 5 * HOUR)
+        five = self.window(self.provider(self.build(), "codex"), "5-hour limit")
+        self.assertEqual(five["resets"], [], "a reset time that moves with the clock is not a reset")
+
     def test_current_readings_state_when_they_will_turn_stale(self) -> None:
         measured = self.now - 30 * 60
         reset = self.now + 2 * HOUR

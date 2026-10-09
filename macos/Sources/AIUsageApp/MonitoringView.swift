@@ -15,7 +15,7 @@ struct MonitoringView: View {
     var body: some View {
         let now = store.now
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: back) { Label("Overview", systemImage: Symbols.back) }
+            Button(action: goBack) { Label("Overview", systemImage: Symbols.back) }
                 .buttonStyle(.link)
                 .font(.auBody)
                 .keyboardShortcut(.cancelAction)
@@ -36,13 +36,12 @@ struct MonitoringView: View {
             }
             .frame(maxHeight: maxHeight - 40)
         }
-        .onExitCommand(perform: back)
-        .confirmationDialog("Stop the collector?", isPresented: $confirmStop) {
-            Button("Stop collector", role: .destructive) { Task { await store.stopService() } }
-            Button("Keep running", role: .cancel) {}
-        } message: {
-            Text("It stays stopped, including after you log in, until you start it again here. Your data and settings are kept, and Collect now still runs one-time checks.")
-        }
+        .onExitCommand(perform: goBack)
+    }
+
+    /// Esc cancels a pending Stop confirmation before it leaves the screen.
+    private func goBack() {
+        if confirmStop { confirmStop = false } else { back() }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -62,7 +61,9 @@ struct MonitoringView: View {
                 Spacer()
                 switch report.service.state {
                 case .running, .loaded:
-                    Button("Stop collector…") { confirmStop = true }.disabled(store.isActing)
+                    if !confirmStop {
+                        Button("Stop collector…") { confirmStop = true }.disabled(store.isActing)
+                    }
                 case .stopped:
                     Button("Start collector") { Task { await store.startService() } }.disabled(store.isActing)
                 default:
@@ -70,7 +71,30 @@ struct MonitoringView: View {
                 }
             }
             Text(text.detail).font(.auCaption).foregroundStyle(T.Color.muted.color).fixedSize(horizontal: false, vertical: true)
+            if confirmStop && (report.service.state == .running || report.service.state == .loaded) {
+                stopConfirmation
+            }
         }
+    }
+
+    /// Inline confirmation: a sheet or alert would take key focus from the
+    /// menu-bar panel, which closes it before the action runs.
+    private var stopConfirmation: some View {
+        VStack(alignment: .leading, spacing: T.Space.s2) {
+            Text("Stop the collector?").font(.auBody.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Text("It stays stopped, including after you log in, until you start it again here. Your data and settings are kept, and Collect now still runs one-time checks.")
+                .font(.auCaption).foregroundStyle(T.Color.muted.color).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Keep running") { confirmStop = false }
+                Button("Stop collector", role: .destructive) {
+                    confirmStop = false
+                    Task { await store.stopService() }
+                }
+                .tint(T.Color.danger.color)
+            }
+        }
+        .padding(.top, T.Space.s2)
     }
 
     private func scheduleSection(_ report: Report, now: Date) -> some View {

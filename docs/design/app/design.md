@@ -138,6 +138,46 @@ Still outstanding (needs a person at the Mac):
   - the real collector's pid was unchanged.
 - Midnight rollover and service-observation order are covered by Swift tests. The rollover labels have not yet been seen on screen.
 
+#### 2026-10-09: live acceptance on the owner's Mac (agent driving the real app through computer use; owner-authorized)
+
+The app was built from `8945a54` and ran against the installed 2.2.0 collector. Screenshots stay local because they contain real usage.
+
+Passed (observed in the running UI):
+- Popover opened from the status item: header, status row and footer pinned, cards between them, "Data read … ago" footer.
+- Current-day labels: today's column labelled as today, with a dashed "missing" box and "hasn't reported today's usage yet" for a provider without a reading.
+- Provider detail: Tokens and Quota views, 7- and 30-day ranges, keyboard readouts (`←`/`→`, including "no data — missing reading, not zero"), `Esc` back with focus returned to the card.
+- `⌘R` Collect now:
+  - "Checking providers… · Reading Codex · 1 of 5", the Checking tag and the collecting badge;
+  - then "Check complete · 4 of 4 providers fully updated", with totals updated;
+  - the daemon log shows the one-shot run with 0 errors.
+- An already-open History window updated its last check time without reopening and kept its selection.
+- Pause: `poll_paused` written, the daemon logged the pause, the banner and menu-bar badge showed it. Resume: the daemon logged `resumed next_poll_seconds=3600`.
+- The Stop confirmation copy presents correctly.
+
+Failed, then fixed in this branch (each covered by a check; see the commit):
+- Clicking **Stop collector** in the confirmation dialog closed the panel and did nothing (twice; the collector kept its pid and stayed enabled). A dialog takes key focus from the `.window` MenuBarExtra panel. Replaced with an inline confirmation inside the Service panel; `Esc` cancels it first.
+- `↓` moved focus to cards below the visible area without scrolling them into view. The focused card now scrolls into view, without animation under Reduce Motion.
+- The chart legend overlapped at popover width. It now wraps with a flow layout.
+- The quota chart's x axis lacked its "now" label. Edge labels are now anchored inward.
+- An early reset (the provider starting a new window before the reported reset time) wasn't marked. The report now detects it when the reset time jumps ahead by more than the elapsed time while usage didn't rise. An idle rolling window, whose reset time moves with the clock, is not counted. Reset times reported seconds apart count as one reset.
+- Right after Resume, the schedule showed "Next check time not known yet", because the daemon logs the new schedule on its next tick (up to 15 s later). The app now re-reads once after that tick.
+
+Blocked (not verified):
+- Stop and Start from the fixed UI on the real collector. The rebuilt app couldn't be driven because the display went to a full-screen video, which hides the menu bar. The real collector was never stopped; it stayed running and enabled throughout.
+- Mouse-wheel scrolling in the popover. The automation tool can't address the MenuBarExtra panel as a window.
+- Hover readouts. Synthetic pointer moves deliver no hover events.
+- Mouse clicks on the footer's Open history and Collect now. They didn't respond to synthetic clicks; whether that's the tool or the app is undetermined (⌘R works).
+- Settings persistence and accounting, `⌘,`, light appearance, Reduce Motion, large text, notifications, open at login, the overnight rollover, and the upside-down first row seen in an off-screen History capture (suspected capture artifact).
+
+Open design decision:
+- In dark mode, the Claude chart's output series (`accentSoft`) is low-contrast against the panel (about 1.8:1).
+
+Restored afterwards:
+- config.json byte-identical to the original;
+- appearance, Reduce Motion and login items unchanged;
+- the collector running and enabled with its original pid;
+- data and the upgrade backup untouched.
+
 ### Manual checklist (needs a person at the Mac; offscreen renders don't complete these)
 
 - [ ] The real menu-bar popover opened from the status item: 420 pt wide, pinned header and footer, short-screen scrolling.
@@ -151,7 +191,7 @@ Still outstanding (needs a person at the Mac):
 - [ ] An already-open History window updates after Collect now and after a price change.
 - [ ] `popoverOpened()` fires on every reopen of the `.window` MenuBarExtra.
 - [ ] Reduce Motion: no slide transitions, and a static checking symbol.
-- [ ] The Stop confirmation dialog presents correctly from the `.window` MenuBarExtra (sheet and dialog presentation there is known to be fragile).
+- [ ] The inline Stop confirmation in Monitoring stops the collector, and `Esc` cancels it. A system dialog failed here live on 2026-10-09: it dismissed the panel without acting.
 - [ ] The interval picker and provider switches settle on the saved value. They show the stored value again until the post-save refresh lands (about 2–3 s).
 - [ ] Large text sizes: quota cells and the footer stay readable.
 - [ ] Notifications appear after permission is granted, once per limit period.

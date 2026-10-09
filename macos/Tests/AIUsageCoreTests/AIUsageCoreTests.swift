@@ -217,6 +217,23 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reporter.calls, 2)
     }
 
+    func testPauseChangeReReadsAfterTheDaemonLogsTheNewSchedule() async throws {
+        let reporter = SpyReporter([.success(try fixture())])
+        let marker = FingerprintBox()
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector(),
+                             service: SpyService(), config: SpyConfig(), fingerprint: { _ in marker.value })
+        store.scheduleSettleDelay = .milliseconds(50)
+        await store.setPaused(false)
+        XCTAssertEqual(reporter.calls, 1, "the action's own refresh")
+        // The daemon logs "scheduled checks resumed next_poll_seconds=…" on its next tick.
+        marker.value = SourceFingerprint(entries: ["/log": [2, 2]])
+        await store.scheduleFollowUp?.value
+        XCTAssertEqual(reporter.calls, 2, "a follow-up re-read picks up the next check time")
+        await store.setPaused(true)
+        await store.scheduleFollowUp?.value
+        XCTAssertEqual(reporter.calls, 3, "unchanged files after the follow-up: no extra scan")
+    }
+
     func testCachedSnapshotCannotShowStaleReadingsAsCurrent() async throws {
         let report = try fixture()
         let grokUsageDeadline = try XCTUnwrap(report.provider("grok")?.usage.becomesStaleAt)
