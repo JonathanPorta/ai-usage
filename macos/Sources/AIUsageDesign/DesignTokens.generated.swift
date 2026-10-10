@@ -8,7 +8,7 @@ public enum DesignTokens {
     public enum Color {
         public static let accent = TokenColor(light: 0x2E6CBA, dark: 0x78AFF4)
         public static let accentBackground = TokenColor(light: 0xE8F0FB, dark: 0x26354A)
-        public static let accentSoft = TokenColor(light: 0xA9C3E6, dark: 0x3D5A80)
+        public static let accentSoft = TokenColor(light: 0x5586C6, dark: 0x6C94C7)
         public static let background = TokenColor(light: 0xF7F7F8, dark: 0x242527)
         public static let danger = TokenColor(light: 0xB3261E, dark: 0xF2A49C)
         public static let dangerBackground = TokenColor(light: 0xFDECEA, dark: 0x45292A)
@@ -27,7 +27,7 @@ public enum DesignTokens {
         public static let cardBorder = TokenColor(light: 0xDEDFE2, dark: 0x45464B)
         public static let chartInput = TokenColor(light: 0x2E6CBA, dark: 0x78AFF4)
         public static let chartNotCollected = TokenColor(light: 0xE6E8EC, dark: 0x43454A)
-        public static let chartOutput = TokenColor(light: 0xA9C3E6, dark: 0x3D5A80)
+        public static let chartOutput = TokenColor(light: 0x5586C6, dark: 0x6C94C7)
         public static let chartStale = TokenColor(light: 0x7D520F, dark: 0xE7BC70)
         public static let chartToday = TokenColor(light: 0xE8F0FB, dark: 0x26354A)
         public static let meterFill = TokenColor(light: 0x2E6CBA, dark: 0x78AFF4)

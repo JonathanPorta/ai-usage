@@ -165,7 +165,9 @@ public struct DayBarChart: View {
     @ViewBuilder
     private func stack(_ day: Day, width: CGFloat, scale: CGFloat) -> some View {
         if provider.usage.hasSplit, let input = day.input, let output = day.output {
-            VStack(spacing: 0) {
+            // Input and output are close in lightness (both clear 3:1 against the
+            // panel); a 1 pt gap, showing the background, keeps the segments distinct.
+            VStack(spacing: input > 0 && output > 0 ? 1 : 0) {
                 Rectangle().fill(T.Color.chartOutput.color).frame(height: CGFloat(output) * scale)
                 Rectangle().fill(T.Color.chartInput.color).frame(height: CGFloat(input) * scale)
             }
@@ -259,8 +261,8 @@ public struct DayChartLegend: View {
     public var body: some View {
         FlowLayout(spacing: T.Space.s3, lineSpacing: 4) {
             if split {
-                swatch(T.Color.chartInput.color, "Input")
-                swatch(T.Color.chartOutput.color, "Output")
+                segmentSwatch(top: false, "Input")
+                segmentSwatch(top: true, "Output")
             } else {
                 swatch(T.Color.chartInput.color, "Total (split not reported)")
             }
@@ -276,6 +278,23 @@ public struct DayChartLegend: View {
 
     private func swatch(_ color: Color, _ text: String) -> some View {
         HStack(spacing: 4) { RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 9, height: 9); Text(text).fixedSize() }
+    }
+
+    /// A small stacked bar with only this series' segment filled (output on top,
+    /// input below, as in the bars), so the legend doesn't rely on color alone.
+    private func segmentSwatch(top: Bool, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            VStack(spacing: 1) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(top ? T.Color.chartOutput.color : T.Color.lineStrong.color)
+                    .frame(height: 3)
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(top ? T.Color.lineStrong.color : T.Color.chartInput.color)
+                    .frame(height: 6)
+            }
+            .frame(width: 9, height: 10)
+            Text(text).fixedSize()
+        }
     }
 
     private func dashed(_ text: String, _ color: Color) -> some View {

@@ -39,6 +39,10 @@ enum SnapshotRenderer {
             try shoot("popover-settings", width: popoverWidth, PopoverRoot(initialScreen: .settings, screenHeight: 1000))
             let first = report.providers.first { !$0.activeWindows.isEmpty }?.id
             try shoot("history-tokens", width: 920, height: 1400, HistoryView(providerId: report.providers.first?.id))
+            // A provider with an input/output split, to show the stacked output series.
+            if let split = report.providers.first(where: { $0.usage.hasSplit })?.id {
+                try shoot("history-tokens-\(split)", width: 920, height: 1400, HistoryView(providerId: split))
+            }
             try shoot("history-quota", width: 920, height: 1400, HistoryView(providerId: first, metric: .quota))
             print("snapshot: wrote \(written.count) images to \(directory.path)")
             exit(0)

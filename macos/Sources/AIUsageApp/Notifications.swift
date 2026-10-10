@@ -26,17 +26,31 @@ enum NotificationCenterBridge {
         guard !alerts.isEmpty else { return }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
-            // Without permission nothing is shown, so nothing is marked delivered:
-            // current conditions still notify once permission is granted.
-            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
-            for alert in alerts {
-                let content = UNMutableNotificationContent()
-                content.title = alert.title
-                content.body = alert.body
-                center.add(UNNotificationRequest(identifier: alert.key, content: content, trigger: nil)) { error in
-                    guard error == nil else { return }
-                    Task { @MainActor in markDelivered(alert.key) }
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                deliver(alerts)
+            case .notDetermined:
+                // Both switches default to on, so permission is asked for the first
+                // time there is something to say. Without it nothing is shown or
+                // marked delivered: current conditions still notify once granted.
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    if granted { deliver(alerts) }
                 }
+            default:
+                return
+            }
+        }
+    }
+
+    nonisolated private static func deliver(_ alerts: [PlannedAlert]) {
+        let center = UNUserNotificationCenter.current()
+        for alert in alerts {
+            let content = UNMutableNotificationContent()
+            content.title = alert.title
+            content.body = alert.body
+            center.add(UNNotificationRequest(identifier: alert.key, content: content, trigger: nil)) { error in
+                guard error == nil else { return }
+                Task { @MainActor in markDelivered(alert.key) }
             }
         }
     }
