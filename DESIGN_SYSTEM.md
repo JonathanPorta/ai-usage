@@ -57,6 +57,7 @@ records their checksums.
   - The handoff defines only paired semantic values and no separate primitive palette, so the primitive layer is collapsed into the semantic layer. Do not add primitives without a design reason.
 - **Generation:** `macos/scripts/generate_design_tokens.py` writes `DesignTokens.generated.swift`. It is deterministic, uses only the standard library, and resolves references. `TokenColor` resolves light and dark against the effective `NSAppearance`, so views follow the system appearance.
 - **Rule:** never write a hex value or a magic point size in a view. Add a token instead.
+- **Deliberate divergence from the handoff:** `color.semantic.accentSoft` is `#5586c6` / `#6c94c7` instead of the handoff's `#a9c3e6` / `#3d5a80`, an accessibility correction (2026-10-09) for chart contrast. The handoff archive is unchanged.
 
 ## Components and patterns
 
@@ -79,7 +80,6 @@ the report states.
   - Height is `min(780, visibleScreenHeight − 96)`.
   - The header, status row, notice and footer are pinned; only the card list or detail body scrolls.
   - On short screens (around 700 pt tall) the pinned regions stay visible and the list scrolls.
-  - With large Dynamic Type, quota cells wrap to one column instead of truncating values.
 - **History:**
   - Minimum size about 640×460, and the window is resizable.
   - The chart grows with the width. The provider list has a fixed width of about 190 pt.
@@ -97,7 +97,8 @@ the report states.
   - `⌘,` opens Settings, once Settings is implemented.
   - `Esc` goes back from detail.
   - `↑`/`↓` move focus between the status row and the cards.
-- Minimum chart text is 11 pt. Body text is 13 pt and follows system text-size settings where SwiftUI allows it.
+- Minimum chart text is 11 pt; body text is 13 pt. Sizes are fixed (`Font.system(size:)`): the app does not follow a system text-size setting (macOS offers none that applies to it), so larger text is unsupported beyond display scaling and Zoom.
+- Chart graphics reach at least 3:1 against every surface they touch, including the selected day, in both appearances. Stacked input/output segments are split by a 1 pt gap, and the legend shows which segment each swatch means. See the 2026-10-09 accessibility correction in `docs/design/app/design.md`.
 - Reduce Motion replaces the checking spinner with a static symbol.
 - Acceptance: covered by AC-UI-* in `tasks/prd-macos-menu-bar-app.md`. Manual verification is recorded in `docs/design/app/design.md#verification`.
 
