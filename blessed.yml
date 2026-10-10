@@ -3,10 +3,22 @@ project: ai-usage
 component: collector
 repo_type: daemon
 stage: active
-stack: [python, macos, launchd]
-standards: []
-capabilities: [ai-rules-subtree, sha-pinning]
+stack: [python, macos, launchd, swiftui]
+standards:
+  - spec-pack.core@1
+  - spec-pack.profiles@1
+  - design-system.handoff@1
+capabilities: [ai-rules-subtree, sha-pinning, ui-design-system]
 tracked_dependencies:
   ai_rules:
     origin: https://github.com/JonathanPorta/ai-rules
     tag: v0.13.1
+  blessed_checkers:
+    origin: https://github.com/JonathanPorta/blessed-cicd
+    commit: 60dc5ed67089e55ff25468ae7626a3bb4d24eed8
+    vendored_at: tools/blessed
+notes: |
+  The collector (Python LaunchAgent) is the primary component. The repo also
+  ships a native SwiftUI menu-bar app (macos/) over the collector; its
+  desktop-app spec pack is declared in docs/SPEC.yml and its accepted design
+  handoff in docs/design/app/handoff.yml.

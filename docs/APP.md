@@ -1,0 +1,117 @@
+---
+status: approved
+owner: Jonathan
+updated: 2026-10-05
+---
+
+# APP — ai-usage macOS menu-bar app
+
+A native SwiftUI menu-bar agent (`LSUIElement`) that presents the collector's
+data. It is a view and control surface only: the Python collector remains the
+only writer of usage data, and it keeps running when the app quits.
+
+- **Package:** `macos/` (SwiftPM). There are three modules:
+  - `AIUsageCore`: report models, the clients that run the report and the collector, and the store.
+  - `AIUsageDesign`: tokens and primitives.
+  - `AIUsageApp`: scenes and screens.
+- **Data:** the `ai-usage/report/v1` JSON produced by `ai_usage_report.py` (see [`CLI.md`](CLI.md)).
+- **Design:** [`DESIGN.md`](../DESIGN.md), [`DESIGN_SYSTEM.md`](../DESIGN_SYSTEM.md) and the accepted handoff in [`design/app/`](design/app/).
+
+## Scenes
+
+| Scene | SwiftUI | Notes |
+| --- | --- | --- |
+| Menu-bar item | `MenuBarExtra(…) { PopoverRoot() }`, `.menuBarExtraStyle(.window)` | A template glyph (`waveform.path.ecg`) with a state badge |
+| Popover | `PopoverRoot` | 420 pt wide. Height is `min(780, screen − 96)`. |
+| History | `Window("AI Usage History", id: "history")` | Resizable, minimum 640×460. Opened with `openWindow(id:value:)`, optionally preselecting a provider. |
+
+A single `AppStore` (`@Observable`) is created in `AIUsageApp.init` and injected
+into both scenes with `.environment(store)`.
+
+## Screen inventory
+
+| Screen | Status | Implementation |
+| --- | --- | --- |
+| Overview: header, status row, at most one notice, provider cards, footer | Milestone 1 | `OverviewView.swift` |
+| Provider detail: chart (Tokens 7/30 d, or Quota with a window picker and ranges), quota windows, today, models, Cost and accounting, Sources and diagnostics, Open in History | Milestone 1 | `ProviderDetailView.swift` |
+| History: provider list, Tokens or Quota, window picker, range (7/30/90 d, default 30), summaries, chart, table, accounting | Milestone 1 | `HistoryView.swift` |
+| Monitoring: service start/stop, schedule pause/resume, collection attempts and failures (Collect now with progress), provider sources, data refresh state | Milestone 2 | `MonitoringView.swift` |
+| Settings: interval, providers and prices, notifications, open at login, Quit | Milestone 2 | `SettingsView.swift` |
+
+## Interaction and state inventory
+
+| State | Where it comes from | Presentation |
+| --- | --- | --- |
+| Loading (first launch, no cached report) | `store.phase == .loading` | "Reading collector data…" with a spinner. No numbers. |
+| Report unavailable (interpreter or config missing, unsupported schema) | `store.phase == .failed(…)` | A red notice with the exact reason and the command to fix it. Cached data stays visible if any exists. |
+| Healthy | Report statuses are all current | One quiet status line: "✓ Monitoring · Checked 2 min ago · next in 58 min" |
+| Collecting (Collect now in flight) | `store.collect == .running` | Status row "Checking providers…", a *Checking* tag on enabled cards, and Collect now disabled. Per-provider progress is a proposed capability and is not shown. |
+| Collect result | `store.lastCollectOutcome` | "Check complete", "Check partly complete" or "Check failed", with counts and skipped providers, until the next refresh |
+| Partial failure | Report `failures[]` and source status `failed` | The card keeps its cached values. A red source notice offers "Details" (opens provider detail with Sources expanded). |
+| Stale usage or quota window | Window and usage `status: stale` | Amber clock symbol plus the reading's age ("No reading since 08:38") |
+| Mixed quota freshness | `quota.status: mixed` | Card caption "Quota freshness mixed"; each cell carries its own state |
+| Limit reached or low | Window `limit` (current windows only) | Amber gauge symbol, "Weekly limit reached" |
+| Quota unavailable or unsupported | `quota.status` | "— Quota not available", never 0% |
+| Not set up, disabled | `setup` | Muted card with one line of explanation |
+| First run (no attempts) | `collection.last_attempt_at == null` | "Waiting for the first check" with no charts |
+| Service stopped or not installed | `service.state` | Red status row: "Collector stopped · last check 4 h ago". Cached data stays shown. |
+| Paused schedule | `schedule.state == "paused"` | Status row: "Scheduled checks paused · Collect now still works". Menu-bar pause badge. Monitoring offers Resume. |
+| Pause not supported by the installed collector | `capabilities.pause == false` | Pause is disabled, with the version needed and the reinstall command |
+| Service action or settings save | `store.action` | Spinner, then "Collector stopped; it stays stopped at login" / "Settings saved", or the exact error |
+| Cancellation | — | Collect now cannot be cancelled once started. The collector's own timeouts bound it. |
+| Confirmation | — | Stop collector asks first. It explains that the collector stays stopped at login and data is kept. |
+| Recovery | — | Every failure notice names its action: retry Collect now, open the log, or run a command. |
+
+## Keyboard
+
+| Keys | Action |
+| --- | --- |
+| `⌘R` | Collect now |
+| `Esc` | Back from detail; at the overview it closes the popover (system behavior) |
+| `↑`/`↓` | Move between the status row and the cards (focus) |
+| `←`/`→`/`Home`/`End` on a focused chart | Move the readout |
+| `⌘,` | Settings |
+
+## Data refresh policy
+
+1. **On launch:** decode the last report cached in `~/Library/Application Support/AI Usage/last-report.json`, then run the report in the background.
+   - First render takes about 180 ms.
+   - The footer says "Showing saved data from …" until the live report replaces it.
+2. **When the popover opens:** render the store at once. A cheap service probe runs: the bundled `service-status`, about 150 ms, never a CSV scan. The report runs only if the CSV, log or config changed since the last scan. It is read-only and never collects.
+3. **While running:** every 5 minutes, a service probe plus the same change check.
+   - The report also re-runs once per new calendar day (report timezone), even with unchanged files.
+   - Service state shows whichever observation is newer: the probe, timestamped at its start, or the report's `generated_at`. A slow, older probe never overwrites a newer one.
+4. **Collect now, service actions and settings:** run the action, then refresh. Every view, including an already-open History window, updates from the same store.
+5. **Overlap:** all report runs go through one worker. Overlapping requests share one follow-up run, an older result never replaces a newer one, and a failure keeps the last good snapshot with the error shown.
+6. **Aging:** the snapshot is re-evaluated against the clock with the report's `becomes_stale_at` deadlines, so cached readings can't look fresher than they are.
+7. **Midnight:** a snapshot carried into a new day drops today's totals and models and slides the daily window onto the new date with missing days. Yesterday stays a partial day with its as-of time, never "Today", even while refreshing or after a failed refresh.
+
+`AIUsage --measure` reports these behaviors against the live report (read-only).
+
+## Environment overrides (development and testing)
+
+| Variable | Effect |
+| --- | --- |
+| `AI_USAGE_CONFIG` | Config path passed to the report and to `once`. Default: the plist's `--config`, or else `~/.ai-usage/config.json`. |
+| `AI_USAGE_PYTHON` | Interpreter. Default: the plist's `ProgramArguments[0]`, or else `/usr/bin/python3`. |
+| `AI_USAGE_COLLECTOR` | Collector script for Collect now. Default: the plist's `ProgramArguments[1]`. |
+| `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/collector/ai_usage_report.py`, next to the bundled `ai_usage_service.py` it imports. |
+| `AI_USAGE_SERVICE` | `skip` marks an isolated (sandbox) data source. The report skips its launchd probe, and the app disables service probing and Start/Stop entirely, so a sandbox run can never control the real LaunchAgent. |
+| `AI_USAGE_STATE_DIR` | Where the last report is cached. Default: Application Support. |
+
+`make app-run-sandbox` sets all of these to a temporary sandbox, so development
+never touches `~/.ai-usage`.
+
+## Offscreen verification
+
+`AIUsage --snapshot DIR [--live]` (also `make app-snapshot` and
+`make app-snapshot-live`) hosts the real SwiftUI views in offscreen windows. It
+writes PNGs of these screens in light and dark, then exits:
+
+- the overview at 420 pt, and in a 700 pt-tall screen;
+- every provider detail, in Tokens and Quota;
+- History in Tokens and Quota.
+
+It needs no screen-recording permission. `--live` renders the live report
+(read-only). Those images contain personal usage data, so they go under the
+git-ignored `.sandbox/`.

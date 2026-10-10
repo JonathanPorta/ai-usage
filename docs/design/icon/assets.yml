@@ -1,0 +1,20 @@
+schema: blessed/design-assets/v1
+surface: icon
+
+required:
+  - id: menu_bar_glyph_candidates
+    path: ../app/source/ai-usage-design-0.1.1/menu-bar-icons.html
+    purpose: Accepted menu-bar glyph states and SF Symbol candidates (shared with the app bucket)
+  - id: prototype_icon_family
+    path: ../app/source/ai-usage-design-0.1.1/app/icons.js
+    purpose: Prototype outline icons; mapped to SF Symbols in IMPLEMENTATION.md §12
+  - id: runtime_symbol_map
+    path: ../../../macos/Sources/AIUsageDesign/Symbols.swift
+    purpose: Runtime SF Symbol names used by the native app
+    notes: Created with the first implementation milestone
+
+optional:
+  - id: app_icon
+    path: source/AppIcon.icon
+    purpose: Finder/About app icon
+    notes: Not started; the app is a menu-bar agent (LSUIElement) and uses a system symbol

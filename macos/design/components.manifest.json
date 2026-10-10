@@ -1,0 +1,146 @@
+{
+  "schema": "blessed/design-components/v1",
+  "components": [
+    {
+      "name": "StatusRow",
+      "source": "macos/Sources/AIUsageDesign/StatusViews.swift",
+      "status": "implemented",
+      "variants": [
+        "healthy",
+        "collecting",
+        "paused (planned: needs a collector pause capability)",
+        "stopped",
+        "attention",
+        "first-run"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "Notice",
+      "source": "macos/Sources/AIUsageDesign/StatusViews.swift",
+      "status": "implemented",
+      "variants": [
+        "limit",
+        "stale",
+        "failure",
+        "result"
+      ],
+      "states": [
+        "default",
+        "focus"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)",
+      "implementation": "NoticeBanner"
+    },
+    {
+      "name": "QuotaCell",
+      "source": "macos/Sources/AIUsageDesign/QuotaViews.swift",
+      "status": "implemented",
+      "variants": [
+        "remaining",
+        "used",
+        "derived-remaining"
+      ],
+      "states": [
+        "current",
+        "stale",
+        "limit-low",
+        "limit-reached",
+        "none"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "MiniBarChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "implemented",
+      "variants": [
+        "input-output",
+        "total-only"
+      ],
+      "states": [
+        "measured",
+        "zero",
+        "missing",
+        "not-collected",
+        "today-partial",
+        "focus-readout",
+        "empty"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)",
+      "implementation": "DayBarChart(style: .mini | .full)"
+    },
+    {
+      "name": "TokenBarChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "implemented",
+      "variants": [
+        "7d",
+        "30d",
+        "90d"
+      ],
+      "states": [
+        "measured",
+        "zero",
+        "missing",
+        "not-collected",
+        "today-partial",
+        "focus-readout"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)",
+      "implementation": "DayBarChart(style: .mini | .full)"
+    },
+    {
+      "name": "QuotaLineChart",
+      "source": "macos/Sources/AIUsageDesign/Charts.swift",
+      "status": "implemented",
+      "variants": [
+        "remaining",
+        "used"
+      ],
+      "states": [
+        "current",
+        "stale-extension",
+        "reset-marker",
+        "gap"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "StatTile",
+      "source": "macos/Sources/AIUsageDesign/Primitives.swift",
+      "status": "implemented",
+      "variants": [
+        "value",
+        "not-reported"
+      ],
+      "states": [
+        "default"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "ProviderCard",
+      "source": "macos/Sources/AIUsageApp/OverviewView.swift",
+      "status": "implemented",
+      "variants": [
+        "quota-and-usage",
+        "usage-only",
+        "not-set-up",
+        "disabled"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus",
+        "checking"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    }
+  ]
+}

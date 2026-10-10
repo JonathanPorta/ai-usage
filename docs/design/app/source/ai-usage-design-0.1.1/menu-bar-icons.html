@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Usage — Menu-bar icon states</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  body { background: var(--au-review-bg); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); }
+  h1 { font: 600 28px/1.2 var(--font-display); letter-spacing: -.02em; margin: 0 0 var(--sp-2); }
+  .lead { margin: 0 0 var(--sp-6); max-width: 70ch; color: var(--au-muted); font-size: 15px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-4); }
+  .state { background: var(--au-panel); border: 1px solid var(--au-line); border-radius: 12px; padding: var(--sp-4); display: grid; gap: var(--sp-3); }
+  .state h2 { font: 600 17px/1.3 var(--font-display); margin: 0; }
+  .strips { display: grid; gap: var(--sp-2); }
+  .strip { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); height: 30px; padding: 0 var(--sp-3); border-radius: 6px; font-size: 13px; }
+  .strip.theme-light { background: #f3f3f5; color: #1d1d1f; --mb-bg: #f3f3f5; border: 1px solid #dcdde0; }
+  .strip.theme-dark { background: #2a2b2e; color: #f2f2f4; --mb-bg: #2a2b2e; border: 1px solid #45464b; }
+  .strip .mb-glyph { --mb-bg: inherit; }
+  .strip.theme-light .mb-glyph { --mb-bg: #f3f3f5; }
+  .strip.theme-dark .mb-glyph { --mb-bg: #2a2b2e; }
+  .zoom { display: flex; gap: var(--sp-4); align-items: center; }
+  .zoom .big { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 12px; }
+  .zoom .big.theme-light { background: #f3f3f5; color: #1d1d1f; }
+  .zoom .big.theme-dark { background: #2a2b2e; color: #f2f2f4; }
+  .zoom .big.theme-light .mb-glyph { --mb-bg: #f3f3f5; }
+  .zoom .big.theme-dark .mb-glyph { --mb-bg: #2a2b2e; }
+  dl.facts dt { max-width: 38%; }
+  .rules { margin-top: var(--sp-6); }
+  .rules h2 { font: 600 20px/1.3 var(--font-display); margin: 0 0 var(--sp-2); }
+  .rules ul { margin: 0; padding-left: 20px; max-width: 75ch; font-size: 15px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="review-bar" role="region" aria-label="Review controls (not part of the app)">
+    <span class="review-tag">Review</span>
+    <span>Menu-bar treatments shown on light and dark menu bars</span>
+    <a href="index.html" style="color:var(--au-blue)">All targets</a>
+  </div>
+  <div class="wrap">
+    <h1>Menu-bar icon states</h1>
+    <p class="lead">One monochrome template glyph (the activity line from the app mark). State is carried by a small badge shape in the lower-right, so it reads without color and macOS can tint it for light, dark, and tinted menu bars.</p>
+    <div class="grid" id="grid"></div>
+    <section class="rules">
+      <h2>Rules</h2>
+      <ul>
+        <li>Priority when several apply: collecting (while a check runs) &gt; stopped &gt; attention &gt; paused &gt; normal. A one-time check while the collector is stopped also shows “collecting”, then returns to “stopped”.</li>
+        <li>“Attention” means service trouble: a failed or partly failed check, or a provider that needs sign-in. A provider reaching its usage limit does <em>not</em> badge the icon — that is shown in the popover and, optionally, as a notification.</li>
+        <li>A stale reading alone does not trigger attention. Normal idle time between checks is healthy.</li>
+        <li>The collecting arc rotates at about one turn per second; with Reduce Motion it is shown static.</li>
+        <li>Each state sets the status item’s accessibility label (listed on each card), so VoiceOver announces it.</li>
+      </ul>
+    </section>
+  </div>
+  <script src="app/icons.js"></script>
+  <script>
+  (function () {
+    const states = [
+      { id: 'normal', name: 'Normal', when: 'Collector running, last check succeeded (or first check pending).', a11y: 'AI Usage: monitoring', sf: 'waveform.path.ecg' },
+      { id: 'collecting', name: 'Collecting', when: 'A scheduled or Collect-now check is in progress.', a11y: 'AI Usage: checking', sf: 'waveform.path.ecg + arrow.triangle.2.circlepath badge' },
+      { id: 'paused', name: 'Paused', when: 'Collector running, scheduled checks paused by the user.', a11y: 'AI Usage: checks paused', sf: 'waveform.path.ecg + pause.circle.fill badge' },
+      { id: 'stopped', name: 'Stopped', when: 'The background collector is not running. Glyph dims; square badge.', a11y: 'AI Usage: collector stopped', sf: 'waveform.path.ecg (secondary) + stop.circle.fill badge' },
+      { id: 'attention', name: 'Attention required', when: 'Last check failed or partly failed, or a provider needs sign-in.', a11y: 'AI Usage: needs attention', sf: 'waveform.path.ecg + exclamationmark.circle.fill badge' }
+    ];
+    const G = AIU_MENU_GLYPH;
+    document.getElementById('grid').innerHTML = states.map((s) => `
+      <article class="state" aria-labelledby="st-${s.id}">
+        <h2 id="st-${s.id}">${s.name}</h2>
+        <div class="strips">
+          <div class="strip theme-light" role="img" aria-label="${s.name} on a light menu bar">${G(s.id)}<span>Tue 29 Sep 10:40</span></div>
+          <div class="strip theme-dark" role="img" aria-label="${s.name} on a dark menu bar">${G(s.id)}<span>Tue 29 Sep 10:40</span></div>
+        </div>
+        <div class="zoom" aria-hidden="true"><span class="big theme-light">${G(s.id, { size: 54 })}</span><span class="big theme-dark">${G(s.id, { size: 54 })}</span></div>
+        <dl class="facts">
+          <div><dt>Shown when</dt><dd style="text-align:left">${s.when}</dd></div>
+          <div><dt>Accessibility label</dt><dd style="text-align:left">“${s.a11y}”</dd></div>
+          <div><dt>SF Symbols candidate</dt><dd style="text-align:left">${s.sf}</dd></div>
+        </dl>
+      </article>`).join('');
+  })();
+  </script>
+</body>
+</html>
