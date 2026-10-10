@@ -67,7 +67,9 @@ struct PopoverRoot: View {
         .frame(width: T.Layout.popoverWidth)
         .background(T.Color.background.color)
         .animation(reduceMotion ? nil : .easeOut(duration: T.Duration.medium), value: screen)
-        .onAppear { store.popoverOpened() }
+        // A `.window` MenuBarExtra keeps its content alive between opens, so
+        // `.onAppear` runs only once; the panel becoming key marks each open.
+        .background(PanelShownObserver { store.popoverOpened() })
         .background {
             // ⌘, opens Settings from anywhere in the popover.
             Button("") { screen = .settings }.keyboardShortcut(",", modifiers: .command).hidden()
@@ -104,4 +106,37 @@ struct HeightReader: ViewModifier {
 
 extension View {
     func readHeight(_ height: Binding<CGFloat>) -> some View { modifier(HeightReader(height: height)) }
+}
+
+/// Calls `onShow` each time the hosting panel becomes key (every popover open).
+struct PanelShownObserver: NSViewRepresentable {
+    let onShow: () -> Void
+
+    func makeNSView(context: Context) -> ObserverView { ObserverView(onShow: onShow) }
+    func updateNSView(_ view: ObserverView, context: Context) { view.onShow = onShow }
+
+    final class ObserverView: NSView {
+        var onShow: () -> Void
+        private var token: NSObjectProtocol?
+
+        init(onShow: @escaping () -> Void) {
+            self.onShow = onShow
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let token { NotificationCenter.default.removeObserver(token) }
+            token = nil
+            guard let window else { return }
+            token = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in self?.onShow() }
+            if window.isKeyWindow { onShow() }
+        }
+
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
 }

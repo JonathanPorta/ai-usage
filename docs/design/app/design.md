@@ -162,26 +162,57 @@ Failed, then fixed in this branch (each covered by a check; see the commit):
 - An early reset (the provider starting a new window before the reported reset time) wasn't marked. The report now detects it when the reset time jumps ahead by more than the elapsed time while usage didn't rise. An idle rolling window, whose reset time moves with the clock, is not counted. Reset times reported seconds apart count as one reset.
 - Right after Resume, the schedule showed "Next check time not known yet", because the daemon logs the new schedule on its next tick (up to 15 s later). The app now re-reads once after that tick.
 
-Blocked (not verified):
-- Stop and Start from the fixed UI on the real collector. The rebuilt app couldn't be driven because the display went to a full-screen video, which hides the menu bar. The real collector was never stopped; it stayed running and enabled throughout.
-- Mouse-wheel scrolling in the popover. The automation tool can't address the MenuBarExtra panel as a window.
-- Hover readouts. Synthetic pointer moves deliver no hover events.
-- Mouse clicks on the footer's Open history and Collect now. They didn't respond to synthetic clicks; whether that's the tool or the app is undetermined (⌘R works).
-- Settings persistence and accounting, `⌘,`, light appearance, Reduce Motion, large text, notifications, open at login, the overnight rollover, and the upside-down first row seen in an off-screen History capture (suspected capture artifact).
+Blocked at the time; most completed in the second session below:
+- Stop and Start from the fixed UI: the display went to a full-screen video, which hides the menu bar. The real collector was never stopped.
+- Mouse-wheel scrolling and hover readouts (tool limits), footer mouse clicks, Settings and accounting, `⌘,`, appearance, Reduce Motion, large text, notifications, open at login, the overnight rollover, and an upside-down first row in an off-screen History capture.
 
 Open design decision:
 - In dark mode, the Claude chart's output series (`accentSoft`) is low-contrast against the panel (about 1.8:1).
 
+Restored afterwards: config.json byte-identical to the original; appearance, Reduce Motion and login items unchanged; the collector running and enabled with its original pid; data and the upgrade backup untouched.
+
+#### 2026-10-09 (evening): live acceptance, second session (agent; owner-authorized; desktop clear)
+
+The app was rebuilt from the branch with the fixes above.
+
+Passed (observed in the running UI, with system-side evidence):
+- `↓` focus scrolls the focused card into view (Grok Build, below the fold).
+- Stop through the inline confirmation, on the real collector:
+  - `Esc` cancelled the confirmation and stayed on Monitoring.
+  - **Stop collector** left launchd reporting the agent stopped and `disabled`, and the daemon logged its exit.
+  - The UI showed "Collector stopped; it stays stopped at login" and "No scheduled checks", with Pause disabled, and the menu-bar badge changed.
+- Start: launchd reported running and `enabled` with a new pid, and the daemon logged its start and its start-up check. The banner read "Collector started".
+- The next check time was shown after Pause/Resume (the overview read "next in 52 min").
+- `⌘,` opens Settings with the stored values.
+- A price entered in Settings was written to config.json (`monthly_subscription_usd`) and shown in History as "Subscription price … entered by you".
+- A mouse click on the footer's Open history opened History. The earlier failure was the tool.
+- History's daily table renders its first row correctly; the earlier upside-down row was a capture artifact.
+- Light appearance, switched live: the popover re-themed with readable cards and charts.
+
+Failed, then fixed (live re-test passed):
+- Right after Start, the schedule showed the *previous* daemon's next check. The report now ignores schedule lines from before a "collector daemon started" line (tested and mutation-checked). The app re-reads once after Start's start-up check.
+- Reopening the popover didn't re-read changed collector files: a `.window` MenuBarExtra keeps its content alive, so `.onAppear` runs once. The re-read now runs each time the panel becomes key. Live, in both directions: a price set from the CLI while the popover was closed appeared after reopening, and so did clearing it. The re-read lands a few seconds after the panel opens.
+- The inline **Stop collector** label wasn't red (`.tint` has no effect on a default macOS button); it now uses the danger color.
+
+Not verified:
+- Mouse-wheel scrolling and hover readouts: the automation tool can't scroll the panel or produce hover events.
+- Reduce Motion: needs a System Settings change, and the effect (no slide transition) can't be judged from still captures.
+- Large text: macOS has no system text size that applies to this app.
+- Notifications: would need a real limit or a failed check.
+- Open at login: the switch is below the fold and the panel can't be scrolled by the tool.
+- The overnight rollover.
+- Settings edits reaching an already-open History window: changing the price inside the popover was verified, and so was reopening picking up config changes, but not the two together while History was open.
+
 Restored afterwards:
 - config.json byte-identical to the original;
-- appearance, Reduce Motion and login items unchanged;
-- the collector running and enabled with its original pid;
+- Dark appearance; Reduce Motion and login items unchanged;
+- the collector running and enabled (new pid after the Start test);
 - data and the upgrade backup untouched.
 
 ### Manual checklist (needs a person at the Mac; offscreen renders don't complete these)
 
 - [ ] The real menu-bar popover opened from the status item: 420 pt wide, pinned header and footer, short-screen scrolling.
-- [ ] Keyboard:
+- [x] Keyboard (verified live 2026-10-09):
   - `↑`/`↓` between the status row and the cards;
   - chart `←`/`→`/`Home`/`End` readouts;
   - `Esc` back;
@@ -189,16 +220,16 @@ Restored afterwards:
   - `⌘,` Settings.
 - [ ] Hover readouts on the 7-day and full charts.
 - [ ] An already-open History window updates after Collect now and after a price change.
-- [ ] `popoverOpened()` fires on every reopen of the `.window` MenuBarExtra.
+- [x] `popoverOpened()` fires on every reopen of the `.window` MenuBarExtra. It didn't (`.onAppear` runs once); it now runs when the panel becomes key, verified live 2026-10-09.
 - [ ] Reduce Motion: no slide transitions, and a static checking symbol.
-- [ ] The inline Stop confirmation in Monitoring stops the collector, and `Esc` cancels it. A system dialog failed here live on 2026-10-09: it dismissed the panel without acting.
+- [x] The inline Stop confirmation in Monitoring stops the collector, and `Esc` cancels it. A system dialog failed here live on 2026-10-09: it dismissed the panel without acting.
 - [ ] The interval picker and provider switches settle on the saved value. They show the stored value again until the post-save refresh lands (about 2–3 s).
 - [ ] Large text sizes: quota cells and the footer stay readable.
 - [ ] Notifications appear after permission is granted, once per limit period.
 - [ ] Open at login registers (it may require approval in System Settings).
-- [ ] Stop and Start on the real collector, including staying stopped across a logout and login. The launchd behavior itself is verified on a disposable agent; this check confirms the UI on the real one.
+- [ ] Stop and Start on the real collector, including staying stopped across a logout and login. Stop and Start from the UI were verified live on 2026-10-09; the logout/login part is not yet verified. The launchd behavior itself is verified on a disposable agent; this check confirms the UI on the real one.
 - [ ] Leave the popover cached overnight. The next morning it shows no "Today" totals from yesterday, and re-reads once.
-- [ ] Pause and Resume. This needs the installed collector at 2.2.0 or newer (`python3 ai_usage_service.py install`).
+- [x] Pause and Resume (verified live 2026-10-09). This needs the installed collector at 2.2.0 or newer (`python3 ai_usage_service.py install`).
 - [ ] Accept native visual baselines into `references/`. This retires the waiver.
 
 ## Related archives not imported

@@ -88,8 +88,8 @@ public final class AppStore {
 
     public static let backgroundCheckInterval: TimeInterval = 5 * 60
 
-    /// The daemon applies a pause change on its next tick (at most 15 s) and only
-    /// then logs the new schedule, so a re-read right after the change can't see it.
+    /// The daemon applies a pause change on its next tick (at most 15 s), and a started
+    /// daemon schedules after its start-up check; only then is the new schedule logged.
     @ObservationIgnored public var scheduleSettleDelay: Duration = .seconds(16)
     @ObservationIgnored public private(set) var scheduleFollowUp: Task<Void, Never>?
 
@@ -279,7 +279,10 @@ public final class AppStore {
         liveService = ServiceObservation(status: status, observedAt: started)
     }
 
-    public func startService() async { await perform("Starting the collector…", success: "Collector started") { try await self.service.start() } }
+    public func startService() async {
+        await perform("Starting the collector…", success: "Collector started") { try await self.service.start() }
+        followUpAfterScheduleChange()
+    }
 
     public func stopService() async { await perform("Stopping the collector…", success: "Collector stopped; it stays stopped at login") { try await self.service.stop() } }
 
@@ -288,6 +291,12 @@ public final class AppStore {
                       success: paused ? "Scheduled checks paused" : "Scheduled checks resumed") {
             try await self.config.apply([.pollPaused(paused)])
         }
+        followUpAfterScheduleChange()
+    }
+
+    /// The daemon logs a new schedule only after its next tick or its start-up check,
+    /// so re-read once after that (only if the collector's files changed).
+    private func followUpAfterScheduleChange() {
         scheduleFollowUp?.cancel()
         let delay = scheduleSettleDelay
         scheduleFollowUp = Task { [weak self] in

@@ -91,7 +91,7 @@ struct MonitoringView: View {
                     confirmStop = false
                     Task { await store.stopService() }
                 }
-                .tint(T.Color.danger.color)
+                .foregroundStyle(T.Color.danger.color)
             }
         }
         .padding(.top, T.Space.s2)

@@ -424,6 +424,20 @@ class SourceAndCacheTests(ReportCase):
         self.assertEqual(built["schedule"]["state"], "active")
         self.assertEqual(built["schedule"]["next_scheduled_at"], report.iso(self.now - 5 * 60 + 3600))
 
+    def test_a_restarted_daemon_ignores_the_previous_daemons_schedule(self) -> None:
+        self.check(self.now - 50 * 60, fx.codex_usage_summary(self.now - 50 * 60))
+        def at(minutes_ago):
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.now - minutes_ago * 60))
+        log = (f"{at(50)},000 INFO collection completed rows=9 detected_providers=1 errors=0 next_poll_seconds=3600\n"
+               f"{at(3)},000 INFO collector daemon stopped\n"
+               f"{at(2)},000 INFO collector daemon started version=2.2.0 pid=2\n")
+        service = {"state": "running", "pid": 2, "detail": ""}
+        built = self.build(log=log, service=service, installed=(2, 2, 0))
+        self.assertIsNone(built["schedule"]["next_scheduled_at"], "unknown until the new daemon schedules")
+        log += f"{at(1)},000 INFO collection completed rows=9 detected_providers=1 errors=0 next_poll_seconds=3600\n"
+        built = self.build(log=log, service=service, installed=(2, 2, 0))
+        self.assertEqual(built["schedule"]["next_scheduled_at"], report.iso(self.now - 60 + 3600))
+
     def test_not_installed_provider_is_not_detected(self) -> None:
         self.check(self.now - 10 * 60, providers=("codex",))
         gemini = self.provider(self.build(), "gemini_cli")

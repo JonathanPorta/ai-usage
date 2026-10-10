@@ -1037,7 +1037,8 @@ def build_report(
     paused = pause_requested and supports_pause
     if service.get("state") == "running" and not paused:
         for ts, _level, message in reversed(log_events):
-            if message.startswith("scheduled checks paused"):
+            # Anything before a pause or a daemon (re)start is not the current schedule.
+            if message.startswith(("scheduled checks paused", "collector daemon started")):
                 break
             match = re.search(r"(?:^collection completed .*|^scheduled checks resumed )next_poll_seconds=(\d+)", message)
             if match:

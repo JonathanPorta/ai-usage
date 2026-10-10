@@ -217,7 +217,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reporter.calls, 2)
     }
 
-    func testPauseChangeReReadsAfterTheDaemonLogsTheNewSchedule() async throws {
+    func testPauseAndStartReReadAfterTheDaemonLogsTheNewSchedule() async throws {
         let reporter = SpyReporter([.success(try fixture())])
         let marker = FingerprintBox()
         let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector(),
@@ -232,6 +232,11 @@ final class AppStoreTests: XCTestCase {
         await store.setPaused(true)
         await store.scheduleFollowUp?.value
         XCTAssertEqual(reporter.calls, 3, "unchanged files after the follow-up: no extra scan")
+        // A started daemon logs its schedule after its start-up check.
+        await store.startService()
+        marker.value = SourceFingerprint(entries: ["/log": [3, 3]])
+        await store.scheduleFollowUp?.value
+        XCTAssertEqual(reporter.calls, 5, "Start's own refresh, then the follow-up")
     }
 
     func testCachedSnapshotCannotShowStaleReadingsAsCurrent() async throws {
