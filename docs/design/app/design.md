@@ -239,23 +239,56 @@ Unsupported (not a tool limitation):
 - No accepted criterion requires it (AC-15 to AC-22; the handoff only raises it as open question 5). `DESIGN_SYSTEM.md` claimed that body text "follows system text-size settings" and that quota cells wrap under large Dynamic Type; both statements were corrected to match the implementation.
 - Display scaling and Zoom still enlarge the whole app.
 
+#### 2026-10-10: fourth session (agent; owner-authorized)
+
+Passed live, through the panel's accessibility tree (window found via the window server, since the tool's window list omits the panel):
+- **Settings price → already-open History.** History stayed open on Codex, showing "Subscription price … Not entered". A $20 Codex price entered in Settings was written to config.json, and the same History window changed to "$20.00" without reopening. Clearing the field wrote no price, and History returned to "Not entered".
+- **Open at login: registration.** Turning the switch on left it on with no approval warning or error, and macOS posted "Login Item Added … will open automatically when you log in". Turning it off restored the original setting (off). An actual login was not tested.
+
+Failed, then fixed:
+- **Notification deduplication** (`ffa1f5d`). `handle()` filtered delivered keys before an asynchronous permission check, and delivery neither rechecked them nor reserved in-flight keys, so overlapping reports could submit the same alert twice.
+  - Fix: `NotificationScheduler` in `AIUsageCore` reserves keys before its first suspension, coalesces the permission request, rechecks delivered keys before submitting, persists only after the system accepts, and releases reservations on denial or failure so a later report retries.
+  - Seven regression tests with isolated doubles: delayed authorization, controlled submission, overlapping reports while authorization is pending and while submission is pending, denial, failure and retry.
+  - Against a faithful port of the old logic they failed: 2 permission requests and 2 submissions. Mutation checks: removing the in-flight check fails 3 tests; removing the coalescing fails 1.
+- **Empty day charts labelled an invented "1 / 0 / 0" scale** (`425699b`), seen live on Antigravity detail. Labels now come from a tested `Format.dayChartAxisLabels`. The Gemini CLI fixture render changed accordingly; the other 28 renders are byte-identical.
+
+Not verified:
+- **Mouse wheel.** A wheel event over the card list, in background and foreground modes, left the scroll position unchanged (`AXVerticalScrollBar` 0.094 before and after). Whether synthetic wheel events reach SwiftUI's scroll view is undetermined; keyboard-driven scrolling passed earlier.
+- **Hover.** The tool's cursor is an overlay and never moves the real pointer, so no hover event is possible.
+- **Notification delivery** waits on the owner answering the permission prompt.
+- **Reduce Motion** and the **login persistence** test (a logout and login with the switch on).
+
+Larger text stays unsupported in this release: fixed point sizes, no accepted requirement, and no text-size feature added during acceptance.
+
+CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-AND-RELEASE.md`. The macOS lane is blocked until the repository is enrolled. Its evidence for this round is local:
+- Swift 43/43 (1 skipped);
+- Python checks;
+- strict spec and design checks;
+- fixture and design-build drift checks.
+
 ### Status of the manual checklist
 
-Passed live: popover at 420 pt with pinned header and footer; keyboard (`↑`/`↓`, chart keys, `Esc`, `⌘R`, `⌘,`); reopen re-read; inline Stop/Start on the real collector; Pause/Resume; light and dark; overnight labels.
-Passed separately but not together: History updating after a Settings price change.
-Fixed, delivery unverified: notifications.
-Blocked by the tool: wheel scrolling, hover readouts.
-Not verified: Reduce Motion, open at login, staying stopped across logout/login.
-Unsupported: larger text.
-Pending owner approval: visual baselines (30 fixture renders at `3d88c7b`).
+- **Passed live:**
+  - popover at 420 pt with pinned header and footer;
+  - keyboard (`↑`/`↓`, chart keys, `Esc`, `⌘R`, `⌘,`);
+  - reopen re-read;
+  - inline Stop/Start on the real collector;
+  - Pause/Resume;
+  - light and dark;
+  - overnight labels;
+  - Settings price → already-open History;
+  - open-at-login registration.
+- **Fixed; delivery waits on the owner's permission:** notifications (deduplication proven with doubles).
+- **Blocked by the tool:** wheel scrolling, hover readouts.
+- **Not verified:** Reduce Motion, login persistence, staying stopped across logout/login.
+- **Unsupported in this release:** larger text.
+- **Pending owner approval:** visual baselines. These are 30 fixture renders: 28 at `3d88c7b`, plus the two Gemini CLI renders at `425699b`.
 
-### Remaining manual checks (owner, about five minutes)
+### Remaining manual checks (owner)
 
-1. With History open on Codex, open the popover's Settings, enter a Codex price and press Return. History's Accounting shows it without reopening. Clear the field and press Return to restore it.
-2. In Settings › This app, turn on "Open AI Usage at login" (approve it in System Settings › General › Login Items if asked), then turn it off again. Persistence needs a logout and login with it on.
-3. Answer the "AI Usage Notifications" prompt. With Allow, a limit that is reached notifies once per reset period.
-4. Scroll the popover list with the mouse wheel, and hover a chart bar to see its readout.
-5. Optional: turn on Reduce Motion, open a provider detail (no slide) and use Collect now (static symbol), then turn it off.
+1. Answer the "AI Usage Notifications" prompt. If you allow it, tell the agent: it verifies one delivery and no duplicate through `make app-run-sandbox` (synthetic data), then removes the sandbox's delivered keys from the app's preferences.
+2. Scroll the popover list with the mouse wheel, and hover a chart bar to see its readout.
+3. Optional: log out and back in with "Open AI Usage at login" on (then turn it off), and try Reduce Motion (no slide, static checking symbol).
 
 ## Related archives not imported
 

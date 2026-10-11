@@ -2184,8 +2184,18 @@ for line in sys.stdin:
         references = re.findall(r"(?m)^\s*uses:\s*[^@\s]+@([^\s#]+)", workflow)
         self.assertTrue(references)
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in references))
-        self.assertIn("macos-14", workflow)
         self.assertIn('python: ["3.9", "3.14"]', workflow)
+        # Trust boundary and runner policy: no privileged triggers, a read-only
+        # token, and no GitHub-hosted macOS runner (macOS work runs only in a
+        # disposable Proof Glass VM; otherwise the gate reports it blocked).
+        self.assertNotRegex(workflow, r"(?m)^\s*runs-on:.*macos")
+        code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("pull_request_target", code)
+        self.assertNotIn("workflow_run", code)
+        self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")
+        self.assertRegex(workflow, r"(?m)^  push:\n    branches: \[main\]$")
+        self.assertIn('displaced([\\"ai-usage-macos@1\\"])', workflow)
+        self.assertIn("name: PR test gate", workflow)
 
 
 if __name__ == "__main__":
