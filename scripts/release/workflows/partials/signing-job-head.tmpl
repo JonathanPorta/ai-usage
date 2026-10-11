@@ -1,0 +1,32 @@
+#@ The first steps of a candidate-signing job. Arg: the artifact to download.
+      - name: Check out the release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🔒 main only, at the release commit, on main (RP-5)
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
+        run: bash scripts/release/release-commit-check.sh --signing
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: @@1@@
+          path: .
+#@if rpm
+      - name: 🧷 Seal the RPM finalization records (LP-9; before any key)
+        run: |
+          bash scripts/release/release-seal.sh --candidate candidate --plan candidate-plan.json --records rpm-finalization \
+            --fingerprint-file @@RPM_FINGERPRINT_FILE@@
+#@end
+      - name: 🔎 Preflight, before any key
+        run: |
+          bash scripts/release/release-sign.sh --check-only --candidate candidate --plan candidate-plan.json \
+            --private-key-env @@SIGNING_KEY_ENV@@ --loader .github/actions/load-secrets/action.yml --trust-store release-trusted-keys.json
+      - name: 🔐 Load the candidate signing key (release-signing profile only)
+        uses: ./.github/actions/load-secrets
+        with:
+          profile: release-signing
+          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
