@@ -61,6 +61,8 @@ These come from `IMPLEMENTATION.md` §9:
 
 ## Verification
 
+**Current state:** see [Current acceptance state](#current-acceptance-state-2026-10-10) at the end of this section. The log below is history.
+
 ### Performed by the design agent (from the handoff)
 
 - Static code review of the merge, freshness and sync logic.
@@ -266,29 +268,44 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 - strict spec and design checks;
 - fixture and design-build drift checks.
 
-### Status of the manual checklist
+#### 2026-10-10 (late): fifth session (agent; owner-authorized)
 
-- **Passed live:**
-  - popover at 420 pt with pinned header and footer;
-  - keyboard (`↑`/`↓`, chart keys, `Esc`, `⌘R`, `⌘,`);
-  - reopen re-read;
-  - inline Stop/Start on the real collector;
-  - Pause/Resume;
-  - light and dark;
-  - overnight labels;
-  - Settings price → already-open History;
-  - open-at-login registration.
-- **Fixed; delivery waits on the owner's permission:** notifications (deduplication proven with doubles).
-- **Blocked by the tool:** wheel scrolling, hover readouts.
-- **Not verified:** Reduce Motion, login persistence, staying stopped across logout/login.
-- **Unsupported in this release:** larger text.
-- **Pending owner approval:** visual baselines. These are 30 fixture renders: 28 at `3d88c7b`, plus the two Gemini CLI renders at `425699b`.
+- **Visual baselines accepted by the owner.** The 30 renders from `ai-usage-visual-review-425699b.zip` (sha256 `c99d93fb…e4cb`; all 30 render checksums verified) are in `references/` with provenance (`references/README.md`). A fresh render at `22a5c56` is byte-identical; `make app-snapshot-check` repeats the comparison. The `implementation.visual_baselines` waiver is retired; `make design-check ARGS=--strict` reports 0 findings.
+- **Deferred polish:** the reset annotation crowds the range selector in Antigravity's quota view and extends outside the chart card in History (issue #9). Not a new design round.
+- **Notification permission:** still unconfirmed. No prompt is on screen, and the system's notification settings are not readable from outside the app, so delivery was not tested.
+- **Deferred product work** (not part of this acceptance): Claude seven-day quota (#6), stop tracking and quit (#7), automatic provider tracking with Auto/On/Off (#8).
+
+### Current acceptance state (2026-10-10)
+
+| Item | State |
+| --- | --- |
+| Visual baselines (30 fixture renders, light and dark) | **Accepted** 2026-10-10; covers captured states only |
+| Popover at 420 pt and short viewport, pinned header/footer; light and dark; overnight labels | Passed live |
+| Keyboard: `↑`/`↓`, chart `←`/`→`, `Esc`, `⌘R`, `⌘,` | Passed live |
+| Reopen re-read; Collect now; inline Stop/Start on the real collector; Pause/Resume | Passed live |
+| Settings price → already-open History | Passed live (2026-10-10) |
+| Open at login: **registration** | Passed live ("Login Item Added"); restored to off |
+| Open at login: an **actual login** (persistence) | Not verified |
+| Notification scheduling (deduplication, permission coalescing, retry) | Passed: 7 regression tests with isolated doubles; they failed against the old logic |
+| Notification **delivery** on this Mac | Not verified: waits on the permission prompt |
+| Mouse-wheel scrolling | **Not verified.** A synthetic wheel event did not move the list; whether the cause is the tool or the app is undetermined |
+| Hover readouts | Not verified (the tool cannot move the real pointer) |
+| Reduce Motion | Not verified |
+| Larger text | Unsupported in this release (fixed point sizes); deferred |
+| Reset-annotation placement | Deferred polish (#9) |
 
 ### Remaining manual checks (owner)
 
-1. Answer the "AI Usage Notifications" prompt. If you allow it, tell the agent: it verifies one delivery and no duplicate through `make app-run-sandbox` (synthetic data), then removes the sandbox's delivered keys from the app's preferences.
-2. Scroll the popover list with the mouse wheel, and hover a chart bar to see its readout.
-3. Optional: log out and back in with "Open AI Usage at login" on (then turn it off), and try Reduce Motion (no slide, static checking symbol).
+1. **Notifications.** Answer the "AI Usage Notifications" prompt (or allow AI Usage in System Settings → Notifications). Then the agent runs `make app-run-sandbox` (synthetic data), confirms one notification per alert and no duplicate, and removes only the sandbox's `deliveredNotificationKeys`.
+2. **Mouse wheel, about 30 seconds.** Open the popover with a physical mouse or trackpad, then:
+   - scroll the provider card list down and back up;
+   - open a provider's detail view and scroll it;
+   - open History and scroll it.
+   Each should move smoothly and stop at the ends. Report anything that does not scroll.
+3. **Hover:** in History, rest the pointer on a day bar; its readout (date, value) should appear.
+4. Optional:
+   - Log out and back in with "Open AI Usage at login" on, then turn it off.
+   - Turn on Reduce Motion and open the popover: there should be no slide, and the checking symbol should stay static.
 
 ## Related archives not imported
 

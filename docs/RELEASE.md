@@ -1,7 +1,7 @@
 ---
 status: draft
 owner: Jonathan
-updated: 2026-10-05
+updated: 2026-10-10
 ---
 
 # RELEASE — ai-usage
@@ -16,8 +16,8 @@ updated: 2026-10-05
 
 ## Current release model
 
-- **Local builds only.** `make app-build` produces an ad-hoc-signed bundle (`codesign --sign -`) for the owner's own Mac.
-- **Not done yet:** no notarization, no Developer ID signing, and no distribution channel. `docs/PUBLISHING.md` will be added when distribution becomes real.
+- **Candidate-only, not published.** ai-usage opted into the Blessed `releases.pipeline` and `releases.candidate` pilots on 2026-10-10. `make release-check` builds, seals, signs with an ephemeral key and validates a candidate under `dist/candidate`. `make publish` refuses. Details, evidence and the remaining dependencies are in `docs/CI-AND-RELEASE.md`.
+- **App signing is ad-hoc** (`codesign --sign -`). There is no Developer ID signing or notarization yet. That waits on an upstream Apple finalizer and Apple account artifacts.
 - **Collector updates stay independent:** re-run `install` from the repo. The app talks to whatever collector the LaunchAgent plist names.
 
 ## Compatibility
