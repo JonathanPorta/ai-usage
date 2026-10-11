@@ -113,11 +113,12 @@ public struct DayBarChart: View {
 
     @ViewBuilder
     private func gridlines(width: CGFloat) -> some View {
-        ForEach([1.0, 0.5, 0.0], id: \.self) { fraction in
+        let labels = Format.dayChartAxisLabels(peak: days.compactMap { $0.hasValue ? $0.total : nil }.max() ?? 0)
+        ForEach(Array([1.0, 0.5, 0.0].enumerated()), id: \.offset) { index, fraction in
             let y = plotHeight - CGFloat(fraction / 1.08) * plotHeight
             ZStack(alignment: .leading) {
                 Rectangle().fill(T.Color.line.color).frame(width: width, height: 1).offset(x: gutter)
-                Text(fraction == 0 ? "0" : Format.tokens(maxValue / 1.08 * fraction))
+                Text(labels[index])
                     .font(.auChart).foregroundStyle(T.Color.muted.color)
                     .frame(width: gutter - 6, alignment: .trailing)
             }

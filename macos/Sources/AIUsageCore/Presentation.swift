@@ -2,6 +2,19 @@ import Foundation
 
 /// Text formatting shared by every view. Pure functions of their inputs (and `now`).
 public enum Format {
+    /// Labels for a day chart's gridlines at 100 %, 50 % and 0 % of the measured
+    /// peak. Without a measured peak there is no scale to label, and a label that
+    /// rounds to "0" or repeats a higher one is left blank.
+    public static func dayChartAxisLabels(peak: Double) -> [String] {
+        guard peak > 0 else { return ["", "", "0"] }
+        var labels: [String] = []
+        for fraction in [1.0, 0.5] {
+            let text = tokens(peak * fraction)
+            labels.append(text == "0" || labels.contains(text) ? "" : text)
+        }
+        return labels + ["0"]
+    }
+
     public static func tokens(_ value: Double?) -> String {
         guard let value else { return "—" }
         let magnitude = abs(value)

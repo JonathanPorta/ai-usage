@@ -349,6 +349,13 @@ final class FingerprintBox: @unchecked Sendable {
 }
 
 final class PresentationTests: XCTestCase {
+    func testDayChartAxisLabelsNeverInventAScaleOrRepeatALabel() {
+        // Gridlines at 100 %, 50 % and 0 % of the measured peak.
+        XCTAssertEqual(Format.dayChartAxisLabels(peak: 0), ["", "", "0"], "nothing measured: no invented 1 / 0 scale")
+        XCTAssertEqual(Format.dayChartAxisLabels(peak: 1), ["1", "", "0"], "a mid label that rounds to 0 is not repeated")
+        XCTAssertEqual(Format.dayChartAxisLabels(peak: 1_270_000_000), ["1.27B", "635M", "0"])
+    }
+
     func testNotificationsFireOncePerLimitPeriodAndPerFailedCheck() throws {
         let report = try fixture()
         let now = report.generatedAt
