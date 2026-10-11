@@ -8,3 +8,6 @@ htmlcov/
 .sandbox/
 macos/.build/
 macos/build/
+
+# Personal usage exports and screenshots (never commit)
+usage-report/

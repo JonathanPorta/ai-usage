@@ -1,20 +1,117 @@
 name: tests
 
+# Trust boundary (open-source repository):
+# - Only `pull_request` and pushes to `main` run this workflow. There is no
+#   `pull_request_target`, `workflow_run`, or other privileged downstream workflow,
+#   so pull-request code never runs with secrets or a write token.
+# - The workflow-level token is read-only. Only the `plan` and `gate` jobs may mint
+#   an OIDC token, and only to talk to Proof Glass about a same-repository PR; they
+#   check out nothing and run no repository code.
+# - No caches and no artifacts are produced, so nothing built from a pull request
+#   can reach another job, workflow, or release.
+#
+# Heavy macOS work (Swift build and tests, the macOS Python checks) is never run on
+# a GitHub-hosted macOS runner here. It runs only when Proof Glass displaces the
+# `ai-usage-macos@1` lane into a fresh disposable macOS VM; its verdict is the
+# Worker-owned check `proofglass / pr-gate`. Otherwise the macOS lane is reported
+# as BLOCKED and the `PR test gate` fails: an unexecuted lane is never green.
+# The routing call is the Proof Glass CI-offload contract (proofglass
+# docs/ci-offload.md; reference consumer: docsort .github/workflows/test.yml).
+
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
+  # ---- Plan: ask Proof Glass whether the macOS lane is displaced --------------
+  # Only for a pull request from a branch of this repository, and only when the
+  # repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork pull requests never
+  # reach the call (Proof Glass refuses them as well). Any error, timeout,
+  # malformed body, shadow mode, ineligible lane or empty `offloaded` list means
+  # "not displaced", which BLOCKS the macOS lane (no hosted macOS fallback).
+  # No `${{ }}` inside shell bodies; inputs arrive through env.
+  plan:
+    name: Plan (Proof Glass route)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      routed: ${{ steps.route.outputs.routed }}
+      macos_displaced: ${{ steps.route.outputs.macos_displaced }}
+      reason: ${{ steps.route.outputs.reason }}
+    steps:
+      - name: Ask Proof Glass which lanes are displaced
+        id: route
+        env:
+          ROUTE_URL: ${{ vars.PROOFGLASS_CI_ROUTE_URL }}
+          OIDC_AUDIENCE: ${{ vars.PROOFGLASS_OIDC_AUDIENCE || 'proofglass' }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          routed=false; macos=false; reason=""
+          answer=""
+          if [ "${EVENT}" != "pull_request" ]; then
+            reason="Proof Glass displaces pull requests only; ${EVENT} runs are not admitted"
+          elif [ "${HEAD_REPO}" != "${REPO}" ]; then
+            reason="fork pull requests are never admitted to Proof Glass"
+          elif [ -z "${ROUTE_URL}" ]; then
+            reason="PROOFGLASS_CI_ROUTE_URL is not set: this repository is not enrolled in Proof Glass"
+          elif token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)"; then
+            if body="$(curl -fsS --max-time 60 -X POST -H "Authorization: Bearer ${token}" \
+                  -H 'content-type: application/json' -d '{}' "${ROUTE_URL}")"; then
+              if echo "$body" | jq -e 'type=="object" and (.admitted|type)=="boolean" and (.offloaded|type)=="array"' >/dev/null; then
+                answer="$(echo "$body" | jq -c .)"
+              else
+                reason="Proof Glass answered with an unexpected body"
+              fi
+            else
+              reason="Proof Glass route call failed"
+            fi
+          else
+            reason="could not obtain an OIDC token"
+          fi
+          echo "proof glass answer: ${answer:-<none>}"
+          if [ -n "$answer" ] && echo "$answer" | jq -e '.admitted == true' >/dev/null; then routed=true; fi
+          ready='.admitted == true and .mode == "displace" and .overall.name == "proofglass / pr-gate" and (.overall.check_run_id|type) == "number"'
+          # shellcheck disable=SC2016  # $v/$p are jq variables, not shell
+          lanes='def view: if has("lanes") then (if (.lanes|type) == "array" and (.lanes|all(type == "object" and (.profile|type) == "string" and (.mode|type) == "string")) then .lanes else null end) else [{profile: .profile, mode: .mode, offloaded: .offloaded}] end;
+            def displaced($ps): view as $v | if $v == null then false else ($v | map(select(.profile as $p | $ps | any(.[]; . == $p)))) as $m | ($m|length) == 1 and $m[0].mode == "displace" and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) > 0 end;'
+          if [ -n "$answer" ] && echo "$answer" | jq -e "${lanes} (${ready}) and displaced([\"ai-usage-macos@1\"])" >/dev/null; then
+            macos=true
+          elif [ -n "$answer" ]; then
+            reason="Proof Glass did not displace the ai-usage-macos@1 lane for this run"
+          fi
+          {
+            echo "routed=${routed}"
+            echo "macos_displaced=${macos}"
+            echo "reason=${reason}"
+          } >> "$GITHUB_OUTPUT"
+          if [ "${macos}" = "true" ]; then
+            echo "::notice::macOS lane displaced to a disposable Proof Glass VM (verdict: proofglass / pr-gate)"
+          else
+            echo "::warning::macOS lane BLOCKED (no hosted macOS fallback): ${reason}"
+          fi
+
+  # ---- Lightweight hosted checks (Linux) --------------------------------------
+  check-linux:
+    name: check (ubuntu-latest, ${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
         python: ["3.9", "3.14"]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -26,6 +123,8 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Run canonical checks
         run: make check
+      - name: Fixture contract
+        run: make fixture-check
 
   spec-and-design:
     runs-on: ubuntu-latest
@@ -43,16 +142,72 @@ jobs:
       - name: Generated tokens drift
         run: make design-build-check
 
-  macos-app:
-    runs-on: macos-15
+  # ---- Gate (always runs; the single verdict a ruleset should require) --------
+  # Succeeds only when every hosted leg succeeded AND the macOS lane was displaced
+  # to Proof Glass (whose `proofglass / pr-gate` judges it). When admitted, the
+  # hosted outcome is reported once so the Worker can combine both into its gate.
+  gate:
+    name: PR test gate
+    needs: [plan, check-linux, spec-and-design]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - name: Fixture contract
-        run: make fixture-check
-      - name: Swift tests (includes isolated sandbox end-to-end)
-        run: make app-test
-      - name: Build app bundle
-        run: make app-build
+      - name: Decide the hosted verdict
+        id: gate
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          LINUX_RESULT: ${{ needs.check-linux.result }}
+          SPEC_RESULT: ${{ needs.spec-and-design.result }}
+        run: |
+          set -euo pipefail
+          bad=""
+          [ "${PLAN_RESULT}" = "success" ] || bad="${bad} plan:${PLAN_RESULT}"
+          [ "${LINUX_RESULT}" = "success" ] || bad="${bad} check-linux:${LINUX_RESULT}"
+          [ "${SPEC_RESULT}" = "success" ] || bad="${bad} spec-and-design:${SPEC_RESULT}"
+          bad="${bad# }"
+          if [ -n "$bad" ]; then echo "result=failure" >> "$GITHUB_OUTPUT"; else echo "result=success" >> "$GITHUB_OUTPUT"; fi
+          echo "bad=${bad}" >> "$GITHUB_OUTPUT"
+
+      - name: Report the hosted outcome to Proof Glass (admitted same-repository PR)
+        if: needs.plan.outputs.routed == 'true' && vars.PROOFGLASS_CI_ROUTE_URL != ''
+        env:
+          ROUTE_URL: ${{ vars.PROOFGLASS_CI_ROUTE_URL }}
+          OIDC_AUDIENCE: ${{ vars.PROOFGLASS_OIDC_AUDIENCE || 'proofglass' }}
+          HOSTED_RESULT: ${{ steps.gate.outputs.result }}
+          HOSTED_BAD: ${{ steps.gate.outputs.bad }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          report_url="${ROUTE_URL%/route}/hosted-result"
+          body="$(jq -cn --arg result "$HOSTED_RESULT" --arg bad "$HOSTED_BAD" --argjson needs "$NEEDS" \
+            '{result: $result, summary: (if $bad == "" then "all hosted legs succeeded" else ("hosted legs did not succeed: " + $bad) end), workers: ($needs | with_entries(.value = .value.result))}')"
+          if token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)"; then
+            status="$(curl -sS --max-time 60 -o /tmp/pg-report.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${token}" \
+                  -H 'content-type: application/json' -d "$body" "$report_url" || echo 000)"
+            if [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
+              echo "hosted outcome (${HOSTED_RESULT}) reported to Proof Glass"
+            else
+              echo "::warning::Proof Glass hosted-result report failed (HTTP ${status}); its gate will time out rather than pass"
+            fi
+          else
+            echo "::warning::could not obtain an OIDC token; the Proof Glass gate will time out rather than pass"
+          fi
+
+      - name: Require the hosted legs and an executed macOS lane
+        env:
+          HOSTED_BAD: ${{ steps.gate.outputs.bad }}
+          MACOS_DISPLACED: ${{ needs.plan.outputs.macos_displaced }}
+          REASON: ${{ needs.plan.outputs.reason }}
+        run: |
+          set -euo pipefail
+          if [ -n "${HOSTED_BAD}" ]; then echo "::error::hosted legs did not succeed: ${HOSTED_BAD}"; exit 1; fi
+          echo "hosted Linux and spec/design legs succeeded"
+          if [ "${MACOS_DISPLACED}" != "true" ]; then
+            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. It runs only in a disposable Proof Glass VM (profile ai-usage-macos@1); there is no hosted macOS fallback. Run 'make check app-test app-build' locally for evidence, or enroll the repository in Proof Glass."
+            exit 1
+          fi
+          echo "macOS lane displaced to Proof Glass; its verdict is proofglass / pr-gate"
