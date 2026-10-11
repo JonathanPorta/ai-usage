@@ -25,9 +25,10 @@ tracked_dependencies:
     release: 0.8.0
     signing: 0.4.0
 # The candidate-manifest signing key will be the one privileged authority domain.
-# Not provisioned yet: it needs the owner's BWS admin token, the bws category
-# (deliberately not vendored into this public repository yet) and a GitHub
-# Environment created by the owner. See docs/CI-AND-RELEASE.md.
+# Not provisioned yet: it needs the owner's BWS admin token and a GitHub
+# Environment created by the owner. Provisioning runs from a private
+# blessed-cicd checkout; the bws category is never vendored into this public
+# repository. See docs/CI-AND-RELEASE.md.
 secret_authorities:
   release-signing:
     authority_type: bwsm

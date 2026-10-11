@@ -61,7 +61,7 @@ These come from `IMPLEMENTATION.md` §9:
 
 ## Verification
 
-**Current state:** see [Current acceptance state](#current-acceptance-state-2026-10-10) at the end of this section. The log below is history.
+**Current state:** see [Current acceptance state](#current-acceptance-state-2026-10-11) at the end of this section. The log below is history.
 
 ### Performed by the design agent (from the handoff)
 
@@ -275,7 +275,12 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 - **Notification permission:** still unconfirmed. No prompt is on screen, and the system's notification settings are not readable from outside the app, so delivery was not tested.
 - **Deferred product work** (not part of this acceptance): Claude seven-day quota (#6), stop tracking and quit (#7), automatic provider tracking with Auto/On/Off (#8).
 
-### Current acceptance state (2026-10-10)
+#### 2026-10-11: sixth session (agent; owner-authorized)
+
+- **Notification permission read:** System Settings → Notifications lists "AI Usage, Off". Notifications are not allowed for the app, so real delivery and deduplication were not tested; no test notification state was created.
+- No other acceptance item changed. CI, release and tooling work for this round is recorded in `docs/CI-AND-RELEASE.md`.
+
+### Current acceptance state (2026-10-11)
 
 | Item | State |
 | --- | --- |
@@ -287,7 +292,7 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 | Open at login: **registration** | Passed live ("Login Item Added"); restored to off |
 | Open at login: an **actual login** (persistence) | Not verified |
 | Notification scheduling (deduplication, permission coalescing, retry) | Passed: 7 regression tests with isolated doubles; they failed against the old logic |
-| Notification **delivery** on this Mac | Not verified: waits on the permission prompt |
+| Notification **delivery** on this Mac | Not verified: notifications are Off for AI Usage in System Settings (read 2026-10-11) |
 | Mouse-wheel scrolling | **Not verified.** A synthetic wheel event did not move the list; whether the cause is the tool or the app is undetermined |
 | Hover readouts | Not verified (the tool cannot move the real pointer) |
 | Reduce Motion | Not verified |
@@ -296,7 +301,7 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 
 ### Remaining manual checks (owner)
 
-1. **Notifications.** Answer the "AI Usage Notifications" prompt (or allow AI Usage in System Settings → Notifications). Then the agent runs `make app-run-sandbox` (synthetic data), confirms one notification per alert and no duplicate, and removes only the sandbox's `deliveredNotificationKeys`.
+1. **Notifications.** Allow AI Usage in System Settings → Notifications (it is Off today). Then the agent runs `make app-run-sandbox` (synthetic data), confirms one notification per alert and no duplicate, and removes only the sandbox's `deliveredNotificationKeys`.
 2. **Mouse wheel, about 30 seconds.** Open the popover with a physical mouse or trackpad, then:
    - scroll the provider card list down and back up;
    - open a provider's detail view and scroll it;
