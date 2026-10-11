@@ -12,7 +12,7 @@ macOS app. It contains no runtime code: tokens, components and tests live under
 | [`assets.yml`](assets.yml) | Asset inventory (`blessed/design-assets/v1`). |
 | `source/ai-usage-design-0.1.1.zip` | The accepted archive, unchanged. SHA-256 `a3a0f5cf…48899fb3e`. |
 | `source/ai-usage-design-0.1.1/` | The extracted archive contents, unchanged, including `_handoff/MANIFEST.json` and `CHECKSUMS.sha256`. |
-| `references/` | Native visual baselines. **Pending**, waived in `handoff.yml`. |
+| `references/` | Accepted native visual baselines (30 fixture renders, 2026-10-10), with provenance and checksums. |
 
 ## Provenance
 

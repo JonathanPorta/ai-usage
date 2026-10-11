@@ -122,6 +122,6 @@ over the collector's CSV, its state and `launchctl`.
 | Reporting layer and JSON contract (`ai_usage_report.py`) | Done (milestone 1) |
 | Popover overview, provider detail, History window, shared store, Collect now | Done (milestone 1) |
 | Menu-bar glyph with collecting / stopped / attention badges | Done; paused badge waits on a pause capability |
-| Offscreen visual verification (`make app-snapshot`) | Done; visual baselines still need acceptance |
+| Offscreen visual verification (`make app-snapshot`) | Done |
 | Monitoring, Settings, service start/stop, pause/resume, provider progress, notifications, open at login | Done (milestone 2). Pause and progress need collector 2.2.0+, and the UI says so |
-| Visual baselines | Pending (waived until verification) |
+| Visual baselines | Accepted 2026-10-10: 30 fixture renders in `docs/design/app/references/` (captured states only; interactions listed separately) |

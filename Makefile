@@ -5,7 +5,7 @@ SANDBOX ?= $(CURDIR)/.sandbox
 SNAPSHOT_DIR ?= $(CURDIR)/.sandbox/snapshots
 
 .PHONY: help test check spec-check design-check design-build design-build-check \
-	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-live launchd-integration-check
+	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-check app-snapshot-live launchd-integration-check
 
 help: ## List supported commands
 	@printf '%s\n' \
@@ -26,6 +26,7 @@ help: ## List supported commands
 		'make app-run             Build and launch against the installed collector' \
 		'make app-run-sandbox     Build and launch against the isolated synthetic sandbox' \
 		'make app-snapshot        Render fixture screens (light/dark, 420 pt, short) to SNAPSHOT_DIR' \
+		'make app-snapshot-check  Render fixture screens and compare them with the accepted baselines' \
 		'make app-snapshot-live   Render the live report read-only to SNAPSHOT_DIR (personal data; not for git)' \
 		'make launchd-integration-check  Real-launchd lifecycle check with a disposable agent (macOS; explicit only)'
 
@@ -88,6 +89,9 @@ app-run-sandbox: app-build sandbox ## Launch the app against SANDBOX only (never
 
 app-snapshot: app-build ## Render the real views offscreen from the fixture report (no screen permission needed)
 	TZ=America/Denver "$(APP)/Contents/MacOS/AIUsage" --snapshot "$(SNAPSHOT_DIR)/fixture"
+
+app-snapshot-check: app-snapshot ## Compare fresh fixture renders byte-for-byte with docs/design/app/references
+	cd "$(SNAPSHOT_DIR)/fixture" && shasum -a 256 -c "$(CURDIR)/docs/design/app/references/SHA256SUMS"
 
 app-snapshot-live: app-build ## Render the live report (read-only) offscreen; output contains personal usage data
 	"$(APP)/Contents/MacOS/AIUsage" --snapshot "$(SNAPSHOT_DIR)/live" --live

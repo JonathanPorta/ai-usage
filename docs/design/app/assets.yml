@@ -59,7 +59,7 @@ optional:
   - id: visual_baselines
     path: references/
     purpose: Accepted native screenshots for regression comparison
-    notes: Pending — waived in handoff.yml until the first native build is verified
+    notes: Accepted 2026-10-10 (30 fixture renders; provenance and checksums in references/README.md)
 
 runtime:
   - id: design_tokens

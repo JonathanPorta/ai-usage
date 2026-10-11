@@ -81,7 +81,7 @@ These come from `IMPLEMENTATION.md` §9:
 - [ ] Both mixed-freshness quota scenarios on screen.
 - [ ] Collect now followed by Open history, with values and times matching.
 - [ ] Price edits and collection results reaching an already-open History window. Price edits depend on Settings, which is a later task.
-- [ ] Accepted native visual baselines in `references/` (waived in `handoff.yml`).
+- [x] Accepted native visual baselines in `references/` (accepted 2026-10-10; waiver retired).
 
 Native-app verification results are recorded below as they are performed.
 
