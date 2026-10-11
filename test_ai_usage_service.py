@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -2194,18 +2195,63 @@ for line in sys.stdin:
         self.assertNotIn("workflow_run", code)
         self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")
         self.assertRegex(workflow, r"(?m)^  push:\n    branches: \[main\]$")
-        self.assertIn('displaced([\\"ai-usage-macos@1\\"])', workflow)
+        self.assertIn('select(.profile == "ai-usage-macos@1")', workflow)
         self.assertIn("name: PR test gate", workflow)
         # No job may write to the repository; id-token is the only write scope.
         self.assertNotRegex(code, r"(?m)^\s+(contents|pull-requests|checks|actions|statuses|packages|deployments):\s*write")
-        # Protected main: a push is green only when its commit is a merged pull
-        # request whose head passed both required checks, and main still requires
-        # them, up to date, through pull requests.
-        self.assertIn('gh api "repos/${REPO}/rules/branches/main"', workflow)
-        self.assertIn("strict_required_status_checks_policy == true", workflow)
-        self.assertIn('.merge_commit_sha == \\"${SHA}\\"', workflow)
-        self.assertIn('"PR test gate|15368" "proofglass / pr-gate|3987831"', workflow)
+        # Protected main uses the Proof Glass contract itself: the push is routed
+        # and judged by the Worker-owned `proofglass / overall`, never inferred from
+        # pull-request results or by inspecting rules from this workflow.
+        self.assertIn('expected="proofglass / overall"', workflow)
+        self.assertIn('expected="proofglass / pr-gate"', workflow)
+        self.assertNotIn("rules/branches", workflow)
+        self.assertNotIn("check-runs", workflow)
+        self.assertNotRegex(code, r"(?m)^\s+(pull-requests|checks):\s*read")
 
+    def test_proofglass_displacement_decision_rejects_everything_but_an_executed_lane(self) -> None:
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is not installed")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = re.search(r"# BEGIN DISPLACED_JQ\n\s*DISPLACED_JQ: >-\n(.*?)\n\s*# END DISPLACED_JQ", workflow, re.S)
+        self.assertIsNotNone(block)
+        program = " ".join(line.strip() for line in block.group(1).splitlines())
+        lane = {"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": ["ai-usage-macos@1"], "reason": "displaced"}
+
+        def answer(**changes: object) -> dict:
+            body = {"mode": "displace", "admitted": True, "admission_id": "a1", "offloaded": ["ai-usage-macos@1"],
+                    "reason": "ok", "lanes": [dict(lane)], "overall": {"check_run_id": 42, "name": "proofglass / pr-gate"}}
+            body.update(changes)
+            return body
+
+        def displaced(body: dict, expected: str) -> bool:
+            result = subprocess.run([jq, "-e", "--arg", "expected", expected, program],
+                                    input=json.dumps(body), capture_output=True, text=True)
+            self.assertIn(result.returncode, (0, 1), result.stderr)
+            return result.returncode == 0
+
+        overall = {"check_run_id": 7, "name": "proofglass / overall"}
+        self.assertTrue(displaced(answer(), "proofglass / pr-gate"))
+        self.assertTrue(displaced(answer(overall=overall), "proofglass / overall"))
+        rejected = {
+            "PR verdict on a push": (answer(), "proofglass / overall"),
+            "main verdict on a PR": (answer(overall=overall), "proofglass / pr-gate"),
+            "no expected verdict (fork, other event)": (answer(), ""),
+            "not admitted": (answer(admitted=False), "proofglass / pr-gate"),
+            "shadow mode": (answer(mode="shadow", overall=None, offloaded=[], lanes=[dict(lane, mode="shadow", offloaded=[])]), "proofglass / pr-gate"),
+            "spilled or older attempt (nothing offloaded)": (answer(lanes=[dict(lane, offloaded=[])]), "proofglass / pr-gate"),
+            "no verdict check": (answer(overall=None), "proofglass / pr-gate"),
+            "string check run id": (answer(overall={"check_run_id": "42", "name": "proofglass / pr-gate"}), "proofglass / pr-gate"),
+            "zero check run id": (answer(overall={"check_run_id": 0, "name": "proofglass / pr-gate"}), "proofglass / pr-gate"),
+            "another profile version": (answer(lanes=[dict(lane, profile="ai-usage-macos@2")]), "proofglass / pr-gate"),
+            "lane only in shadow": (answer(lanes=[dict(lane, mode="shadow")]), "proofglass / pr-gate"),
+            "run in shadow, lane claims displace": (answer(mode="shadow"), "proofglass / pr-gate"),
+            "duplicate lane": (answer(lanes=[dict(lane), dict(lane)]), "proofglass / pr-gate"),
+            "malformed lanes": (answer(lanes="ai-usage-macos@1"), "proofglass / pr-gate"),
+        }
+        for name, (body, expected) in rejected.items():
+            with self.subTest(name):
+                self.assertFalse(displaced(body, expected))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -5,26 +5,27 @@ name: tests
 #   `pull_request_target`, `workflow_run`, or other privileged downstream workflow,
 #   so pull-request code never runs with secrets or a write token.
 # - The workflow-level token is read-only. Only the `plan` and `gate` jobs may mint
-#   an OIDC token, and only to talk to Proof Glass about a same-repository PR; they
-#   check out nothing and run no repository code.
+#   an OIDC token, and only to talk to Proof Glass about a same-repository PR or a
+#   push to main; they check out nothing and run no repository code.
 # - No caches and no artifacts are produced, so nothing built from a pull request
 #   can reach another job, workflow, or release.
 #
 # Heavy macOS work (Swift build and tests, the macOS Python checks) is never run on
 # a GitHub-hosted macOS runner here. It runs only when Proof Glass displaces the
-# `ai-usage-macos@1` lane into a fresh disposable macOS VM; its verdict is the
-# Worker-owned check `proofglass / pr-gate`. Otherwise the macOS lane is reported
-# as BLOCKED and the `PR test gate` fails: an unexecuted lane is never green.
-# The routing call is the Proof Glass CI-offload contract (proofglass
-# docs/ci-offload.md; reference consumer: docsort .github/workflows/test.yml).
+# `ai-usage-macos@1` lane into a fresh disposable macOS VM. Otherwise the macOS lane
+# is reported as BLOCKED and the `PR test gate` fails: an unexecuted lane is never
+# green, whether the reason is shadow mode, missing capacity or no enrollment.
 #
-# Protected main: Proof Glass admits pull requests into `main` only, so a push to
-# main does not re-run the macOS lane. Instead the push gate proves that this
-# exact commit came from a merged pull request whose head passed BOTH required
-# checks (`PR test gate`, which requires the displaced macOS lane, and
-# `proofglass / pr-gate` from the Proof Glass App), and that main's active rules
-# still require those checks, up to date, through pull requests. See
-# docs/CI-AND-RELEASE.md.
+# This follows the Proof Glass CI-offload contract (proofglass docs/ci-offload.md)
+# on both paths, as its reference consumers do (docsort for pull requests,
+# comms-core for protected main):
+# - Pull requests into main: the route call admits a same-repository PR; the
+#   verdict is the Worker-owned check `proofglass / pr-gate`.
+# - Pushes to main: the same route call; Proof Glass verifies the revision and
+#   main's protection itself (evidence E1-E4, using its own ruleset inspector) and
+#   the verdict is the Worker-owned check `proofglass / overall` on that commit.
+# A routing answer is only a decision; the Worker-owned check is the verdict, and
+# it succeeds only if the hosted report succeeded and every displaced job passed.
 
 on:
   pull_request:
@@ -40,11 +41,12 @@ concurrency:
 
 jobs:
   # ---- Plan: ask Proof Glass whether the macOS lane is displaced --------------
-  # Only for a pull request from a branch of this repository, and only when the
-  # repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork pull requests never
-  # reach the call (Proof Glass refuses them as well). Any error, timeout,
-  # malformed body, shadow mode, ineligible lane or empty `offloaded` list means
-  # "not displaced", which BLOCKS the macOS lane (no hosted macOS fallback).
+  # Only for a pull request from a branch of this repository or a push to main,
+  # and only when the repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork
+  # pull requests never reach the call (Proof Glass refuses them as well). Any
+  # error, timeout, malformed body, shadow mode, ineligible lane or empty
+  # `offloaded` list means "not displaced", which BLOCKS the macOS lane (no hosted
+  # macOS fallback).
   # No `${{ }}` inside shell bodies; inputs arrive through env.
   plan:
     name: Plan (Proof Glass route)
@@ -65,16 +67,35 @@ jobs:
           EVENT: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          # The displacement decision (tested against fixture answers in
+          # test_ai_usage_service.py). Displaced only when admitted in displace mode,
+          # with the Worker-owned verdict this event expects (`proofglass / pr-gate`
+          # on a PR, `proofglass / overall` on main) and a numeric check run, and
+          # exactly one matching lane for ai-usage-macos@1 in displace mode with a
+          # non-empty offloaded list. Shadow, spill, an older attempt (offloaded: [])
+          # or any other shape is not displaced.
+          # BEGIN DISPLACED_JQ
+          DISPLACED_JQ: >-
+            def view: if has("lanes") then (if (.lanes|type) == "array" and (.lanes|all(type == "object" and (.profile|type) == "string" and (.mode|type) == "string")) then .lanes else null end) else [{profile: .profile, mode: .mode, offloaded: .offloaded}] end;
+            def lane: view as $v | if $v == null then false else ($v | map(select(.profile == "ai-usage-macos@1"))) as $m | ($m|length) == 1 and $m[0].mode == "displace" and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) > 0 end;
+            .admitted == true and .mode == "displace" and ($expected != "") and .overall.name == $expected and (.overall.check_run_id|type) == "number" and .overall.check_run_id > 0 and lane
+          # END DISPLACED_JQ
         run: |
           set -euo pipefail
           routed=false; macos=false; reason=""
-          answer=""
-          if [ "${EVENT}" = "push" ]; then
-            reason="push to main: the macOS lane is not re-run; the gate verifies the merged pull request's required checks"
-          elif [ "${EVENT}" != "pull_request" ]; then
-            reason="Proof Glass displaces pull requests only; ${EVENT} runs are not admitted"
-          elif [ "${HEAD_REPO}" != "${REPO}" ]; then
+          answer=""; expected=""
+          if [ "${EVENT}" = "push" ] && [ "${REF}" = "refs/heads/main" ]; then
+            expected="proofglass / overall"
+          elif [ "${EVENT}" = "pull_request" ] && [ "${HEAD_REPO}" = "${REPO}" ]; then
+            expected="proofglass / pr-gate"
+          elif [ "${EVENT}" = "pull_request" ]; then
             reason="fork pull requests are never admitted to Proof Glass"
+          else
+            reason="Proof Glass admits pull requests and pushes to main only; ${EVENT} ${REF} is not admitted"
+          fi
+          if [ -z "${expected}" ]; then
+            :
           elif [ -z "${ROUTE_URL}" ]; then
             reason="PROOFGLASS_CI_ROUTE_URL is not set: this repository is not enrolled in Proof Glass"
           elif token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -94,14 +115,10 @@ jobs:
           fi
           echo "proof glass answer: ${answer:-<none>}"
           if [ -n "$answer" ] && echo "$answer" | jq -e '.admitted == true' >/dev/null; then routed=true; fi
-          ready='.admitted == true and .mode == "displace" and .overall.name == "proofglass / pr-gate" and (.overall.check_run_id|type) == "number"'
-          # shellcheck disable=SC2016  # $v/$p are jq variables, not shell
-          lanes='def view: if has("lanes") then (if (.lanes|type) == "array" and (.lanes|all(type == "object" and (.profile|type) == "string" and (.mode|type) == "string")) then .lanes else null end) else [{profile: .profile, mode: .mode, offloaded: .offloaded}] end;
-            def displaced($ps): view as $v | if $v == null then false else ($v | map(select(.profile as $p | $ps | any(.[]; . == $p)))) as $m | ($m|length) == 1 and $m[0].mode == "displace" and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) > 0 end;'
-          if [ -n "$answer" ] && echo "$answer" | jq -e "${lanes} (${ready}) and displaced([\"ai-usage-macos@1\"])" >/dev/null; then
+          if [ -n "$answer" ] && echo "$answer" | jq -e --arg expected "${expected}" "${DISPLACED_JQ}" >/dev/null; then
             macos=true
           elif [ -n "$answer" ]; then
-            reason="Proof Glass did not displace the ai-usage-macos@1 lane for this run"
+            reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
           fi
           {
             echo "routed=${routed}"
@@ -109,7 +126,7 @@ jobs:
             echo "reason=${reason}"
           } >> "$GITHUB_OUTPUT"
           if [ "${macos}" = "true" ]; then
-            echo "::notice::macOS lane displaced to a disposable Proof Glass VM (verdict: proofglass / pr-gate)"
+            echo "::notice::macOS lane displaced to a disposable Proof Glass VM (verdict: ${expected})"
           else
             echo "::warning::macOS lane BLOCKED (no hosted macOS fallback): ${reason}"
           fi
@@ -158,8 +175,9 @@ jobs:
 
   # ---- Gate (always runs; the single verdict a ruleset should require) --------
   # Succeeds only when every hosted leg succeeded AND the macOS lane was displaced
-  # to Proof Glass (whose `proofglass / pr-gate` judges it). When admitted, the
-  # hosted outcome is reported once so the Worker can combine both into its gate.
+  # to Proof Glass, on pull requests and on main alike. When admitted, the hosted
+  # outcome is reported once so the Worker can combine it with the VM result in
+  # its own verdict (`proofglass / pr-gate` or `proofglass / overall`).
   gate:
     name: PR test gate
     needs: [plan, check-linux, spec-and-design]
@@ -168,8 +186,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      pull-requests: read
-      checks: read
     steps:
       - name: Decide the hosted verdict
         id: gate
@@ -187,7 +203,7 @@ jobs:
           if [ -n "$bad" ]; then echo "result=failure" >> "$GITHUB_OUTPUT"; else echo "result=success" >> "$GITHUB_OUTPUT"; fi
           echo "bad=${bad}" >> "$GITHUB_OUTPUT"
 
-      - name: Report the hosted outcome to Proof Glass (admitted same-repository PR)
+      - name: Report the hosted outcome to Proof Glass (admitted run)
         if: needs.plan.outputs.routed == 'true' && vars.PROOFGLASS_CI_ROUTE_URL != ''
         env:
           ROUTE_URL: ${{ vars.PROOFGLASS_CI_ROUTE_URL }}
@@ -230,7 +246,7 @@ jobs:
           elif [ "${status}" = 409 ] && grep -q stale_run_attempt /tmp/pg-report.json && [ "${MACOS_DISPLACED}" = "true" ]; then
             # A "Re-run failed jobs" keeps attempt 1's routing, so Proof Glass refuses
             # this attempt's report and its gate cannot be repaired by this run.
-            echo "::error::The macOS lane ran on Proof Glass for an earlier run attempt, so this partial re-run cannot update proofglass / pr-gate. Use 'Re-run all jobs'."
+            echo "::error::The macOS lane ran on Proof Glass for an earlier run attempt, so this partial re-run cannot update the Proof Glass verdict. Use 'Re-run all jobs'."
             exit 1
           else
             echo "::warning::Proof Glass hosted-result report failed (HTTP ${status}); Proof Glass recovers it from this job's check run, otherwise its gate times out rather than pass"
@@ -242,50 +258,16 @@ jobs:
           MACOS_DISPLACED: ${{ needs.plan.outputs.macos_displaced }}
           REASON: ${{ needs.plan.outputs.reason }}
           EVENT: ${{ github.event_name }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -n "${HOSTED_BAD}" ]; then echo "::error::hosted legs did not succeed: ${HOSTED_BAD}"; exit 1; fi
           echo "hosted Linux and spec/design legs succeeded"
-          if [ "${EVENT}" = "push" ]; then
-            # 1. main's ACTIVE rules require pull requests and both checks, up to date.
-            rules="$(gh api "repos/${REPO}/rules/branches/main")"
-            if ! printf '%s' "$rules" | jq -e '
-                  any(.[]; .type == "pull_request") and
-                  any(.[]; .type == "required_status_checks"
-                      and .parameters.strict_required_status_checks_policy == true
-                      and any(.parameters.required_status_checks[]; .context == "PR test gate")
-                      and any(.parameters.required_status_checks[]; .context == "proofglass / pr-gate" and .integration_id == 3987831))' >/dev/null; then
-              echo "::error::main is not protected by the required pre-merge gates (pull request rule + strict 'PR test gate' and 'proofglass / pr-gate'), so this push's macOS coverage is unproven. Create the ruleset in docs/CI-AND-RELEASE.md."
-              exit 1
-            fi
-            # 2. This exact commit is the merge result of one merged pull request into main.
-            pr="$(gh api "repos/${REPO}/commits/${SHA}/pulls" --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .merge_commit_sha == \"${SHA}\") | {number, head: .head.sha}]")"
-            if [ "$(printf '%s' "$pr" | jq length)" != 1 ]; then
-              echo "::error::${SHA} is not the merge result of exactly one merged pull request into main; its macOS coverage is unproven."
-              exit 1
-            fi
-            number="$(printf '%s' "$pr" | jq -r '.[0].number')"
-            head="$(printf '%s' "$pr" | jq -r '.[0].head')"
-            # 3. That pull request's head passed both required checks (latest run of each).
-            runs="$(gh api "repos/${REPO}/commits/${head}/check-runs?per_page=100" --jq '[.check_runs[] | {name, conclusion, completed_at, app: .app.id}]')"
-            for check in "PR test gate|15368" "proofglass / pr-gate|3987831"; do
-              name="${check%|*}"; app="${check#*|}"
-              conclusion="$(printf '%s' "$runs" | jq -r --arg n "$name" --arg a "$app" '
-                [.[] | select(.name == $n and (.app | tostring) == $a)]
-                | sort_by(.completed_at // "") | last | .conclusion // "missing"')"
-              if [ "${conclusion}" != "success" ]; then
-                echo "::error::pull request #${number} head ${head}: '${name}' is ${conclusion}; this push's macOS coverage is unproven."
-                exit 1
-              fi
-            done
-            echo "main ${SHA} = merged pull request #${number} (head ${head}); its 'PR test gate' and 'proofglass / pr-gate' passed, and main requires both, up to date"
-            exit 0
-          fi
           if [ "${MACOS_DISPLACED}" != "true" ]; then
             echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. It runs only in a disposable Proof Glass VM (profile ai-usage-macos@1); there is no hosted macOS fallback. Run 'make check app-test app-build' locally for evidence, or enroll the repository in Proof Glass."
             exit 1
           fi
-          echo "macOS lane displaced to Proof Glass; its verdict is proofglass / pr-gate"
+          if [ "${EVENT}" = "push" ]; then
+            echo "macOS lane displaced to Proof Glass; its verdict is proofglass / overall on this commit"
+          else
+            echo "macOS lane displaced to Proof Glass; its verdict is proofglass / pr-gate"
+          fi
