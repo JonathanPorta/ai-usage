@@ -151,6 +151,10 @@ jobs:
         run: make design-check ARGS=--strict
       - name: Generated tokens drift
         run: make design-build-check
+      - name: Vendored Blessed release and signing scripts match their manifests
+        run: make verify-scripts
+      - name: Release candidate plan (secret-free; no build, no key)
+        run: make release-plan-check
 
   # ---- Gate (always runs; the single verdict a ruleset should require) --------
   # Succeeds only when every hosted leg succeeded AND the macOS lane was displaced
