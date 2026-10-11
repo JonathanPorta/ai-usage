@@ -34,7 +34,7 @@ into both scenes with `.environment(store)`.
 | --- | --- | --- |
 | Overview: header, status row, at most one notice, provider cards, footer | Milestone 1 | `OverviewView.swift` |
 | Provider detail: chart (Tokens 7/30 d, or Quota with a window picker and ranges), quota windows, today, models, Cost and accounting, Sources and diagnostics, Open in History | Milestone 1 | `ProviderDetailView.swift` |
-| History: provider list, Tokens or Quota, window picker, range (7/30/90 d, default 30), summaries, chart, table, accounting | Milestone 1 | `HistoryView.swift` |
+| History: 30-day provider overview, one fixed header layout (Tokens/Quota always present; quota window and range anchored right), four equal summary cards, chart, table and secondary notes, accounting; truthful empty states (tracking off, not detected, not set up, no usage, none in range) with their actions | Milestone 1; consistency pass 2026-10-11 | `HistoryView.swift` |
 | Monitoring: service start/stop, schedule pause/resume, collection attempts and failures (Collect now with progress), provider sources, data refresh state | Milestone 2 | `MonitoringView.swift` |
 | Settings: interval, providers and prices, notifications, open at login, Quit | Milestone 2 | `SettingsView.swift` |
 

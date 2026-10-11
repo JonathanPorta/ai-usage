@@ -58,7 +58,7 @@ struct PopoverRoot: View {
                 MonitoringView(back: back, openDetail: { screen = .detail($0) }, maxHeight: maxHeight)
                     .transition(transition)
             case .settings?:
-                SettingsView(back: back, maxHeight: maxHeight)
+                SettingsView(back: back, maxHeight: maxHeight, focusProvider: navigation.settingsRequest?.providerId)
                     .transition(transition)
             case nil:
                 EmptyView()
@@ -70,6 +70,10 @@ struct PopoverRoot: View {
         // A `.window` MenuBarExtra keeps its content alive between opens, so
         // `.onAppear` runs only once; the panel becoming key marks each open.
         .background(PanelShownObserver { store.popoverOpened() })
+        // History's "Provider settings…" opens the popover on Settings.
+        .onChange(of: navigation.settingsRequest) { _, request in
+            if request != nil { screen = .settings }
+        }
         .background {
             // ⌘, opens Settings from anywhere in the popover.
             Button("") { screen = .settings }.keyboardShortcut(",", modifiers: .command).hidden()
@@ -82,6 +86,7 @@ struct PopoverRoot: View {
 
     private func back() {
         if case let .detail(id)? = screen { returnFocus = id }
+        navigation.settingsRequest = nil
         screen = nil
     }
 

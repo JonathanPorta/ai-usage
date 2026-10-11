@@ -10,6 +10,8 @@ struct SettingsView: View {
     @Environment(AppStore.self) private var store
     let back: () -> Void
     let maxHeight: CGFloat
+    /// A provider to scroll to (History's "Provider settings…").
+    var focusProvider: String?
 
     @AppStorage(NotificationCenterBridge.limitsKey) private var notifyLimits = true
     @AppStorage(NotificationCenterBridge.failuresKey) private var notifyFailures = true
@@ -28,24 +30,33 @@ struct SettingsView: View {
                 .buttonStyle(.link).font(.auBody)
                 .keyboardShortcut(.cancelAction)
                 .padding([.horizontal, .top], T.Space.s4)
-            ScrollView {
-                VStack(alignment: .leading, spacing: T.Space.s4) {
-                    Text("Settings").font(.auTitle).accessibilityAddTraits(.isHeader)
-                    ActionBanner()
-                    if let report = store.report {
-                        collectorSection(report)
-                        providersSection(report)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: T.Space.s4) {
+                        Text("Settings").font(.auTitle).accessibilityAddTraits(.isHeader)
+                        ActionBanner()
+                        if let report = store.report {
+                            collectorSection(report)
+                            providersSection(report)
+                        }
+                        notificationsSection
+                        appSection
                     }
-                    notificationsSection
-                    appSection
+                    .padding(T.Space.s4)
                 }
-                .padding(T.Space.s4)
+                .onAppear { scroll(proxy) }
+                .onChange(of: focusProvider) { _, _ in scroll(proxy) }
             }
             .frame(maxHeight: maxHeight - 40)
         }
         .onExitCommand(perform: back)
         .onAppear(perform: loadPrices)
         .onChange(of: store.revision) { _, _ in loadPrices() }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        guard let focusProvider else { return }
+        DispatchQueue.main.async { proxy.scrollTo("provider-\(focusProvider)", anchor: .top) }
     }
 
     private func loadPrices() {
@@ -114,6 +125,7 @@ struct SettingsView: View {
                             .foregroundStyle(T.Color.danger.color)
                     }
                 }
+                .id("provider-\(provider.id)")
                 if provider.id != report.providers.last?.id { Divider() }
             }
             Text("Turning a provider off keeps its cached data; it stops being checked. Prices are never compared with quota or reported cost.")

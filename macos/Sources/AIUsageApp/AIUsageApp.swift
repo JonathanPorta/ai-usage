@@ -9,6 +9,39 @@ import SwiftUI
 @Observable
 final class Navigation {
     var historyRequest: HistoryRequest?
+    var settingsRequest: SettingsRequest?
+}
+
+/// Opens the popover's Settings at one provider (from History's empty states).
+struct SettingsRequest: Equatable {
+    var providerId: String
+    var nonce = UUID()
+}
+
+/// History's route to a provider's settings. Settings live only in the popover,
+/// so this records the request and opens the popover from the app's own
+/// menu-bar item.
+@MainActor
+enum ProviderSettingsRoute {
+    static func open(_ providerId: String, navigation: Navigation) {
+        navigation.settingsRequest = SettingsRequest(providerId: providerId)
+        statusItemButton()?.performClick(nil)
+    }
+
+    /// The MenuBarExtra's status-item button, found among this app's windows.
+    private static func statusItemButton() -> NSStatusBarButton? {
+        for window in NSApp.windows where String(describing: type(of: window)).contains("StatusBar") {
+            if let button = find(in: window.contentView) { return button }
+        }
+        return nil
+    }
+
+    private static func find(in view: NSView?) -> NSStatusBarButton? {
+        guard let view else { return nil }
+        if let button = view as? NSStatusBarButton { return button }
+        for subview in view.subviews { if let button = find(in: subview) { return button } }
+        return nil
+    }
 }
 
 struct HistoryRequest: Equatable {

@@ -280,6 +280,47 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 - **Notification permission read:** System Settings → Notifications lists "AI Usage, Off". Notifications are not allowed for the app, so real delivery and deduplication were not tested; no test notification state was created.
 - No other acceptance item changed. CI, release and tooling work for this round is recorded in `docs/CI-AND-RELEASE.md`.
 
+#### 2026-10-11: History consistency pass (owner-requested UI change)
+
+Requested from the owner's History screenshots, which are private references and are not committed. Decisions:
+
+- **Sidebar:** the "One provider at a time…" paragraph is removed, with no replacement. The sidebar is labelled "30-day overview" and its captions stay a fixed 30-day token total, independent of the chart's mode and range. A provider with no readings in those 30 days shows its detection or configuration state ("Not detected", "Tracking off", "Not set up", "Waiting for first reading") or "No usage in 30 days", never "0 tokens". Measured zero still shows "0 tokens".
+- **One layout for every provider and mode:**
+  - Row 1: the provider name on the left; "Last check" and a Tokens/Quota switch on the right.
+  - Row 2: a one-line chart title and a one-line units/freshness subtitle on the left; the quota-window picker and the range control anchored right.
+  - Then the summary cards, the chart, and the table and secondary information.
+  - Both rows have fixed heights, so text never moves the cards or chart.
+- **Tokens/Quota is always present.** Quota is disabled only when the provider has no quota window. Its reason is given as help text and an accessibility hint, for example Claude's unsupported personal quota. Stale quota is still supported.
+- **Ranges are kept per mode:** tokens 7/30/90 days; quota uses each window's own ranges. Switching modes keeps each mode's selection.
+- **Calculation notes moved** from above the cards to an "About these numbers" disclosure below the chart.
+- **One responsive breakpoint:** History lays out at a main-column width of 600 pt, a window of about 860 pt. Below it, row 2's controls move to their own right-aligned line, and the cards become 2 × 2 for every provider and mode.
+- **Four summary cards:**
+  - Tokens: total, average per complete measured day, busiest day, days measured.
+  - Quota: the four existing quota metrics.
+  - All four have the same width and height, and captions reserve two lines.
+  - Claude's cache-read total moved to a secondary line below the chart, still separate from input and output.
+  - Measured on the renders: the card row ends at the same y in every populated view at each width (197–198 pt wide; 230 pt narrow), so the chart's top edge does not move.
+- **Empty states** come from the collector's detection and configuration (`Presentation.historyAvailability`), never from an empty dataset alone:
+  - **Tracking off:** "Enable tracking", which uses the existing validated `configure` (`providerEnabled`) and says that it installs nothing.
+  - **Not detected:** "Check again" (Collect now) and "Provider settings…", which opens the popover's Settings at that provider.
+  - **Not set up:** the same two actions.
+  - **No usage recorded yet:** "Check again".
+  - **History exists but none in the range:** "Show 90 days".
+  - **Measured zero** is data.
+  - **A provider that is off or no longer detected but has history** keeps its history, with a one-line notice below the chart.
+  - Gemini's "0 / 0 of 0 / 1 / 0 / 0 scale / empty table" presentation is gone. The empty-axis fix (`425699b`) does apply to History's chart, and a populated chart now always has data.
+- **Settings entry point:** "Enable tracking" and the settings route are the only History actions that change configuration; the popover remains where settings are edited. Automatic discovery with Auto/On/Off stays deferred (#8).
+
+Verification:
+- Five new state-logic tests (`HistoryAvailabilityTests`); Swift 48/48.
+- Offscreen renders of every state in light and dark, at 920 pt and at 760 pt.
+- The 24 non-History baselines are byte-identical. The six History baselines are replacement candidates pending review, so `make app-snapshot-check` reports them changed until they are accepted.
+- **Live interaction is not verified:**
+  - the Tokens ↔ Quota and range switching on screen, provider switching, window resizing across the breakpoint, and keyboard focus through the new mode switch;
+  - "Enable tracking", "Check again" and "Provider settings…" against the sandbox.
+
+  The display was asleep when the check was attempted, and these need the owner's session.
+
 ### Current acceptance state (2026-10-11)
 
 | Item | State |
@@ -298,6 +339,7 @@ CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-
 | Reduce Motion | Not verified |
 | Larger text | Unsupported in this release (fixed point sizes); deferred |
 | Reset-annotation placement | Deferred polish (#9) |
+| History consistency pass (layout, cards, empty states) | Implemented and rendered; six History replacement baselines and 20 new state renders await review; live interaction not yet verified |
 
 ### Remaining manual checks (owner)
 

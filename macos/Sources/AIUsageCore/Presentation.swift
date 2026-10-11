@@ -328,6 +328,63 @@ public enum Presentation {
         return "\(Format.tokens(day.total)) tokens"
     }
 
+    // MARK: History availability
+
+    /// What the History window can show for one provider in the selected token
+    /// range. Decided from the collector's own detection and configuration, never
+    /// from an empty dataset alone: measured zero is data.
+    public enum HistoryAvailability: Equatable, Sendable {
+        /// Something to plot in this range (including measured zero).
+        case data
+        /// Earlier history exists, but none in the selected range.
+        case noneInRange
+        /// No history; the provider is turned off in the collector config.
+        case trackingDisabled
+        /// No history; tracking is on but the collector did not find the tool.
+        case notDetected
+        /// No history; tracking is on and the provider still needs setting up.
+        case notConfigured
+        /// No history; tracking is on and the provider is (or is waiting to be) read.
+        case noUsageRecorded
+    }
+
+    public static func historyAvailability(_ provider: Provider, days: [Day]) -> HistoryAvailability {
+        if days.contains(where: \.hasValue) { return .data }
+        if provider.days.contains(where: \.hasValue) { return .noneInRange }
+        if !provider.enabled || provider.setup == .disabled { return .trackingDisabled }
+        switch provider.setup {
+        case .notDetected: return .notDetected
+        case .notConfigured: return .notConfigured
+        case .ready, .waiting, .disabled: return .noUsageRecorded
+        }
+    }
+
+    /// The History sidebar's fixed 30-day caption. Never "0 tokens" for a
+    /// provider with no readings in those 30 days; measured zero stays "0 tokens".
+    public static func historySidebarCaption(_ provider: Provider) -> String {
+        let days = recentDays(provider, count: 30)
+        if days.contains(where: \.hasValue) {
+            return "\(Format.tokens(sum(days))) tokens"
+        }
+        if !provider.enabled || provider.setup == .disabled { return "Tracking off" }
+        switch provider.setup {
+        case .notDetected: return "Not detected"
+        case .notConfigured: return "Not set up"
+        case .waiting: return "Waiting for first reading"
+        case .ready, .disabled: return "No usage in 30 days"
+        }
+    }
+
+    /// Whether the History Quota mode applies, and why not. Stale quota is still
+    /// supported quota: any non-retired window counts.
+    public static func quotaSupport(_ provider: Provider) -> (supported: Bool, reason: String?) {
+        if !provider.activeWindows.isEmpty { return (true, nil) }
+        if provider.quota.status == .unsupported {
+            return (false, provider.quota.note.map { "Quota unavailable: \($0)" } ?? "\(provider.name) does not report a quota.")
+        }
+        return (false, "No quota reading from \(provider.name) yet.")
+    }
+
     public static func sum(_ days: [Day]) -> Double {
         days.reduce(0) { $0 + ($1.hasValue ? ($1.total ?? 0) : 0) }
     }
