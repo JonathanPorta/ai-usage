@@ -11,7 +11,7 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | Hosted CI | Linux only: Python 3.9 and 3.14, spec/design checks, vendored-script and candidate-plan checks | — |
 | macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154), [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15)), an XCTest-capable guest image, then promotion from shadow to displace |
 | macOS lane, main | The Proof Glass protected-main contract: the push is routed and judged by `proofglass / overall`. Not displaced means BLOCKED, so **main is red until the lane is displaced on main** | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
-| Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass | Final ruleset before PR #5 merges |
+| Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass. PR #4 merged as `9946386`; its merge push was deliberately **not run** | Final ruleset before PR #5 merges |
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
 | Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | `signing.apple-macos` is a merged **proposal** with no released tooling; Apple account artifacts |
 | Secrets | None stored | Release-signing domain via the released BWS tooling from a private checkout |
@@ -130,7 +130,14 @@ until main's lane is in `displace` mode, every push to main is red with the reas
   - the pinned Cirrus Labs image `ghcr.io/cirruslabs/macos-tahoe-xcode:26.5@sha256:923c98d3…831bd`;
   - a specific Xcode `.xip` with its sha256, streamed in over `tart exec` stdin, with no host mounts.
 
-  It accepts the license and runs first launch in the guest, records the toolchain in `/opt/pg/xcode.json`, and refuses the image unless a cold XCTest build as `pgci` finishes in under 90 s. It was not pulled or built: the Cirrus image is about 65 GiB compressed and 130 GiB unpacked, which would leave about 13 GiB free on this Mac. The owner must choose the source and free disk, or download the `.xip`; then run the provisioning script on a quiet host and `make verify-tart-ai-usage` with the supervisor paused.
+  It accepts the license and runs first launch in the guest and records the toolchain in `/opt/pg/xcode.json`. Its timing check works in three steps, all as `pgci`:
+  1. It runs a cold `swift test` of a one-file XCTest package. This step is untimed and serves to warm the system caches.
+  2. It deletes that package's `.build` directory.
+  3. It times a clean `swift build --build-tests` with the system caches already warm, as the probe's fresh package would see them. The image is refused unless this build takes under 90 s, which leaves margin within the probe's 120 s budget.
+
+  The cold build in step 1 has no time limit.
+
+  Disk, as of 2026-10-11: 140.3 GiB free. The pinned Cirrus image needs 130.4 GiB unpacked, and the script keeps 60 GiB free, so `--from-cirrus` refuses. The `.xip` route needs the default base clone (about 33 GiB) plus about four times the `.xip` size, which fits. No `.xip` exists on this Mac. The host's installed Xcode is never copied into a guest. So the one missing input is an owner-downloaded Xcode `.xip` and its sha256. After that, on a quiet host: the provisioning script with `--xcode-xip`, then `make verify-tart-ai-usage` with the supervisor paused.
 
 Prepared, not executed (each needs the step before it):
 
@@ -156,6 +163,13 @@ when capacity returns.
 | --- | --- | --- |
 | Now (active, id 24873836) | Pull request required; `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` from GitHub Actions (15368), strict; deletion and force-push blocked; no bypass actors | These are the only checks both the current `main` workflow (PR #4) and the new workflow (PR #5) produce, so #4 can merge on its existing green checks |
 | Before PR #5 merges | Replace with: pull request required; `PR test gate` (15368) and `proofglass / pr-gate` (3987831), strict; no bypass actors | `PR test gate` does not exist on `main` until #5 lands, so requiring it earlier would block every other PR |
+
+PR #4 landed on 2026-10-11 as squash commit `9946386` (reviewed head `0146cf0`, unchanged since review; its required checks had passed). The sequence:
+- **Ready for review.** #4 was still a draft, so it was marked ready for review first.
+- **First merge attempt.** It was refused (HTTP 405, still a draft). The `tests` workflow (id 325661405) had already been switched from `active` to disabled; it was restored to `active` before the retry.
+- **Merge.** The workflow's prior state was recorded as `active`. It was disabled, #4 was squash-merged at 23:58Z, and the workflow was restored to `active` at 23:59:13Z.
+- **CI on `9946386`: NOT RUN.** The workflow was disabled for the merge push, so `actions/runs?head_sha=9946386…` returns 0 runs. The hosted macOS jobs never started. That push has no `tests` result and must not be counted as passed. Its only check run is the Socket Security project report.
+- **#5.** It was retargeted from `jp/b/isolate-launchctl-in-tests` to `main`, and `main` was merged into its branch with a merge commit (no force-push). #5 stays unmerged.
 
 Verified through the API on 2026-10-11:
 - `GET /repos/JonathanPorta/ai-usage/rulesets/24873836` returns `enforcement: active`, `bypass_actors: []` and `current_user_can_bypass: never`, with the required checks and their integration ids.
