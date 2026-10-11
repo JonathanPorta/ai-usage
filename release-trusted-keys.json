@@ -1,0 +1,5 @@
+{
+  "schema": "blessed/signing-trust-store/v1",
+  "notes": "Production trust store for ai-usage release candidates. It is intentionally empty: no production manifest key (ai-usage-release-2026-10) has been minted. The key's private half will live only in the release-signing authority domain (BWS project ai-usage-release-signing, GitHub Environment release-signing), and its PUBLIC half is added here in a reviewed change. Secret-free validation mints an ephemeral key and a temporary trust store instead (make release-validate-ephemeral).",
+  "keys": {}
+}

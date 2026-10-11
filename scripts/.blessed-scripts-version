@@ -1,0 +1,14 @@
+# Pinned blessed-cicd script categories (releases.pipeline@1 pilot opt-in).
+# Update with: make sync-scripts && make verify-scripts
+BCICD_REPO_SLUG=JonathanPorta/blessed-cicd
+
+SIGNING_VERSION=0.4.0
+SIGNING_TAG=signing-v0.4.0
+
+RELEASE_VERSION=0.8.0
+RELEASE_TAG=release-v0.8.0
+
+# bws (1.13.0, bws-v1.13.0) is needed only to provision the release-signing
+# authority domain. It is deliberately NOT vendored yet: its scripts embed the
+# owner's Bitwarden organization identifiers, and this repository is public.
+# See docs/CI-AND-RELEASE.md ("Owner decisions").
