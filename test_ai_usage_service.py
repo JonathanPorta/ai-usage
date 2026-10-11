@@ -2196,6 +2196,15 @@ for line in sys.stdin:
         self.assertRegex(workflow, r"(?m)^  push:\n    branches: \[main\]$")
         self.assertIn('displaced([\\"ai-usage-macos@1\\"])', workflow)
         self.assertIn("name: PR test gate", workflow)
+        # No job may write to the repository; id-token is the only write scope.
+        self.assertNotRegex(code, r"(?m)^\s+(contents|pull-requests|checks|actions|statuses|packages|deployments):\s*write")
+        # Protected main: a push is green only when its commit is a merged pull
+        # request whose head passed both required checks, and main still requires
+        # them, up to date, through pull requests.
+        self.assertIn('gh api "repos/${REPO}/rules/branches/main"', workflow)
+        self.assertIn("strict_required_status_checks_policy == true", workflow)
+        self.assertIn('.merge_commit_sha == \\"${SHA}\\"', workflow)
+        self.assertIn('"PR test gate|15368" "proofglass / pr-gate|3987831"', workflow)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,14 @@ name: tests
 # as BLOCKED and the `PR test gate` fails: an unexecuted lane is never green.
 # The routing call is the Proof Glass CI-offload contract (proofglass
 # docs/ci-offload.md; reference consumer: docsort .github/workflows/test.yml).
+#
+# Protected main: Proof Glass admits pull requests into `main` only, so a push to
+# main does not re-run the macOS lane. Instead the push gate proves that this
+# exact commit came from a merged pull request whose head passed BOTH required
+# checks (`PR test gate`, which requires the displaced macOS lane, and
+# `proofglass / pr-gate` from the Proof Glass App), and that main's active rules
+# still require those checks, up to date, through pull requests. See
+# docs/CI-AND-RELEASE.md.
 
 on:
   pull_request:
@@ -61,7 +69,9 @@ jobs:
           set -euo pipefail
           routed=false; macos=false; reason=""
           answer=""
-          if [ "${EVENT}" != "pull_request" ]; then
+          if [ "${EVENT}" = "push" ]; then
+            reason="push to main: the macOS lane is not re-run; the gate verifies the merged pull request's required checks"
+          elif [ "${EVENT}" != "pull_request" ]; then
             reason="Proof Glass displaces pull requests only; ${EVENT} runs are not admitted"
           elif [ "${HEAD_REPO}" != "${REPO}" ]; then
             reason="fork pull requests are never admitted to Proof Glass"
@@ -154,6 +164,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: read
+      checks: read
     steps:
       - name: Decide the hosted verdict
         id: gate
@@ -179,22 +191,45 @@ jobs:
           HOSTED_RESULT: ${{ steps.gate.outputs.result }}
           HOSTED_BAD: ${{ steps.gate.outputs.bad }}
           NEEDS: ${{ toJSON(needs) }}
+          MACOS_DISPLACED: ${{ needs.plan.outputs.macos_displaced }}
         run: |
           set -euo pipefail
           report_url="${ROUTE_URL%/route}/hosted-result"
           body="$(jq -cn --arg result "$HOSTED_RESULT" --arg bad "$HOSTED_BAD" --argjson needs "$NEEDS" \
             '{result: $result, summary: (if $bad == "" then "all hosted legs succeeded" else ("hosted legs did not succeed: " + $bad) end), workers: ($needs | with_entries(.value = .value.result))}')"
-          if token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)"; then
-            status="$(curl -sS --max-time 60 -o /tmp/pg-report.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${token}" \
-                  -H 'content-type: application/json' -d "$body" "$report_url" || echo 000)"
-            if [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
-              echo "hosted outcome (${HOSTED_RESULT}) reported to Proof Glass"
-            else
-              echo "::warning::Proof Glass hosted-result report failed (HTTP ${status}); its gate will time out rather than pass"
+          # Bounded retries, as in docsort: only a transport failure, 429 or 5xx is
+          # retried, each with a FRESH OIDC token. Proof Glass also recovers a missing
+          # report from this job's check run.
+          status=none
+          for delay in 0 15 45 90; do
+            [ "${delay}" -eq 0 ] || sleep "${delay}"
+            if ! token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+                  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)"; then
+              status=oidc
+              continue
             fi
-          else
+            if code="$(curl -sS --max-time 60 -o /tmp/pg-report.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${token}" \
+                  -H 'content-type: application/json' -d "$body" "$report_url")"; then
+              status="${code}"
+            else
+              status=000
+            fi
+            case "${status}" in
+              000|429|5??) echo "::warning::Proof Glass hosted-result report got HTTP ${status}; retrying" ;;
+              *) break ;;
+            esac
+          done
+          if [ "${status}" = oidc ]; then
             echo "::warning::could not obtain an OIDC token; the Proof Glass gate will time out rather than pass"
+          elif [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
+            echo "hosted outcome (${HOSTED_RESULT}) reported to Proof Glass"
+          elif [ "${status}" = 409 ] && grep -q stale_run_attempt /tmp/pg-report.json && [ "${MACOS_DISPLACED}" = "true" ]; then
+            # A "Re-run failed jobs" keeps attempt 1's routing, so Proof Glass refuses
+            # this attempt's report and its gate cannot be repaired by this run.
+            echo "::error::The macOS lane ran on Proof Glass for an earlier run attempt, so this partial re-run cannot update proofglass / pr-gate. Use 'Re-run all jobs'."
+            exit 1
+          else
+            echo "::warning::Proof Glass hosted-result report failed (HTTP ${status}); Proof Glass recovers it from this job's check run, otherwise its gate times out rather than pass"
           fi
 
       - name: Require the hosted legs and an executed macOS lane
@@ -202,10 +237,49 @@ jobs:
           HOSTED_BAD: ${{ steps.gate.outputs.bad }}
           MACOS_DISPLACED: ${{ needs.plan.outputs.macos_displaced }}
           REASON: ${{ needs.plan.outputs.reason }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -n "${HOSTED_BAD}" ]; then echo "::error::hosted legs did not succeed: ${HOSTED_BAD}"; exit 1; fi
           echo "hosted Linux and spec/design legs succeeded"
+          if [ "${EVENT}" = "push" ]; then
+            # 1. main's ACTIVE rules require pull requests and both checks, up to date.
+            rules="$(gh api "repos/${REPO}/rules/branches/main")"
+            if ! printf '%s' "$rules" | jq -e '
+                  any(.[]; .type == "pull_request") and
+                  any(.[]; .type == "required_status_checks"
+                      and .parameters.strict_required_status_checks_policy == true
+                      and any(.parameters.required_status_checks[]; .context == "PR test gate")
+                      and any(.parameters.required_status_checks[]; .context == "proofglass / pr-gate" and .integration_id == 3987831))' >/dev/null; then
+              echo "::error::main is not protected by the required pre-merge gates (pull request rule + strict 'PR test gate' and 'proofglass / pr-gate'), so this push's macOS coverage is unproven. Create the ruleset in docs/CI-AND-RELEASE.md."
+              exit 1
+            fi
+            # 2. This exact commit is the merge result of one merged pull request into main.
+            pr="$(gh api "repos/${REPO}/commits/${SHA}/pulls" --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .merge_commit_sha == \"${SHA}\") | {number, head: .head.sha}]")"
+            if [ "$(printf '%s' "$pr" | jq length)" != 1 ]; then
+              echo "::error::${SHA} is not the merge result of exactly one merged pull request into main; its macOS coverage is unproven."
+              exit 1
+            fi
+            number="$(printf '%s' "$pr" | jq -r '.[0].number')"
+            head="$(printf '%s' "$pr" | jq -r '.[0].head')"
+            # 3. That pull request's head passed both required checks (latest run of each).
+            runs="$(gh api "repos/${REPO}/commits/${head}/check-runs?per_page=100" --jq '[.check_runs[] | {name, conclusion, completed_at, app: .app.id}]')"
+            for check in "PR test gate|15368" "proofglass / pr-gate|3987831"; do
+              name="${check%|*}"; app="${check#*|}"
+              conclusion="$(printf '%s' "$runs" | jq -r --arg n "$name" --arg a "$app" '
+                [.[] | select(.name == $n and (.app | tostring) == $a)]
+                | sort_by(.completed_at // "") | last | .conclusion // "missing"')"
+              if [ "${conclusion}" != "success" ]; then
+                echo "::error::pull request #${number} head ${head}: '${name}' is ${conclusion}; this push's macOS coverage is unproven."
+                exit 1
+              fi
+            done
+            echo "main ${SHA} = merged pull request #${number} (head ${head}); its 'PR test gate' and 'proofglass / pr-gate' passed, and main requires both, up to date"
+            exit 0
+          fi
           if [ "${MACOS_DISPLACED}" != "true" ]; then
             echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. It runs only in a disposable Proof Glass VM (profile ai-usage-macos@1); there is no hosted macOS fallback. Run 'make check app-test app-build' locally for evidence, or enroll the repository in Proof Glass."
             exit 1
