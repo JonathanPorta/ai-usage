@@ -112,10 +112,27 @@ until main's lane is in `displace` mode, every push to main is red with the reas
   The canonical change is draft
   [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15)
   (profile, probe, `xcode` image key, provisioning script, `verify-tart-ai-usage`);
-  #154 carries the interim mirror and the shared contract. Merge order: #154, re-pin
-  the contract to its merge commit, then #15. The written record is not yet matched by
-  practice: the freeze notice for proofglass's `supervisor/` copy is unmerged and the
-  cut-over steps are undone, so the owner should merge the freeze or supersede D-001.
+  #154 carries the shared contract and a traceable interim mirror of the #15 change. Ownership is
+  decided (D-001); the freeze notice for proofglass's `supervisor/` copy and the
+  cut-over are steps of the existing procedure, not open decisions.
+- **Upstream sequence, each step ready for review:**
+  1. Merge #154. This deploys the Worker and policy, and ai-usage is admitted in **shadow** mode.
+  2. Re-pin #15 to #154's merge commit with the existing sync command:
+     `make contract-sync REF=<#154 merge sha> PROOFGLASS_REPO=../proofglass`, then `make contract-check`.
+  3. Run #15's affected checks, then merge #15.
+  4. Owner: install the App (id 3987831) on ai-usage, mint the supervisor token, and give ai-usage's rulesets to the inspector token (table below).
+  5. Get a successful **shadow** run against a real ai-usage commit.
+  6. Separately review a policy change from shadow to **displace**.
+  7. Replace the transitional ruleset with the final ai-usage gates.
+
+  **Shadow mode never satisfies the required macOS gate.** PR evidence (`proofglass / pr-gate` on the PR head) and protected-main evidence (`proofglass / overall` on the pushed `main` commit) are separate, and each is tied to its own commit.
+- **Read-only state, 2026-10-12:**
+  - #154: draft, head `8173bae`; its checks were running when read.
+  - #15: draft, head `d4511d3`, `clean`; all checks pass at that head.
+  - ai-usage defines no Actions variables, so `PROOFGLASS_CI_ROUTE_URL` is unset.
+  - Whether App 3987831 is installed on ai-usage can't be read with the operator's user token (`GET /user/installations` requires a GitHub App user token), so it is **unknown**, not assumed absent.
+  - Nothing was provisioned.
+- **CI-cost exception.** The proofglass-supervisor repository's own `check.yaml` still runs its macOS (`macos-15`) and Windows (`windows-latest`) client jobs on GitHub-hosted runners. The existing migration path is proofglass-supervisor `docs/ci-offload-plan.md` ("plan; nothing is activated"). It keeps the Linux supervisor and release jobs hosted on purpose, for bootstrap and recovery. ai-usage does not take on that migration. These reruns were avoided: #15's checks are reused at `d4511d3`.
 - **Guest evidence (2026-10-11, real disposable Tart guests, owner's supervisor paused with `active_attempts 0` and resumed by trap each time; 0 leftover `pg-*` guests):**
   - **Run A:** the profile as first enrolled, image `proofglass-macos-golden`, ai-usage `e65d8e2`.
     - The probe hit its 120 s limit, so that result was inconclusive.
@@ -137,7 +154,7 @@ until main's lane is in `displace` mode, every push to main is red with the reas
 
   The cold build in step 1 has no time limit.
 
-  Disk, as of 2026-10-11: 140.3 GiB free. The pinned Cirrus image needs 130.4 GiB unpacked, and the script keeps 60 GiB free, so `--from-cirrus` refuses. The `.xip` route needs the default base clone (about 33 GiB) plus about four times the `.xip` size, which fits. No `.xip` exists on this Mac. The host's installed Xcode is never copied into a guest. So the one missing input is an owner-downloaded Xcode `.xip` and its sha256. After that, on a quiet host: the provisioning script with `--xcode-xip`, then `make verify-tart-ai-usage` with the supervisor paused.
+  Disk, as of 2026-10-11: 140.3 GiB free. The pinned Cirrus image needs 130.4 GiB unpacked, and the script keeps 60 GiB free, so `--from-cirrus` refuses. The `.xip` route's own check is `free − 33 − 4 × xip_GiB ≥ 60`, so with 140 GiB free it proceeds only for a `.xip` of 11 GiB or less (the size is checked when it runs). No `.xip` exists on this Mac. The host's installed Xcode is never copied into a guest. So the one missing input is an owner-downloaded Xcode `.xip` and its sha256. After that, on a quiet host: the provisioning script with `--xcode-xip`, then `make verify-tart-ai-usage` with the supervisor paused.
 
 Prepared, not executed (each needs the step before it):
 
