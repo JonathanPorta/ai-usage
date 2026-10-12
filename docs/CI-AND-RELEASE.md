@@ -1,6 +1,6 @@
 # CI, release, signing and secrets
 
-Current state, 2026-10-11. Checked against blessed-cicd `b46e5d2`
+Current state, 2026-10-12. Checked against blessed-cicd `master` (OD-2, #362), Proof Glass #154/#157
 (`standards/registry.yml`), Proof Glass `abfd57c` (`docs/ci-offload.md`) and
 proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 
@@ -13,9 +13,9 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | macOS lane, main | The Proof Glass protected-main contract: the push is routed and judged by `proofglass / overall`. Not displaced means BLOCKED, so **main is red until the lane is displaced on main** | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
 | Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass. PR #4 merged as `9946386`; its merge push was deliberately **not run** | Final ruleset before PR #5 merges |
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
-| Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | `signing.apple-macos` is a merged **proposal** with no released tooling; Apple account artifacts |
+| Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | OD-2 settles the executor (Proof Glass). Implementation in progress upstream (proofglass#157, blessed-cicd#361); H-1 is still open; Apple credential creation is on hold |
 | Secrets | None stored | Release-signing domain via the released BWS tooling from a private checkout |
-| Public tooling | 201 private, unlicensed blessed-cicd files are in this public repository's branch history; updates paused | Owner decision (below) and the export in [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) |
+| Public tooling | 199 private, unlicensed blessed-cicd files are in this public branch's history (not on `main`); updates paused | Licensing and disposition decision (below); the export in [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) |
 
 ## What is accepted, and what is a pilot or proposal
 
@@ -127,10 +127,14 @@ until main's lane is in `displace` mode, every push to main is red with the reas
 
   **Shadow mode never satisfies the required macOS gate.** PR evidence (`proofglass / pr-gate` on the PR head) and protected-main evidence (`proofglass / overall` on the pushed `main` commit) are separate, and each is tied to its own commit.
 - **Read-only state, 2026-10-12:**
-  - #154: draft, head `8173bae`; its checks were running when read.
-  - #15: draft, head `d4511d3`, `clean`; all checks pass at that head.
+  - **#154:** draft, pushed head `8173bae`, checks green there. It was 2 commits behind proofglass `main`. `main` is merged in locally as `fec835f` (no conflicts), not pushed: proofglass's rule 09 leaves pushing to the owner. An earlier agent push of `8173bae` broke that rule.
+  - **#154 deploys on merge.** `terraform-deploy-production.yaml` runs migrate → verify → plan → apply. The PR plan (run 38186386121, at `8173bae` merged with the `main` of that time) changes one resource in place, `cloudflare_workers_script.proofglass_edge`. #154 itself adds no migration.
+
+    That plan predates the 2 newer `main` commits, so it is not the plan to approve. After `fec835f` is pushed, the "Terraform PR — production" comment regenerates. The owner approves **that** plan, and merges only if `main` hasn't moved since.
+  - **#157** (stacked on #154) carries migration 0012 and needs its own plan approval after it is retargeted to `main`.
+  - **#15:** draft, head `d4511d3`, `clean`, all checks pass.
   - ai-usage defines no Actions variables, so `PROOFGLASS_CI_ROUTE_URL` is unset.
-  - Whether App 3987831 is installed on ai-usage can't be read with the operator's user token (`GET /user/installations` requires a GitHub App user token), so it is **unknown**, not assumed absent.
+  - Whether App 3987831 is installed on ai-usage is **unknown**: `GET /user/installations` needs a GitHub App user token. It is not assumed absent.
   - Nothing was provisioned.
 - **CI-cost exception.** The proofglass-supervisor repository's own `check.yaml` still runs its macOS (`macos-15`) and Windows (`windows-latest`) client jobs on GitHub-hosted runners. The existing migration path is proofglass-supervisor `docs/ci-offload-plan.md` ("plan; nothing is activated"). It keeps the Linux supervisor and release jobs hosted on purpose, for bootstrap and recovery. ai-usage does not take on that migration. These reruns were avoided: #15's checks are reused at `d4511d3`.
 - **Guest evidence (2026-10-11, real disposable Tart guests, owner's supervisor paused with `active_attempts 0` and resumed by trap each time; 0 leftover `pg-*` guests):**
@@ -154,7 +158,15 @@ until main's lane is in `displace` mode, every push to main is red with the reas
 
   The cold build in step 1 has no time limit.
 
-  Disk, as of 2026-10-11: 140.3 GiB free. The pinned Cirrus image needs 130.4 GiB unpacked, and the script keeps 60 GiB free, so `--from-cirrus` refuses. The `.xip` route's own check is `free − 33 − 4 × xip_GiB ≥ 60`, so with 140 GiB free it proceeds only for a `.xip` of 11 GiB or less (the size is checked when it runs). No `.xip` exists on this Mac. The host's installed Xcode is never copied into a guest. So the one missing input is an owner-downloaded Xcode `.xip` and its sha256. After that, on a quiet host: the provisioning script with `--xcode-xip`, then `make verify-tart-ai-usage` with the supervisor paused.
+  - **Archive to download:** **Xcode 26.5** (build 17F42), `Xcode_26.5.xip`, from Apple's official page https://developer.apple.com/download/all/?q=Xcode%2026.5 (Apple ID sign-in required). It needs macOS Tahoe 26.2 or later. The guest base runs 26.6.2, and ai-usage needs Swift tools 5.9 and macOS 14, so it is compatible. It is also the version the reviewed Cirrus pin carries.
+  - **Disk:** the provisioner refuses unless `free − 33 − 4 × xip_GiB ≥ 60`. On 2026-10-12, with 130.3 GiB free, that allows an archive of up to about 9 GiB. The actual size and free space are rechecked just before the build. The Cirrus image (130.4 GiB unpacked) is not used, and nothing is deleted to make room.
+  - **Once the file is in `~/Downloads`:**
+    1. I compute its sha256; you don't type one.
+    2. `deploy/macos/provision-xcode-golden.sh --xcode-xip <path> --sha256 <computed>` builds the separate `proofglass-macos-xcode-golden` image.
+    3. With the supervisor paused while idle, `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden AI_USAGE_SHA=<commit> make verify-tart-ai-usage` runs the production probe and then `make check`, `fixture-check`, `app-test` and `app-build` (each under `pipefail`) in a disposable guest. It confirms the guest was destroyed, and the supervisor is resumed afterwards.
+
+    This is local guest verification. It is not a control-plane shadow run.
+  - **Not repeated:** the CLT-only golden image is not re-probed; its limitation is established.
 
 Prepared, not executed (each needs the step before it):
 
@@ -228,63 +240,27 @@ is public, so any GitHub Release would be public).
 
 ## Signing
 
-**Current state, 2026-10-12.**
-- **Implementation.** It is now [blessed-cicd#361](https://github.com/JonathanPorta/blessed-cicd/pull/361), open and unmerged. It covers shared Developer ID finalization (sign, notarize, staple, bind, plus probe-only canaries). #351 is no longer the only dependency. None of this is released, and `signing.apple-macos` remains a **proposal**.
-- **Executor mismatch.** #361 hard-codes the hosted `macos-15` runner. A follow-up (local branch `jp/f/native-macos-finalization-executor` at `8680582`, stacked on #361, **not pushed**) makes `workflow.native.executor` a required declaration with no default. Its only accepted value today is `{kind: github-hosted, runner: macos-15}`. Rendering refuses a missing executor. Existing producers' renderings are byte-identical.
-- **Blocking dependency.** Proof Glass has no trusted release executor. It offloads only admitted PR and protected-main lanes, and its guests receive no credentials (PRD 10: no signing or credential in a guest). Proof Glass would need a release runner class with all of these properties:
-  - a fresh single-use guest per job;
-  - a runner group restricted to the generated release and canary workflows;
-  - admission only for the protected-`main` release commit or a dispatched canary on `main`;
-  - one Apple credential domain per job, loaded through an Environment-scoped BWS token;
-  - access to Apple's notary and timestamp services;
-  - the guest destroyed and its absence confirmed after each job.
+Current state, 2026-10-12.
 
-  blessed-cicd would then need a reviewed executor kind for it. Until both exist, ai-usage cannot adopt #361 (no hosted macOS fallback), and publication stays disabled.
-- **Credential prerequisites, for when the tooling ships:**
-  - one Developer ID Application identity, exported as PKCS#12 into the `apple-codesign` domain (reuse an existing identity; never create a duplicate);
-  - an App Store Connect API key (issuer id, key id, `.p8`) in the `apple-notary` domain;
-  - the Team ID.
-
-  Each goes in through the released private BWS bootstrap, never through chat or this repository.
-
-
-- **Manifest:** `signing.ed25519-detached` (pilot).
-- **App:** ad-hoc (`codesign --sign -`).
-- **Apple Developer ID:** blessed-cicd #352 (merged) defines the canonical
-  `signing.apple-macos` **proposal** (#350 is closed as superseded). In short:
-  - **Secret-free build:** the build has no signing authority, and its inputs are
-    verified before signing authority is granted (MAC-2).
-  - **Order:** native signing, notarization, stapling and the final archive all
-    happen before candidate digests and the detached manifest signature, and the
-    finalization evidence is sealed into the candidate (MAC-5; the Ed25519 envelope
-    is signed last).
-  - **Separate authorities:** code signing, notarization authentication and
-    publication are separately declared authorities (MAC-6). Their domain,
-    Environment and secret names are not defined yet.
-  - **Credentials:** an ephemeral job keychain, and an App Store Connect API key
-    rather than an Apple account password.
-- **What is merged vs usable:** the proposal is documentation. The shared checker is
-  draft blessed-cicd #351, implementation-only, "not adoptable", with two open review
-  defects. The finalizer job, the record schema, the sealing amendment and a release
-  are still to come. No released `signing-*` or `release-*` tag contains Apple tooling.
-  ai-usage's consumer shape (a SwiftPM `.app`, the ZIP route, Developer ID direct
-  download, no pkg) is recorded on #351.
-- **Consolidated prerequisite inventory:** planned upstream (Phase 2 of
-  `tasks/tasks-native-app-distribution.md`) but not written yet. Until it exists,
-  the account-side list is the proposal's human-only prerequisites:
-  - Apple Developer Program membership;
-  - a Developer ID Application certificate (an Installer certificate only if a pkg
-    ships; none is planned);
-  - an App Store Connect API key;
-  - the Team ID.
-- **Existing metadata checked (read-only):**
-  - no Developer ID Application identity is in this Mac's keychain;
-  - no Apple-related BWS project or secret name is visible to the local token.
-  That token's view is limited, so absence there is not proof of absence, and no
-  replacement material should be created on that basis.
-
-Publication stays disabled until the shared implementation is released and a real
-signed, notarized and stapled candidate has been validated.
+- **Manifest:** `signing.ed25519-detached` (pilot). **App:** ad-hoc (`codesign --sign -`). Publication is disabled.
+- **Standard:** `signing.apple-macos` is a merged **proposal** (blessed-cicd #352), not released tooling. Its requirements include:
+  - a build with no signing authority;
+  - inputs verified before signing authority is granted;
+  - signing, notarization and stapling before the candidate digests;
+  - separate code-signing, notarization and publication authorities;
+  - an App Store Connect API key, never an account password.
+- **Executor (decided, OD-2, blessed-cicd #362, merged):** Proof Glass is the only macOS and Windows executor. That covers builds, tests, signing, notarization, stapling and credential canaries, with no hosted fallback. Ordinary build and test guests stay credential-free. Signing runs in a dedicated native-finalization workload.
+- **Implementation, in progress upstream (ai-usage adds nothing of its own):**
+  - **proofglass#157 (PRD 18)** is the control plane for that workload, stacked on #154. It has OIDC admission bound to `main`, the exact workflow, Environment and run attempt, and its predecessors' evidence digests. It defines authority-scoped profiles (`macos-devid-sign` with `apple-codesign`, `macos-devid-notarize` with `apple-notary`, `macos-devid-staple`, the canaries) and authority-scoped supervisor tokens.
+  - The supervisor half and the Blessed integration are separate, later PRs.
+  - #157 deploys on merge and needs approval of its saved Terraform plan.
+  - **blessed-cicd#361 (S-1)** is the shared finalization chain. It waits for that Proof Glass integration, which will replace its GitHub-Environment readers and canaries before it merges. #351 is superseded as the dependency.
+- **The hosted-executor patch is obsolete.** A local branch (`jp/f/native-macos-finalization-executor`, `8680582`, never pushed) made the hosted runner an explicit setting. That doesn't satisfy OD-2, so it is kept locally only, for reference, until its disposition is clear.
+- **Owner decision still open:** H-1, the pipeline property-2 amendment in #361. The executor decision (OD-2) is already made.
+- **Credentials (blessed-cicd `tasks/native-distribution-credentials.md`):**
+  - **Allowed now:** inspection only. Action 1 (team `52KRCFBNVN` membership and Account Holder), and listing existing Developer ID Application certificates and App Store Connect API keys (public metadata only).
+  - **On hold under OD-2:** creating or exporting a certificate or `.p12`, creating or downloading a `.p8`, and actions 4, 5 and 7 (Environments, BWS domains, canaries). These wait until each credential has an approved storage destination and recovery path. The superseded GitHub-hosted reader path is not provisioned.
+  - **Read-only checks so far:** this Mac's keychain has no Developer ID Application identity, and the local BWS token sees no Apple project. That token's view is limited, so absence there proves nothing.
 
 ## Secrets
 
@@ -305,55 +281,46 @@ and a read-only token.
 
 ## Public tooling
 
-**Current state, 2026-10-12.** [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) is now "Propose a Signed Public Export of Released Script Categories": draft, head `194d636`, CI green.
-- **File set.** It exports `public-consumer-core` with 21 upstream files:
-  - 9 release files (`release-v0.8.0`);
-  - 6 signing files (`signing-v0.4.0`);
-  - 6 in a new `checkers` category (`checkers-v0.1.0`, cut when the PR merges): `spec-check.sh`, `design-check.sh`, `lib-json-schema.sh`, the design-handoff schema and their version files.
+Current state, 2026-10-12.
 
-  The checker hashes equal ai-usage's vendored copies. This covers everything ai-usage's Make targets use.
-- **Credentials.** The direct `PUBLIC_SCRIPT_EXPORT_TOKEN` secret is replaced by two BWS authority domains:
-  - `export-signing`: an ed25519 key, Environment-gated, `master` only;
-  - `export-publish`: a fine-grained token for exactly `JonathanPorta/blessed-cicd-scripts`, contents write.
-
-  Each has its own loader, project, machine account and single reader job, and a static check enforces this.
-- **Provenance.** `MANIFEST.sha256.sig` proves only that the holder of the export key signed that manifest, and only if the consumer pinned the key out of band. `SOURCE.json` is the private build's signed claim, which a public consumer cannot check independently. The mirror's attestation proves only that the mirror's workflow processed those bytes after upload.
-- **License.** The license file can only be `scripts/exports/public-consumer-core/LICENSE`, and a root `LICENSE` is refused by test. It stays `proposed` (recommended: Apache-2.0) until the owner grants it.
-- **Not yet clean.** `release-candidate.schema.json` still names another product's key id, which must be cleaned upstream before any export.
-- **Earlier copies.** Deleting the earlier private copies from ai-usage in a new commit does **not** remove them from this repository's public history. Removing them would need a history rewrite, which is not approved.
-
-
-`scripts/release` (166 files), `scripts/signing` (25) and `tools/blessed` (8) are
-copies of the private, unlicensed blessed-cicd repository. They were introduced in
-`b97eda2` and `5ccb2ee`, are pushed on this public branch, and are not on `main`.
-Integrity: 165, 24 and 5 files match their manifests; there is no drift. Further
-copying is paused: `make sync-scripts` refuses.
-
-A bounded inventory (details kept off the public record) found:
+**Inventory.** One count, taken from the tracked files and commits:
+- **What was copied:** 199 files from the private, unlicensed blessed-cicd repository. That's 166 in `scripts/release` and 25 in `scripts/signing` (commit `b97eda2`), plus 8 in `tools/blessed` (commit `5ccb2ee`).
+- **Where they are:** only on this PR's public branch, never on `main`.
+- **Earlier counts:** "201" also counted `scripts/sync-blessed-scripts.sh` and `scripts/.blessed-scripts-version`, which ai-usage wrote itself and which have no blessed-cicd origin. ai-usage's own `scripts/release-tools/` (3 files) is not a copy either.
+- **Integrity:** the copies match their manifests, so there is no drift. `make sync-scripts` refuses further copying.
 
 | Class | Files | Notes |
 | --- | --- | --- |
-| Runtime (CI and release targets need these) | 20 | release: `validate-plan.sh`, `build-candidate.sh`, `validate-candidate.sh`, `lib/release-lib.sh`, `lib/lib-json-schema.sh`, two schemas, `VERSION`, `MANIFEST.sha256`; signing: `sign.sh`, `keygen.sh`, `verify.sh`, `lib/signing-lib.sh`, `VERSION`, `MANIFEST.sha256`; tools/blessed: `spec-check.sh`, `design-check.sh`, `lib-json-schema.sh`, the handoff schema, `VENDOR-SHA256SUMS.txt` |
-| Shipped but unused | 177 | Other products' publication, package-repository and promotion tooling, templates, tests and fixtures |
-| Internal metadata | about 45 | Another product's domain, repository names and its public updater key with real signatures in test fixtures; the private upstream's name in schema ids; a personal host name in a changelog. None is a credential |
-| Authentication material | 0 | No private key, token or password. Fixture keys were ephemeral and destroyed upstream |
-| License | none | No license file or header; the upstream is private |
+| Used by CI and release targets | 20 | release: `validate-plan.sh`, `build-candidate.sh`, `validate-candidate.sh`, `lib/release-lib.sh`, `lib/lib-json-schema.sh`, two schemas, `VERSION`, `MANIFEST.sha256`; signing: `sign.sh`, `keygen.sh`, `verify.sh`, `lib/signing-lib.sh`, `VERSION`, `MANIFEST.sha256`; tools/blessed: `spec-check.sh`, `design-check.sh`, `lib-json-schema.sh`, the handoff schema, `VENDOR-SHA256SUMS.txt` |
+| Copied but unused | 179 | Other products' publication, package-repository and promotion tooling, templates, tests and fixtures |
+| Internal metadata (overlaps the rows above) | about 45 | Another product's domain, repository names, and its public updater key with real signatures in test fixtures; the private upstream's name in schema ids; a personal host name in a changelog. None is a credential |
+| Authentication material | 0 | No private key, token or password |
 
-A forward deletion does not remove these files from history: anyone who fetched or
-forked the branch keeps them. History is not rewritten.
+**The proposed replacement:** [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359), a draft.
+- **What it exports.** `public-consumer-core` has 21 files:
+  - 9 from `release-v0.8.0`;
+  - 6 from `signing-v0.4.0`;
+  - 6 from a new private `checkers` category. Their hashes equal ai-usage's copies.
 
-**Owner decision (recommended: A).**
+  That covers everything the targets above use; the manifests and `VENDOR-SHA256SUMS.txt` are regenerated, not copied.
+- **Credentials.** Two BWS authority domains, `export-signing` and `export-publish`, replace a direct GitHub secret. `export-publish` is a fine-grained token for exactly the mirror, with contents write. Its runtime check passes only on GitHub's explicit 404 denial for the private repository, and fails closed on any other error. That fix is local commit `1847e1e`, not pushed; see the hand-off.
+- **Provenance.**
+  - The detached signature proves that the export key's holder signed the manifest, but only if the consumer pinned that key out of band.
+  - `SOURCE.json` is a signed claim that a public reader cannot check independently.
+  - The mirror's attestation proves only that the mirror processed those bytes.
+- **What merging does.** Merging #359 **can publish the private `checkers-v0.1.0` category release** through the existing workflow. It does **not** enable or publish the public export, which stays off until a license, both authority domains and an explicit variable exist.
+- **Not yet clean.** One upstream schema still names another product's key id; it must be fixed before any export.
 
-- **A. License a minimal export, and replace the vendored files with it.**
-  - **Your actions:** choose a license for the exported files, add it upstream, and
-    create the public mirror that draft [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) publishes to (it adds `export-build.sh`, which copies 15 released files byte-for-byte after checking each against its category manifest, refuses to run without a license file, and runs a closure test; attestation runs in the mirror).
-  - **What follows:** ai-usage then vendors only the attested runtime export, about 20
-    files with their own manifest and provenance. It forward-deletes the 177 unused
-    files and the other product's fixtures, and history keeps the earlier copies.
-- **B. License the files already published, and keep all 201.**
-- **C. Do not license.** Forward-delete all vendored tooling and run the release
-  and checker targets only from a private checkout. Public CI then loses the
-  spec/design, script and plan checks.
+**Owner decision (proposal; nothing here is granted):**
+1. **ai-usage's own code: Apache-2.0.** A root `LICENSE` in ai-usage would cover ai-usage's own files. It must not be read as licensing the copied blessed-cicd files.
+2. **The export: Apache-2.0, at `scripts/exports/public-consumer-core/LICENSE` in blessed-cicd only.** It covers exactly those 21 files. There is no root license in private blessed-cicd, and no third-party material is relicensed.
+3. **Distribution:** the public mirror `JonathanPorta/blessed-cicd-scripts`. Updates arrive as signed draft releases that the owner publishes. ai-usage would pin the export key and replace its 199 copies with the export.
+4. **The earlier copies, decided separately.** Licensing the export does not cover the 199 earlier copies. Deleting them in a new commit removes them from the current tree only; every earlier public copy stays in history and in any clone or fork. The choices for those copies:
+   - accept their historical disclosure as is;
+   - license those exact historical files;
+   - approve a history rewrite of this unmerged branch, which can't recall existing clones.
+
+   Each needs its own approval.
 
 ## Owner decisions and actions
 
