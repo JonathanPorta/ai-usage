@@ -228,6 +228,26 @@ is public, so any GitHub Release would be public).
 
 ## Signing
 
+**Current state, 2026-10-12.**
+- **Implementation.** It is now [blessed-cicd#361](https://github.com/JonathanPorta/blessed-cicd/pull/361), open and unmerged. It covers shared Developer ID finalization (sign, notarize, staple, bind, plus probe-only canaries). #351 is no longer the only dependency. None of this is released, and `signing.apple-macos` remains a **proposal**.
+- **Executor mismatch.** #361 hard-codes the hosted `macos-15` runner. A follow-up (local branch `jp/f/native-macos-finalization-executor` at `8680582`, stacked on #361, **not pushed**) makes `workflow.native.executor` a required declaration with no default. Its only accepted value today is `{kind: github-hosted, runner: macos-15}`. Rendering refuses a missing executor. Existing producers' renderings are byte-identical.
+- **Blocking dependency.** Proof Glass has no trusted release executor. It offloads only admitted PR and protected-main lanes, and its guests receive no credentials (PRD 10: no signing or credential in a guest). Proof Glass would need a release runner class with all of these properties:
+  - a fresh single-use guest per job;
+  - a runner group restricted to the generated release and canary workflows;
+  - admission only for the protected-`main` release commit or a dispatched canary on `main`;
+  - one Apple credential domain per job, loaded through an Environment-scoped BWS token;
+  - access to Apple's notary and timestamp services;
+  - the guest destroyed and its absence confirmed after each job.
+
+  blessed-cicd would then need a reviewed executor kind for it. Until both exist, ai-usage cannot adopt #361 (no hosted macOS fallback), and publication stays disabled.
+- **Credential prerequisites, for when the tooling ships:**
+  - one Developer ID Application identity, exported as PKCS#12 into the `apple-codesign` domain (reuse an existing identity; never create a duplicate);
+  - an App Store Connect API key (issuer id, key id, `.p8`) in the `apple-notary` domain;
+  - the Team ID.
+
+  Each goes in through the released private BWS bootstrap, never through chat or this repository.
+
+
 - **Manifest:** `signing.ed25519-detached` (pilot).
 - **App:** ad-hoc (`codesign --sign -`).
 - **Apple Developer ID:** blessed-cicd #352 (merged) defines the canonical
@@ -284,6 +304,24 @@ PR validation never sees any domain: PR workflows have no environment, no secret
 and a read-only token.
 
 ## Public tooling
+
+**Current state, 2026-10-12.** [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) is now "Propose a Signed Public Export of Released Script Categories": draft, head `194d636`, CI green.
+- **File set.** It exports `public-consumer-core` with 21 upstream files:
+  - 9 release files (`release-v0.8.0`);
+  - 6 signing files (`signing-v0.4.0`);
+  - 6 in a new `checkers` category (`checkers-v0.1.0`, cut when the PR merges): `spec-check.sh`, `design-check.sh`, `lib-json-schema.sh`, the design-handoff schema and their version files.
+
+  The checker hashes equal ai-usage's vendored copies. This covers everything ai-usage's Make targets use.
+- **Credentials.** The direct `PUBLIC_SCRIPT_EXPORT_TOKEN` secret is replaced by two BWS authority domains:
+  - `export-signing`: an ed25519 key, Environment-gated, `master` only;
+  - `export-publish`: a fine-grained token for exactly `JonathanPorta/blessed-cicd-scripts`, contents write.
+
+  Each has its own loader, project, machine account and single reader job, and a static check enforces this.
+- **Provenance.** `MANIFEST.sha256.sig` proves only that the holder of the export key signed that manifest, and only if the consumer pinned the key out of band. `SOURCE.json` is the private build's signed claim, which a public consumer cannot check independently. The mirror's attestation proves only that the mirror's workflow processed those bytes after upload.
+- **License.** The license file can only be `scripts/exports/public-consumer-core/LICENSE`, and a root `LICENSE` is refused by test. It stays `proposed` (recommended: Apache-2.0) until the owner grants it.
+- **Not yet clean.** `release-candidate.schema.json` still names another product's key id, which must be cleaned upstream before any export.
+- **Earlier copies.** Deleting the earlier private copies from ai-usage in a new commit does **not** remove them from this repository's public history. Removing them would need a history rewrite, which is not approved.
+
 
 `scripts/release` (166 files), `scripts/signing` (25) and `tools/blessed` (8) are
 copies of the private, unlicensed blessed-cicd repository. They were introduced in
