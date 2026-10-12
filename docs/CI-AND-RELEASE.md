@@ -137,36 +137,25 @@ until main's lane is in `displace` mode, every push to main is red with the reas
   - Whether App 3987831 is installed on ai-usage is **unknown**: `GET /user/installations` needs a GitHub App user token. It is not assumed absent.
   - Nothing was provisioned.
 - **CI-cost exception.** The proofglass-supervisor repository's own `check.yaml` still runs its macOS (`macos-15`) and Windows (`windows-latest`) client jobs on GitHub-hosted runners. The existing migration path is proofglass-supervisor `docs/ci-offload-plan.md` ("plan; nothing is activated"). It keeps the Linux supervisor and release jobs hosted on purpose, for bootstrap and recovery. ai-usage does not take on that migration. These reruns were avoided: #15's checks are reused at `d4511d3`.
-- **Guest evidence (2026-10-11, real disposable Tart guests, owner's supervisor paused with `active_attempts 0` and resumed by trap each time; 0 leftover `pg-*` guests):**
-  - **Run A:** the profile as first enrolled, image `proofglass-macos-golden`, ai-usage `e65d8e2`.
-    - The probe hit its 120 s limit, so that result was inconclusive.
-    - A diagnostic guest then failed to compile the XCTest target after 239 s.
-  - **Run B:** the committed script, same image, ai-usage `b1aa8c3`. The probe fails closed: "no such module 'XCTest'".
-    - The guest runs macOS 26.6.2 (25G83) arm64 as uid 1000.
-    - The Command Line Tools are 26.6.0, with Swift 6.3.3.
-    - There is no `XCTest.framework`, and `xcrun --find xctest` finds nothing.
-  - So the profile is never advertised on today's image, and **no ai-usage build or test command has run in a guest yet**.
-  - The probe now also requires `xcodebuild -version` and an `xcode` image key, so it cannot pass on the Command Line Tools image at all.
-- **Xcode-capable image (prepared, not built):** `deploy/macos/provision-xcode-golden.sh` (in #15 and #154) builds a separate `proofglass-macos-xcode-golden` and leaves the existing golden images untouched. It builds from one of two sources:
-  - the pinned Cirrus Labs image `ghcr.io/cirruslabs/macos-tahoe-xcode:26.5@sha256:923c98d3…831bd`;
-  - a specific Xcode `.xip` with its sha256, streamed in over `tart exec` stdin, with no host mounts.
-
-  It accepts the license and runs first launch in the guest and records the toolchain in `/opt/pg/xcode.json`. Its timing check works in three steps, all as `pgci`:
-  1. It runs a cold `swift test` of a one-file XCTest package. This step is untimed and serves to warm the system caches.
-  2. It deletes that package's `.build` directory.
-  3. It times a clean `swift build --build-tests` with the system caches already warm, as the probe's fresh package would see them. The image is refused unless this build takes under 90 s, which leaves margin within the probe's 120 s budget.
-
-  The cold build in step 1 has no time limit.
-
-  - **Archive to download:** **Xcode 26.5** (build 17F42), `Xcode_26.5.xip`, from Apple's official page https://developer.apple.com/download/all/?q=Xcode%2026.5 (Apple ID sign-in required). It needs macOS Tahoe 26.2 or later. The guest base runs 26.6.2, and ai-usage needs Swift tools 5.9 and macOS 14, so it is compatible. It is also the version the reviewed Cirrus pin carries.
-  - **Disk:** the provisioner refuses unless `free − 33 − 4 × xip_GiB ≥ 60`. On 2026-10-12, with 130.3 GiB free, that allows an archive of up to about 9 GiB. The actual size and free space are rechecked just before the build. The Cirrus image (130.4 GiB unpacked) is not used, and nothing is deleted to make room.
-  - **Once the file is in `~/Downloads`:**
-    1. I compute its sha256; you don't type one.
-    2. `deploy/macos/provision-xcode-golden.sh --xcode-xip <path> --sha256 <computed>` builds the separate `proofglass-macos-xcode-golden` image.
-    3. With the supervisor paused while idle, `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden AI_USAGE_SHA=<commit> make verify-tart-ai-usage` runs the production probe and then `make check`, `fixture-check`, `app-test` and `app-build` (each under `pipefail`) in a disposable guest. It confirms the guest was destroyed, and the supervisor is resumed afterwards.
-
-    This is local guest verification. It is not a control-plane shadow run.
-  - **Not repeated:** the CLT-only golden image is not re-probed; its limitation is established.
+- **Local guest verification, 2026-10-12.** This is the production guest path on this Mac, not a control-plane shadow run.
+  - **Image:** `proofglass-macos-xcode-golden`, a separate image; the existing golden images are untouched. It was built by `provision-xcode-golden.sh --xcode-xip`:
+    - source `Xcode_26.5_Apple_silicon.xip`, sha256 `728fbab6e4580c03b44769a911cedcb3599042f9d7fbff0add751da4953236e2`, signed Apple Software;
+    - base `macos-tahoe-base@sha256:1b093499…a201e`, macOS 26.6.2 arm64;
+    - `/opt/pg/xcode.json` records Xcode 26.5, build 17F42, Swift 6.3.2;
+    - timing check: an untimed cold XCTest build and test as `pgci` (41 s), then a clean warm build that must finish under 90 s (14 s).
+  - **Probe:** `ai-usage-macos@1` passed and was advertised: Xcode 26.5 17F42, Python 3.9.6, XCTest build ok, no `sudo`.
+  - **Attempt** on ai-usage `f4e539dfcbe70daff7a624cdf84c8cc9d7ec8224`: passed in 264 s, with every step exiting 0:
+    - checkout, toolchain;
+    - `make check`, `make fixture-check`;
+    - `make app-test` (48 XCTest tests, 0 failures);
+    - `make app-build`.
+  - **Cleanup:** every guest was destroyed and confirmed gone. The supervisor was paused only while idle and resumed after each run.
+  - **Integration fixes needed to get there**, committed locally to #15's branch (`95997c1`) and #154's mirror (`f8b5101`), **not pushed**:
+    - re-enter the expansion directory after `xip`, which replaces it;
+    - run the XCTest warm-up from `/`;
+    - give the verify clone the branch ref that staging fetches.
+  - **Not yet proven:** a control-plane shadow run, which needs #154, #15 and access to be configured first.
+  - **Earlier, 2026-10-11:** the Command Line Tools image fails closed ("no such module 'XCTest'") and is not re-probed.
 
 Prepared, not executed (each needs the step before it):
 
