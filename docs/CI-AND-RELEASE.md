@@ -9,7 +9,7 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | Area | State | Remaining dependency |
 | --- | --- | --- |
 | Hosted CI | Linux only: Python 3.9 and 3.14, spec/design checks, vendored-script and candidate-plan checks | — |
-| macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154) and [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15) merged; supervisor upgrade blocked on a probe-name fix); a real control-plane shadow trial; then a separately approved promotion to displace. The XCTest-capable image exists and passed local guest verification (2026-10-12) |
+| macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154) and [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15) merged; supervisor upgraded; control-plane shadow trial passed on PR #5, 2026-10-14); then a separately approved promotion to displace |
 | macOS lane, main | The Proof Glass protected-main contract: the push is routed and judged by `proofglass / overall`. Not displaced means BLOCKED, so **main is red until the lane is displaced on main** | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
 | Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass. PR #4 merged as `9946386`; its merge push was deliberately **not run** | Final ruleset before PR #5 merges |
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
@@ -116,19 +116,24 @@ until main's lane is in `displace` mode, every push to main is red with the reas
   decided (D-001); the freeze notice for proofglass's `supervisor/` copy and the
   cut-over are steps of the existing procedure, not open decisions.
 - **Upstream sequence:**
-  1. ~~Merge #154~~: **done 2026-10-14**, merge `4952eca`, deploy run 38552949418 (0 add / 1 change / 0 destroy, no migration). ai-usage is admitted in **shadow**; the other repositories' entries are unchanged. `/health` 200, `/api/ci/route` 401 without OIDC.
+  1. ~~Merge #154~~: **done 2026-10-14**, merge `4952eca`, deploy run 38552949418 (0 add / 1 change / 0 destroy, no migration). ai-usage is admitted in **shadow**; the other repositories' entries are unchanged.
   2. ~~Re-pin #15 and merge it~~: **done 2026-10-14**, merge `a219416`, contract pinned to `4952eca`.
-  3. Upgrade this Mac's supervisor and configure access (table below). **Blocked**, see below.
-  4. Get a successful **shadow** run against a real ai-usage pull request.
-  5. Separately review a policy change from shadow to **displace**.
+  3. ~~Upgrade this Mac's supervisor and configure access~~: **done 2026-10-14** (below).
+  4. ~~A successful **shadow** run on a real ai-usage pull request~~: **done 2026-10-14** (below).
+  5. Separately review a policy change from shadow to **displace** (proposal below; not applied).
   6. Replace the transitional ruleset with the final ai-usage gates.
 
   **Shadow mode never satisfies the required macOS gate.** PR evidence (`proofglass / pr-gate` on the PR head) and protected-main evidence (`proofglass / overall` on the pushed `main` commit) are separate, and each is tied to its own commit.
-- **Supervisor upgrade blocked, 2026-10-14.** A drained upgrade from proofglass `main` `e6a7b25` was installed and rolled back within 4 minutes.
-  - Proofglass #149 names the second startup probe guest `pg-probe-<stamp>-1`. The Tart driver accepts only one segment after `pg-probe`, so it refused the name. The supervisor then counted the never-created guest as quarantined, which filled its only slot: no docsort job could be claimed, and `docsort-native-macos@1` and `ai-usage-macos@1` were not offered. Any Mac with two or more images hits this; the Xcode image is not needed to trigger it.
-  - The supervisor is back on `13e6c72` from a backup (app and launchd file byte-identical), with `config.env` as before, so the Xcode image is not configured yet. All three docsort lanes are offered again.
-  - A probe-name fix for both supervisor copies is being prepared for review. The upgrade is retried only after it merges.
-- **Access state, 2026-10-14:** `PROOFGLASS_CI_ROUTE_URL` is unset on ai-usage, so its CI behaves exactly as before enrollment. App 3987831 does include ai-usage: it posted `proofglass / pr-gate` on #5's head `f4f6c1f` at 12:38Z. That check passes in shadow mode by design and asserts nothing about test results (its summary: "Proof Glass holds no shard of this revision"); `PR test gate` stays red because the macOS lane is BLOCKED. No new supervisor token has been minted.
+- **Supervisor, 2026-10-14.** This Mac runs proofglass `3d43c0e` (#162 merged on `c80a23b`; installed from a clean pinned checkout, drained, under the host lock) with `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden`. It offers `docsort-test-macos@1`, `docsort-macos@1`, `docsort-native-macos@1` and `ai-usage-macos@1`; startup cleanup complete, nothing quarantined. Backup of the previous `13e6c72` install: `~/devel/portaj/ai-scratch/supervisor-backup-13e6c72-2026-10-14/`.
+  - **Incident: blocked supervisor job claiming, 11:33:42–11:37:45Z (about 4 minutes).** The first upgrade (proofglass `e6a7b25`) named the second startup probe guest `pg-probe-<stamp>-1`, which the Tart driver refuses. The supervisor quarantined that never-created guest, which held its only slot, so it claimed no job. Recovery: reinstalled `13e6c72` from the backup; the slot was free and quarantine empty at 11:40Z. A load-induced probe timeout then kept `docsort-native-macos@1` unadvertised until a drained restart at 12:36Z. Fixed by proofglass #162 / proofglass-supervisor #32 (`pg-probe<n>-<stamp>`; a refused name is never quarantined).
+  - **Token swap, 17:44:46–17:53:33Z (about 9 minutes of rejected claims).** The old token was revoked in the console before the replacement was installed, so claims returned 401 until the new token was installed through `--token-stdin` and the supervisor re-registered. The new token keeps the old one's nine repositories and adds ai-usage (per the console); it is an ordinary supervisor token (no `allowed_profiles`).
+- **Access state, 2026-10-14:** `PROOFGLASS_CI_ROUTE_URL=https://api.proofglass.io/api/ci/route` is set on ai-usage. App 3987831 includes ai-usage. `PROOFGLASS_CI_RULESET_TOKEN` does not cover ai-usage yet, so protected-main evidence is not available.
+- **Control-plane shadow trial, 2026-10-14 (PR #5).**
+  - PR head `2b3aa20576d555ac26aa01c7493ffbcebeaf6c59`, base `9946386a94e4789ff2cc95a4f3d74a81e7a15f0e`, tested merge commit `eb972ded9e1af42b67ba86c60b6b8dccb6dbf39b` (parents: base, head). Triggered by re-running the PR's `tests` run 38565502410 (attempt 2) after the route variable was set.
+  - Route answer: `admitted: true`, `mode: shadow`, admission `adm_01M4XRT2EFFCXSVQZA3YX2KRJY`; job `job_01M4XRT2KC037Z5FRVT7V7AXT5`; attempt `att_01M4XRTJ0HF10TKTR3KQN1DZDJ` on this Mac, 17:54:38–17:58:39Z (241 s).
+  - Steps run under `bash -o pipefail`, and any non-zero exit fails the attempt; outcome **passed**. Evidence from the guest: `make check` (95 tests, OK, 1 skipped), `make fixture-check` (fixture matches the generator), `make app-test` (48 XCTest tests, 0 failures), `make app-build` (`AIUsage` built, app signed ad hoc), toolchain Xcode 26.5 17F42 / Swift 6.3.2.
+  - Evidence: `ci-evidence.tar.gz` (8150 bytes, sha256 `c01cf606…964c`) was accepted by the control plane before the result was posted (an upload failure fails the attempt). The guest was destroyed (cleanup confirmed); the Worker posted `proofglass / ai-usage-macos [shadow]`: success, "Passed on a disposable macOS VM".
+  - **Gate stays red:** `PR test gate` fails ("Proof Glass did not displace the ai-usage-macos@1 lane (mode: shadow; admitted)"). `proofglass / pr-gate` is green but asserts nothing in shadow mode.
 - **CI-cost exception.** The proofglass-supervisor repository's own `check.yaml` still runs its macOS (`macos-15`) and Windows (`windows-latest`) client jobs on GitHub-hosted runners. The existing migration path is proofglass-supervisor `docs/ci-offload-plan.md` ("plan; nothing is activated"). It keeps the Linux supervisor and release jobs hosted on purpose, for bootstrap and recovery. ai-usage does not take on that migration. These reruns were avoided: #15's checks are reused at `d4511d3`.
 - **Local guest verification, 2026-10-12.** This is the production guest path on this Mac, not a control-plane shadow run.
   - **Image:** `proofglass-macos-xcode-golden`, a separate image; the existing golden images are untouched. It was built by `provision-xcode-golden.sh --xcode-xip`:
@@ -147,21 +152,17 @@ until main's lane is in `displace` mode, every push to main is red with the reas
     - re-enter the expansion directory after `xip`, which replaces it;
     - run the XCTest warm-up from `/`;
     - give the verify clone the branch ref that staging fetches.
-  - **Not yet proven:** a control-plane shadow run, which needs the supervisor upgrade and access to be configured first.
   - **Earlier, 2026-10-11:** the Command Line Tools image fails closed ("no such module 'XCTest'") and is not re-probed.
 
-Remaining steps (each needs the step before it):
+Next phase, **proposed, not applied** (owner approval needed):
 
-| Step | Who | Needs |
+| Step | Who | Change |
 | --- | --- | --- |
-| Probe-name fix reviewed and merged in proofglass `main` (the install source until the cut-over) | Proof Glass owners | — |
-| Add `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden` to `config.env`, then a drained upgrade from a recorded proofglass `main` commit; `/v1/status` must list `ai-usage-macos@1` and all three docsort lanes. The image was built and verified on 2026-10-12 | Agent (operator) | The fix |
-| ~~Confirm the Proof Glass App (id 3987831) includes ai-usage~~: **confirmed 2026-10-14** by its check run on #5 | — | — |
-| New supervisor token whose `allowed_repos` keeps every repository the Mac serves today and adds ai-usage (token scope cannot be edited); installed through `--token-stdin`, and the old token revoked only after the new one works | Owner (console), agent installs | — |
-| `gh variable set PROOFGLASS_CI_ROUTE_URL -R JonathanPorta/ai-usage -b https://api.proofglass.io/api/ci/route` | Agent | The upgrade and token |
-| Extend `PROOFGLASS_CI_RULESET_TOKEN` (fine-grained, comms-core only today, Administration read and write) to ai-usage | Owner | Only for protected-main evidence, so it is deferred to the displace phase and not needed for the PR shadow trial |
-| Shadow trial on a same-repository PR into main: the advisory `proofglass / ai-usage-macos [shadow]` check runs; ai-usage's gate stays red by design | Agent | All of the above |
-| Promote: a reviewed policy change sets `pull_requests_mode` and main `mode` to `displace` | Owner approval | A passing shadow trial |
+| PR displace | Proof Glass PR, owner approval to merge (deploys) | `examples/ci-policy.json`, ai-usage lane: `"pull_requests_mode": "displace"`; main `mode` stays `shadow` |
+| Final PR ruleset | Owner approval | Replace transitional ruleset 24873836: pull request required; `PR test gate` (integration 15368) and `proofglass / pr-gate` (app 3987831), strict, no bypass; verify through the API |
+| Inspector access | Owner | Add ai-usage to the fine-grained `PROOFGLASS_CI_RULESET_TOKEN` (Administration read and write). Required before any protected-main admission |
+| Main displace | Proof Glass PR, owner approval | ai-usage main `mode: "displace"`, after inspector access and a successful PR displace run |
+| Rollback | — | Revert the policy commit (merge redeploys). The lane returns to shadow and `PR test gate` reports BLOCKED again; there is no hosted macOS fallback. Do not unset `PROOFGLASS_CI_ROUTE_URL` while `proofglass / pr-gate` is required |
 
 Capacity: the Mac runs one guest, shared with docsort. A spill routes the lane to
 hosted CI, where ai-usage has no macOS leg, so the gate goes red; re-run all jobs
