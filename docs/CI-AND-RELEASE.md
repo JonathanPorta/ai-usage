@@ -1,6 +1,6 @@
 # CI, release, signing and secrets
 
-Current state, 2026-10-12. Checked against blessed-cicd `master` (OD-2, #362), Proof Glass #154/#157
+Current state: Proof Glass enrollment 2026-10-14, everything else 2026-10-12. Checked against blessed-cicd `master` (OD-2, #362), Proof Glass #154/#157
 (`standards/registry.yml`), Proof Glass `abfd57c` (`docs/ci-offload.md`) and
 proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 
@@ -9,7 +9,7 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | Area | State | Remaining dependency |
 | --- | --- | --- |
 | Hosted CI | Linux only: Python 3.9 and 3.14, spec/design checks, vendored-script and candidate-plan checks | — |
-| macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154), [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15)); a real control-plane shadow trial; then a separately approved promotion to displace. The XCTest-capable image exists and passed local guest verification (2026-10-12) |
+| macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154) and [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15) merged; supervisor upgrade blocked on a probe-name fix); a real control-plane shadow trial; then a separately approved promotion to displace. The XCTest-capable image exists and passed local guest verification (2026-10-12) |
 | macOS lane, main | The Proof Glass protected-main contract: the push is routed and judged by `proofglass / overall`. Not displaced means BLOCKED, so **main is red until the lane is displaced on main** | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
 | Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass. PR #4 merged as `9946386`; its merge push was deliberately **not run** | Final ruleset before PR #5 merges |
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
@@ -102,40 +102,33 @@ until main's lane is in `displace` mode, every push to main is red with the reas
 
 ### Enrollment
 
-- **Proof Glass (shared contract, policy, allowlist, docs):** draft
+- **Proof Glass (shared contract, policy, allowlist, docs):** merged
   [proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154). Policy
   entry: `repo_id` 1320204030, branch `main`, required context `PR test gate`, owner
   actor only, lane `ai-usage-macos@1` in **shadow** for main and PRs.
 - **Supervisor (profile, probe, guest verification):** per proofglass-supervisor
   D-001 and `docs/RELEASE.md`, the supervisor is owned by proofglass-supervisor;
   proofglass's copy is frozen and may carry interim mirrors before cut-over.
-  The canonical change is draft
+  The canonical change is merged
   [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15)
   (profile, probe, `xcode` image key, provisioning script, `verify-tart-ai-usage`);
   #154 carries the shared contract and a traceable interim mirror of the #15 change. Ownership is
   decided (D-001); the freeze notice for proofglass's `supervisor/` copy and the
   cut-over are steps of the existing procedure, not open decisions.
-- **Upstream sequence, each step ready for review:**
-  1. Merge #154. This deploys the Worker and policy, and ai-usage is admitted in **shadow** mode.
-  2. Re-pin #15 to #154's merge commit with the existing sync command:
-     `make contract-sync REF=<#154 merge sha> PROOFGLASS_REPO=../proofglass`, then `make contract-check`.
-  3. Run #15's affected checks, then merge #15.
-  4. Owner: install the App (id 3987831) on ai-usage, mint the supervisor token, and give ai-usage's rulesets to the inspector token (table below).
-  5. Get a successful **shadow** run against a real ai-usage commit.
-  6. Separately review a policy change from shadow to **displace**.
-  7. Replace the transitional ruleset with the final ai-usage gates.
+- **Upstream sequence:**
+  1. ~~Merge #154~~: **done 2026-10-14**, merge `4952eca`, deploy run 38552949418 (0 add / 1 change / 0 destroy, no migration). ai-usage is admitted in **shadow**; the other repositories' entries are unchanged. `/health` 200, `/api/ci/route` 401 without OIDC.
+  2. ~~Re-pin #15 and merge it~~: **done 2026-10-14**, merge `a219416`, contract pinned to `4952eca`.
+  3. Upgrade this Mac's supervisor and configure access (table below). **Blocked**, see below.
+  4. Get a successful **shadow** run against a real ai-usage pull request.
+  5. Separately review a policy change from shadow to **displace**.
+  6. Replace the transitional ruleset with the final ai-usage gates.
 
   **Shadow mode never satisfies the required macOS gate.** PR evidence (`proofglass / pr-gate` on the PR head) and protected-main evidence (`proofglass / overall` on the pushed `main` commit) are separate, and each is tied to its own commit.
-- **Read-only state, 2026-10-12:**
-  - **#154:** draft, pushed head `8173bae`, checks green there. It was 2 commits behind proofglass `main`. `main` is merged in locally as `fec835f` (no conflicts), not pushed: proofglass's rule 09 leaves pushing to the owner. An earlier agent push of `8173bae` broke that rule.
-  - **#154 deploys on merge.** `terraform-deploy-production.yaml` runs migrate → verify → plan → apply. The PR plan (run 38186386121, at `8173bae` merged with the `main` of that time) changes one resource in place, `cloudflare_workers_script.proofglass_edge`. #154 itself adds no migration.
-
-    That plan predates the 2 newer `main` commits, so it is not the plan to approve. After `fec835f` is pushed, the "Terraform PR — production" comment regenerates. The owner approves **that** plan, and merges only if `main` hasn't moved since.
-  - **#157** (stacked on #154) carries migration 0012 and needs its own plan approval after it is retargeted to `main`.
-  - **#15:** draft, head `d4511d3`, `clean`, all checks pass.
-  - ai-usage defines no Actions variables, so `PROOFGLASS_CI_ROUTE_URL` is unset.
-  - Whether App 3987831 is installed on ai-usage is **unknown**: `GET /user/installations` needs a GitHub App user token. It is not assumed absent.
-  - Nothing was provisioned.
+- **Supervisor upgrade blocked, 2026-10-14.** A drained upgrade from proofglass `main` `e6a7b25` was installed and rolled back within 4 minutes.
+  - Proofglass #149 names the second startup probe guest `pg-probe-<stamp>-1`. The Tart driver accepts only one segment after `pg-probe`, so it refused the name. The supervisor then counted the never-created guest as quarantined, which filled its only slot: no docsort job could be claimed, and `docsort-native-macos@1` and `ai-usage-macos@1` were not offered. Any Mac with two or more images hits this; the Xcode image is not needed to trigger it.
+  - The supervisor is back on `13e6c72` from a backup (app and launchd file byte-identical), with `config.env` as before, so the Xcode image is not configured yet. All three docsort lanes are offered again.
+  - A probe-name fix for both supervisor copies is being prepared for review. The upgrade is retried only after it merges.
+- **Access state, 2026-10-14:** `PROOFGLASS_CI_ROUTE_URL` is unset on ai-usage, so its CI behaves exactly as before enrollment. Whether App 3987831 includes ai-usage is unknown from here (`gh` cannot read the installation). No new supervisor token has been minted.
 - **CI-cost exception.** The proofglass-supervisor repository's own `check.yaml` still runs its macOS (`macos-15`) and Windows (`windows-latest`) client jobs on GitHub-hosted runners. The existing migration path is proofglass-supervisor `docs/ci-offload-plan.md` ("plan; nothing is activated"). It keeps the Linux supervisor and release jobs hosted on purpose, for bootstrap and recovery. ai-usage does not take on that migration. These reruns were avoided: #15's checks are reused at `d4511d3`.
 - **Local guest verification, 2026-10-12.** This is the production guest path on this Mac, not a control-plane shadow run.
   - **Image:** `proofglass-macos-xcode-golden`, a separate image; the existing golden images are untouched. It was built by `provision-xcode-golden.sh --xcode-xip`:
@@ -150,26 +143,25 @@ until main's lane is in `displace` mode, every push to main is red with the reas
     - `make app-test` (48 XCTest tests, 0 failures);
     - `make app-build`.
   - **Cleanup:** every guest was destroyed and confirmed gone. The supervisor was paused only while idle and resumed after each run.
-  - **Integration fixes needed to get there**, committed locally to #15's branch (`95997c1`) and #154's mirror (`f8b5101`), **not pushed**:
+  - **Integration fixes needed to get there**, first made in `95997c1` (#15) and `f8b5101` (#154's mirror), now merged with both:
     - re-enter the expansion directory after `xip`, which replaces it;
     - run the XCTest warm-up from `/`;
     - give the verify clone the branch ref that staging fetches.
-  - **Not yet proven:** a control-plane shadow run, which needs #154, #15 and access to be configured first.
+  - **Not yet proven:** a control-plane shadow run, which needs the supervisor upgrade and access to be configured first.
   - **Earlier, 2026-10-11:** the Command Line Tools image fails closed ("no such module 'XCTest'") and is not re-probed.
 
-Prepared, not executed (each needs the step before it):
+Remaining steps (each needs the step before it):
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| Merge #154 (auto-deploys the Worker and policy; ai-usage admitted in **shadow**) | Owner approval | — |
-| Install the Proof Glass App (`proof-glass-runner`, id 3987831) on ai-usage | Owner (GitHub UI) | — |
-| `gh variable set PROOFGLASS_CI_ROUTE_URL -R JonathanPorta/ai-usage -b https://api.proofglass.io/api/ci/route` | Agent, after #154 deploys | Deploy (before it, the variable only changes the BLOCKED reason) |
-| New supervisor token whose `allowed_repos` keeps every repository the Mac serves today and adds ai-usage (token scope cannot be edited) | Owner (console) | Deploy (console only mints tokens for allowlisted repositories) |
-| ~~Build the Xcode golden image~~: **done 2026-10-12**, `proofglass-macos-xcode-golden`, verified (see above). Still to do: add `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden` to the supervisor's `config.env` before the upgrade | Agent (operator) | — |
-| Drained upgrade of this Mac's supervisor from proofglass `main` after #154 merges: `deploy/macos/install-supervisor.sh install --token-stdin`, then `/v1/status` lists `ai-usage-macos@1`. The supervisor runs proofglass `13e6c72` today, and the source stays proofglass until the cut-over, so the upgrade also brings `main`'s newer supervisor commits (#139, #143, #144, #147, #149, #134, #155, #156) to the docsort lanes | Agent, with the owner piping the token | #154 deployed, token |
-| Extend `PROOFGLASS_CI_RULESET_TOKEN` (fine-grained, comms-core only today, Administration read and write) to ai-usage | Owner | Only for protected-main evidence, so it is deferred to the displace phase and not needed for the shadow trial |
-| Shadow trial on a same-repository PR into main: the advisory `proofglass / ai-usage-macos [shadow]` check runs; ai-usage's gate stays red by design | — | All of the above |
-| Promote: a reviewed #154 follow-up sets `pull_requests_mode` and main `mode` to `displace` | Owner approval | A passing shadow trial |
+| Probe-name fix reviewed and merged in proofglass `main` (the install source until the cut-over) | Proof Glass owners | — |
+| Add `PROOFGLASS_TART_XCODE_GOLDEN=proofglass-macos-xcode-golden` to `config.env`, then a drained upgrade from a recorded proofglass `main` commit; `/v1/status` must list `ai-usage-macos@1` and all three docsort lanes. The image was built and verified on 2026-10-12 | Agent (operator) | The fix |
+| Confirm the Proof Glass App (`proof-glass-runner`, id 3987831) includes ai-usage | Owner (GitHub UI) | — |
+| New supervisor token whose `allowed_repos` keeps every repository the Mac serves today and adds ai-usage (token scope cannot be edited); installed through `--token-stdin`, and the old token revoked only after the new one works | Owner (console), agent installs | — |
+| `gh variable set PROOFGLASS_CI_ROUTE_URL -R JonathanPorta/ai-usage -b https://api.proofglass.io/api/ci/route` | Agent | The upgrade and token |
+| Extend `PROOFGLASS_CI_RULESET_TOKEN` (fine-grained, comms-core only today, Administration read and write) to ai-usage | Owner | Only for protected-main evidence, so it is deferred to the displace phase and not needed for the PR shadow trial |
+| Shadow trial on a same-repository PR into main: the advisory `proofglass / ai-usage-macos [shadow]` check runs; ai-usage's gate stays red by design | Agent | All of the above |
+| Promote: a reviewed policy change sets `pull_requests_mode` and main `mode` to `displace` | Owner approval | A passing shadow trial |
 
 Capacity: the Mac runs one guest, shared with docsort. A spill routes the lane to
 hosted CI, where ai-usage has no macOS leg, so the gate goes red; re-run all jobs
