@@ -14,8 +14,11 @@ name: tests
 # disposable Proof Glass macOS VM when Proof Glass displaces the `ai-usage-macos@1`
 # lane. When Proof Glass answers but does not displace it (no Mac builder free:
 # paused, draining, offline, full, or shadow), the same commands run once on a
-# GitHub-hosted macOS runner instead (owner decision, proofglass#170). Proof Glass
-# then holds no job for the lane, so nothing runs twice. Without a valid answer
+# GitHub-hosted macOS runner instead (owner decision, proofglass#170). When no
+# builder is free, Proof Glass holds no job for the lane, so nothing runs twice.
+# The one exception is a shadow admission (main, until it is promoted to
+# displace): Proof Glass also runs a non-authoritative `[shadow]` comparison job
+# on its Mac, and the hosted result stays the verdict. Without a valid answer
 # (route error, fork, other event, not enrolled) the lane is BLOCKED and the
 # `PR test gate` fails: an unexecuted lane is never green.
 #
