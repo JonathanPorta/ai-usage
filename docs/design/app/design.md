@@ -321,6 +321,12 @@ Verification:
 
   The display was asleep when the check was attempted, and these need the owner's session.
 
+Live sandbox check (2026-10-15, synthetic data, at `9d30c61`):
+- Passed: Tokens ↔ Quota with a remembered range per mode, Quota disabled with its reason, provider switching with no vertical movement, the compact layout across the breakpoint (between 849 and 854 pt), Tab/Shift-Tab with visible focus, Enable tracking and Check again against the sandbox only.
+- Fixed in `48b7ac0`: the Tokens/Quota segments are sized by their semibold title, so switching modes no longer moves the switch 2 pt and the 640 pt minimum width no longer truncates "Tokens"; "Provider settings…" opens Settings on the first request after launch (it opened Overview). The fix changes six Quota-mode renders; review checkpoint `ai-usage-history-review-48b7ac0`.
+- Observed limitation (no redesign planned): after Check again, History itself shows no result; the outcome appears only in the menu-bar popover.
+- Not yet re-verified live: the three fixed behaviours, and two keyboard observations (a provider selection that changed once during a Tab pass; the focus ring position on "About these numbers").
+
 ### Current acceptance state (2026-10-11)
 
 | Item | State |
