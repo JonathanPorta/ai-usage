@@ -120,10 +120,8 @@ launchd-integration-check: ## Real launchd: install/start/stop/reinstall/rollbac
 	$(PYTHON) scripts/launchd_integration_check.py
 
 # ── Blessed scripts (pinned, manifest-verified; scripts/.blessed-scripts-version) ──
-sync-scripts: ## Paused: no further private blessed-cicd content is copied into this public repository
-	@echo "sync-scripts: paused. blessed-cicd is private and unlicensed; this repository is public."
-	@echo "Updates wait for a redistributable export (docs/CI-AND-RELEASE.md, 'Public tooling')."
-	@exit 1
+sync-scripts: ## Install the pinned, signed public blessed-cicd export (.blessed/export.env); review, then commit
+	scripts/install-blessed-export.sh
 
 verify-scripts: ## Verify installed blessed-cicd scripts against MANIFEST.sha256
 	@rc=0; for c in $(SCRIPT_CATEGORIES); do \
