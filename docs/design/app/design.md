@@ -262,7 +262,7 @@ Not verified:
 
 Larger text stays unsupported in this release: fixed point sizes, no accepted requirement, and no text-size feature added during acceptance.
 
-CI is now routed through Proof Glass, with no hosted macOS runner; see `docs/CI-AND-RELEASE.md`. The macOS lane is blocked until the repository is enrolled. Its evidence for this round is local:
+CI is now routed through ProofGlass, with no hosted macOS runner; see `docs/CI-AND-RELEASE.md`. The macOS lane is blocked until the repository is enrolled. Its evidence for this round is local:
 - Swift 43/43 (1 skipped);
 - Python checks;
 - strict spec and design checks;

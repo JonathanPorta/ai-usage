@@ -2188,8 +2188,8 @@ for line in sys.stdin:
         self.assertIn('python: ["3.9", "3.14"]', workflow)
         # Trust boundary and runner policy: no privileged triggers, a read-only
         # token, and exactly one GitHub-hosted macOS job: the fallback, which runs
-        # only when Proof Glass answered without displacing the lane (proofglass#170),
-        # so the lane never runs both in a Proof Glass VM and hosted.
+        # only when ProofGlass answered without displacing the lane (proofglass#170),
+        # so the lane never runs both in a ProofGlass VM and hosted.
         self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(macos\S*)", workflow), ["macos-26"])
         fallback = re.search(r"(?ms)^  macos-hosted:\n(.*?)(?=^  \S)", workflow)
         self.assertIsNotNone(fallback)
@@ -2212,7 +2212,7 @@ for line in sys.stdin:
         self.assertIn("name: PR test gate", workflow)
         # No job may write to the repository; id-token is the only write scope.
         self.assertNotRegex(code, r"(?m)^\s+(contents|pull-requests|checks|actions|statuses|packages|deployments):\s*write")
-        # Protected main uses the Proof Glass contract itself: the push is routed
+        # Protected main uses the ProofGlass contract itself: the push is routed
         # and judged by the Worker-owned `proofglass / overall`, never inferred from
         # pull-request results or by inspecting rules from this workflow.
         self.assertIn('expected="proofglass / overall"', workflow)

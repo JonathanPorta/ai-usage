@@ -5,29 +5,29 @@ name: tests
 #   `pull_request_target`, `workflow_run`, or other privileged downstream workflow,
 #   so pull-request code never runs with secrets or a write token.
 # - The workflow-level token is read-only. Only the `plan` and `gate` jobs may mint
-#   an OIDC token, and only to talk to Proof Glass about a same-repository PR or a
+#   an OIDC token, and only to talk to ProofGlass about a same-repository PR or a
 #   push to main; they check out nothing and run no repository code.
 # - No caches and no artifacts are produced, so nothing built from a pull request
 #   can reach another job, workflow, or release.
 #
 # Heavy macOS work (Swift build and tests, the macOS Python checks) runs in a fresh
-# disposable Proof Glass macOS VM when Proof Glass displaces the `ai-usage-macos@1`
-# lane. When Proof Glass answers but does not displace it (no Mac builder free:
+# disposable ProofGlass macOS VM when ProofGlass displaces the `ai-usage-macos@1`
+# lane. When ProofGlass answers but does not displace it (no Mac builder free:
 # paused, draining, offline, full, or shadow), the same commands run once on a
 # GitHub-hosted macOS runner instead (owner decision, proofglass#170). When no
-# builder is free, Proof Glass holds no job for the lane, so nothing runs twice.
+# builder is free, ProofGlass holds no job for the lane, so nothing runs twice.
 # The one exception is a shadow admission (main, until it is promoted to
-# displace): Proof Glass also runs a non-authoritative `[shadow]` comparison job
+# displace): ProofGlass also runs a non-authoritative `[shadow]` comparison job
 # on its Mac, and the hosted result stays the verdict. Without a valid answer
 # (route error, fork, other event, not enrolled) the lane is BLOCKED and the
 # `PR test gate` fails: an unexecuted lane is never green.
 #
-# This follows the Proof Glass CI-offload contract (proofglass docs/ci-offload.md)
+# This follows the ProofGlass CI-offload contract (proofglass docs/ci-offload.md)
 # on both paths, as its reference consumers do (docsort for pull requests,
 # comms-core for protected main):
 # - Pull requests into main: the route call admits a same-repository PR; the
 #   verdict is the Worker-owned check `proofglass / pr-gate`.
-# - Pushes to main: the same route call; Proof Glass verifies the revision and
+# - Pushes to main: the same route call; ProofGlass verifies the revision and
 #   main's protection itself (evidence E1-E4, using its own ruleset inspector) and
 #   the verdict is the Worker-owned check `proofglass / overall` on that commit.
 # A routing answer is only a decision; the Worker-owned check is the verdict, and
@@ -46,17 +46,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # ---- Plan: ask Proof Glass whether the macOS lane is displaced --------------
+  # ---- Plan: ask ProofGlass whether the macOS lane is displaced --------------
   # Only for a pull request from a branch of this repository or a push to main,
   # and only when the repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork
-  # pull requests never reach the call (Proof Glass refuses them as well). Any
+  # pull requests never reach the call (ProofGlass refuses them as well). Any
   # error, timeout, malformed body, shadow mode, ineligible lane or empty
   # `offloaded` list means "not displaced". A valid answer that does not displace
   # the lane sends it to the hosted macOS fallback; no valid answer BLOCKS it (a
   # timed-out call may still have admitted the lane, so it never runs hosted too).
   # No `${{ }}` inside shell bodies; inputs arrive through env.
   plan:
-    name: Plan (Proof Glass route)
+    name: Plan (ProofGlass route)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
       macos_hosted: ${{ steps.route.outputs.macos_hosted }}
       reason: ${{ steps.route.outputs.reason }}
     steps:
-      - name: Ask Proof Glass which lanes are displaced
+      - name: Ask ProofGlass which lanes are displaced
         id: route
         env:
           ROUTE_URL: ${{ vars.PROOFGLASS_CI_ROUTE_URL }}
@@ -102,14 +102,14 @@ jobs:
           elif [ "${EVENT}" = "pull_request" ] && [ "${HEAD_REPO}" = "${REPO}" ]; then
             expected="proofglass / pr-gate"
           elif [ "${EVENT}" = "pull_request" ]; then
-            reason="fork pull requests are never admitted to Proof Glass"
+            reason="fork pull requests are never admitted to ProofGlass"
           else
-            reason="Proof Glass admits pull requests and pushes to main only; ${EVENT} ${REF} is not admitted"
+            reason="ProofGlass admits pull requests and pushes to main only; ${EVENT} ${REF} is not admitted"
           fi
           if [ -z "${expected}" ]; then
             :
           elif [ -z "${ROUTE_URL}" ]; then
-            reason="PROOFGLASS_CI_ROUTE_URL is not set: this repository is not enrolled in Proof Glass"
+            reason="PROOFGLASS_CI_ROUTE_URL is not set: this repository is not enrolled in ProofGlass"
           elif token="$(curl -fsS --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
                 "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)"; then
             if body="$(curl -fsS --max-time 60 -X POST -H "Authorization: Bearer ${token}" \
@@ -117,10 +117,10 @@ jobs:
               if echo "$body" | jq -e 'type=="object" and (.admitted|type)=="boolean" and (.offloaded|type)=="array"' >/dev/null; then
                 answer="$(echo "$body" | jq -c .)"
               else
-                reason="Proof Glass answered with an unexpected body"
+                reason="ProofGlass answered with an unexpected body"
               fi
             else
-              reason="Proof Glass route call failed"
+              reason="ProofGlass route call failed"
             fi
           else
             reason="could not obtain an OIDC token"
@@ -131,9 +131,9 @@ jobs:
             macos=true
           elif [ -n "$answer" ] && [ "${HOSTED_FALLBACK}" != "off" ]; then
             hosted=true
-            reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
+            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
           elif [ -n "$answer" ]; then
-            reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given")) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off)"')"
+            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given")) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off)"')"
           fi
           {
             echo "routed=${routed}"
@@ -142,11 +142,11 @@ jobs:
             echo "reason=${reason}"
           } >> "$GITHUB_OUTPUT"
           if [ "${macos}" = "true" ]; then
-            echo "::notice::macOS lane displaced to a disposable Proof Glass VM (verdict: ${expected})"
+            echo "::notice::macOS lane displaced to a disposable ProofGlass VM (verdict: ${expected})"
           elif [ "${hosted}" = "true" ]; then
             echo "::notice::macOS lane runs on a GitHub-hosted macOS runner: ${reason}"
           else
-            echo "::warning::macOS lane BLOCKED (no valid Proof Glass answer): ${reason}"
+            echo "::warning::macOS lane BLOCKED (no valid ProofGlass answer): ${reason}"
           fi
 
   # ---- Lightweight hosted checks (Linux) --------------------------------------
@@ -191,7 +191,7 @@ jobs:
       - name: Release candidate plan (secret-free; no build, no key)
         run: make release-plan-check
 
-  # ---- Hosted macOS fallback (only when Proof Glass did not take the lane) ------
+  # ---- Hosted macOS fallback (only when ProofGlass did not take the lane) ------
   # The same commands as the ai-usage-macos@1 guest, on the toolchain it pins
   # (Xcode 26.5). Runs at most once per run attempt and never alongside a
   # displaced lane.
@@ -227,7 +227,7 @@ jobs:
 
   # ---- Gate (always runs; the single verdict a ruleset should require) --------
   # Succeeds only when every hosted leg succeeded AND the macOS lane was executed:
-  # displaced to Proof Glass, or run and passed on the hosted fallback. When admitted, the hosted
+  # displaced to ProofGlass, or run and passed on the hosted fallback. When admitted, the hosted
   # outcome is reported once so the Worker can combine it with the VM result in
   # its own verdict (`proofglass / pr-gate` or `proofglass / overall`).
   gate:
@@ -260,7 +260,7 @@ jobs:
           if [ -n "$bad" ]; then echo "result=failure" >> "$GITHUB_OUTPUT"; else echo "result=success" >> "$GITHUB_OUTPUT"; fi
           echo "bad=${bad}" >> "$GITHUB_OUTPUT"
 
-      - name: Report the hosted outcome to Proof Glass (admitted run)
+      - name: Report the hosted outcome to ProofGlass (admitted run)
         if: needs.plan.outputs.routed == 'true' && vars.PROOFGLASS_CI_ROUTE_URL != ''
         env:
           ROUTE_URL: ${{ vars.PROOFGLASS_CI_ROUTE_URL }}
@@ -275,7 +275,7 @@ jobs:
           body="$(jq -cn --arg result "$HOSTED_RESULT" --arg bad "$HOSTED_BAD" --argjson needs "$NEEDS" \
             '{result: $result, summary: (if $bad == "" then "all hosted legs succeeded" else ("hosted legs did not succeed: " + $bad) end), workers: ($needs | with_entries(.value = .value.result))}')"
           # Bounded retries, as in docsort: only a transport failure, 429 or 5xx is
-          # retried, each with a FRESH OIDC token. Proof Glass also recovers a missing
+          # retried, each with a FRESH OIDC token. ProofGlass also recovers a missing
           # report from this job's check run.
           status=none
           for delay in 0 15 45 90; do
@@ -292,21 +292,21 @@ jobs:
               status=000
             fi
             case "${status}" in
-              000|429|5??) echo "::warning::Proof Glass hosted-result report got HTTP ${status}; retrying" ;;
+              000|429|5??) echo "::warning::ProofGlass hosted-result report got HTTP ${status}; retrying" ;;
               *) break ;;
             esac
           done
           if [ "${status}" = oidc ]; then
-            echo "::warning::could not obtain an OIDC token; the Proof Glass gate will time out rather than pass"
+            echo "::warning::could not obtain an OIDC token; the ProofGlass gate will time out rather than pass"
           elif [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
-            echo "hosted outcome (${HOSTED_RESULT}) reported to Proof Glass"
+            echo "hosted outcome (${HOSTED_RESULT}) reported to ProofGlass"
           elif [ "${status}" = 409 ] && grep -q stale_run_attempt /tmp/pg-report.json && [ "${MACOS_DISPLACED}" = "true" ]; then
-            # A "Re-run failed jobs" keeps attempt 1's routing, so Proof Glass refuses
+            # A "Re-run failed jobs" keeps attempt 1's routing, so ProofGlass refuses
             # this attempt's report and its gate cannot be repaired by this run.
-            echo "::error::The macOS lane ran on Proof Glass for an earlier run attempt, so this partial re-run cannot update the Proof Glass verdict. Use 'Re-run all jobs'."
+            echo "::error::The macOS lane ran on ProofGlass for an earlier run attempt, so this partial re-run cannot update the ProofGlass verdict. Use 'Re-run all jobs'."
             exit 1
           else
-            echo "::warning::Proof Glass hosted-result report failed (HTTP ${status}); Proof Glass recovers it from this job's check run, otherwise its gate times out rather than pass"
+            echo "::warning::ProofGlass hosted-result report failed (HTTP ${status}); ProofGlass recovers it from this job's check run, otherwise its gate times out rather than pass"
           fi
 
       - name: Require the hosted legs and an executed macOS lane
@@ -325,11 +325,11 @@ jobs:
           fi
           echo "hosted Linux and spec/design legs succeeded"
           if [ "${MACOS_DISPLACED}" != "true" ]; then
-            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. Without a valid Proof Glass answer it runs neither in a Proof Glass VM nor on the hosted fallback. Use 'Re-run all jobs' once the route answers."
+            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. Without a valid ProofGlass answer it runs neither in a ProofGlass VM nor on the hosted fallback. Use 'Re-run all jobs' once the route answers."
             exit 1
           fi
           if [ "${EVENT}" = "push" ]; then
-            echo "macOS lane displaced to Proof Glass; its verdict is proofglass / overall on this commit"
+            echo "macOS lane displaced to ProofGlass; its verdict is proofglass / overall on this commit"
           else
-            echo "macOS lane displaced to Proof Glass; its verdict is proofglass / pr-gate"
+            echo "macOS lane displaced to ProofGlass; its verdict is proofglass / pr-gate"
           fi
