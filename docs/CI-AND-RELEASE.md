@@ -15,7 +15,7 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
 | Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | OD-2 settles the executor (ProofGlass). Implementation in progress upstream (proofglass#157, blessed-cicd#361); H-1 is still open; Apple credential creation is on hold |
 | Secrets | None stored | Release-signing domain via the released BWS tooling from a private checkout |
-| Public tooling | 199 private, unlicensed blessed-cicd files are in this public branch's history (not on `main`); updates paused | Licensing and disposition decision (below); the export in [blessed-cicd#359](https://github.com/JonathanPorta/blessed-cicd/pull/359) |
+| Public tooling | 199 copied blessed-cicd files are in this branch's history (not on `main`). Decided 2026-10-15: Apache-2.0 for the 21-file export only (blessed-cicd#378, merged); PR #5 and its history are kept; the tree is replaced by the signed export through an ordinary commit | blessed-cicd release 0.10.0, the export's pin move, owner-approved setup and publication; then `make sync-scripts` |
 
 ## What is accepted, and what is a pilot or proposal
 
@@ -265,13 +265,18 @@ and a read-only token.
 
 ## Public tooling
 
-Current state, 2026-10-12.
+Current state, 2026-10-15:
+- **Decisions (owner).** Apache-2.0, unmodified, for the 21 owner-authored files of the `public-consumer-core` export only, granted in blessed-cicd ([#378](https://github.com/JonathanPorta/blessed-cicd/pull/378), merged, which also replaced the product-specific key-ID example). It does not license blessed-cicd as a whole or relicense the historical copies here. PR #5 and its history are kept: no rewrite, force-push or replacement PR. Before merging, an ordinary commit replaces the copied tree with the verified export. That removes the unneeded copies from the tree; it does not remove earlier public copies or recall clones.
+- **Pending upstream.** Release 0.10.0 carries the key-ID fix; the export's pin moves to it, then the owner approves the setup (key, two authority domains, mirror, activation) and, separately, publication.
+- **Installer.** `make sync-scripts` runs `scripts/install-blessed-export.sh`: blessed-cicd's consumer block from `scripts/INSTALL.md`, verbatim, reading its pins from `.blessed/export.env` and the out-of-band-confirmed key from `.blessed/export-trust-store.json`. It verifies the signature, the closed file set, every digest and the signed `SOURCE.json` identity before changing the tree, and refuses while no export is pinned. A scratch export signed with a throwaway key was used only to test it, outside this branch.
+
+Earlier state, 2026-10-12.
 
 **Inventory.** One count, taken from the tracked files and commits:
 - **What was copied:** 199 files from the private, unlicensed blessed-cicd repository. That's 166 in `scripts/release` and 25 in `scripts/signing` (commit `b97eda2`), plus 8 in `tools/blessed` (commit `5ccb2ee`).
 - **Where they are:** only on this PR's public branch, never on `main`.
 - **Earlier counts:** "201" also counted `scripts/sync-blessed-scripts.sh` and `scripts/.blessed-scripts-version`, which ai-usage wrote itself and which have no blessed-cicd origin. ai-usage's own `scripts/release-tools/` (3 files) is not a copy either.
-- **Integrity:** the copies match their manifests, so there is no drift. `make sync-scripts` refuses further copying.
+- **Integrity:** the copies match their manifests, so there is no drift. `make sync-scripts` then refused further copying (it now installs only the signed export).
 
 | Class | Files | Notes |
 | --- | --- | --- |
