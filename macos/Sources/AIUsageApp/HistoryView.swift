@@ -305,6 +305,7 @@ private struct SummaryCards: View {
 /// Secondary explanation, collapsed by default, below the chart.
 private struct AboutNumbers: View {
     let text: String
+    @FocusState private var focused: Bool
 
     var body: some View {
         DisclosureGroup {
@@ -313,8 +314,19 @@ private struct AboutNumbers: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, T.Space.s1)
         } label: {
+            // The native ring is drawn in the triangle's gutter, over the
+            // sidebar divider; draw it around the label instead.
             Text("About these numbers").font(.auCaption)
+                .overlay {
+                    if focused {
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+                            .padding(.horizontal, -4).padding(.vertical, -2)
+                    }
+                }
         }
+        .focusEffectDisabled()
+        .focused($focused)
     }
 }
 
