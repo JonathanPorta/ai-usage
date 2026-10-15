@@ -1,0 +1,13 @@
+# Pinned blessed-cicd script categories (releases.pipeline@1 pilot opt-in).
+# Updates are paused: blessed-cicd is private and unlicensed, and this
+# repository is public. See docs/CI-AND-RELEASE.md ("Public tooling").
+BCICD_REPO_SLUG=JonathanPorta/blessed-cicd
+
+SIGNING_VERSION=0.4.0
+SIGNING_TAG=signing-v0.4.0
+
+RELEASE_VERSION=0.8.0
+RELEASE_TAG=release-v0.8.0
+
+# bws is never vendored here: BWS provisioning runs from a private
+# blessed-cicd checkout (docs/CI-AND-RELEASE.md, "Secrets").

@@ -131,6 +131,13 @@ The four configured paths and their derived lock/journal paths must resolve to
 distinct filesystem objects. Collisions—including symlink aliases—fail during
 config loading before logs, CSV, or state are mutated.
 
+`poll_paused: true` pauses scheduled checks (collector 2.2.0 or newer). The
+daemon keeps running, `once` still works, and clearing it schedules the next
+check one interval later. The menu app changes these settings with
+`collector.py configure --set KEY=JSON`, which writes atomically and preserves
+everything else. `collector.py stop` / `start` disable or re-enable the
+LaunchAgent; a stopped collector stays stopped across login.
+
 `monthly_subscription_usd` is intentionally manual: consumer billing metadata
 generally does not expose the price on your receipt. It is recorded once per
 calendar month, and again only if you change the configured value.
@@ -212,12 +219,37 @@ and remain untouched. Config, CSV data, logs, and raw caches are preserved. If
 ownership or provider settings cannot be inspected safely, uninstall fails
 closed before deleting dependent files.
 
+## macOS menu-bar app
+
+`macos/` contains a native SwiftUI menu-bar app (macOS 14 or later) over this
+collector. It shows today's usage, 7-day charts, every quota window with its
+own freshness, provider details and a History window. It reads data through
+the read-only reporting command (`ai_usage_report.py`, schema
+`ai-usage/report/v1`, see [docs/CLI.md](docs/CLI.md)). **Collect now** runs the
+installed collector's existing `once` command. Quitting the app never stops
+the collector.
+
+```bash
+make app-build          # macos/build/AI Usage.app (ad-hoc signed, local use)
+make app-run            # launch against the installed collector
+make app-run-sandbox    # launch against an isolated synthetic sandbox
+make report             # print the JSON report for ~/.ai-usage (read-only)
+```
+
+Design and specs:
+
+- [DESIGN.md](DESIGN.md) and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md);
+- the accepted handoff in [docs/design/app/](docs/design/app/);
+- [docs/APP.md](docs/APP.md).
+
 ## Tests
 
 ```bash
 make help
-make test
+make test        # collector and reporting tests
 make check
+make app-test    # Swift tests, including an isolated sandbox end-to-end run
+make spec-check ARGS=--strict && make design-check ARGS=--strict
 ```
 
 The fixture suite uses fake provider binaries and asserts that only the Codex

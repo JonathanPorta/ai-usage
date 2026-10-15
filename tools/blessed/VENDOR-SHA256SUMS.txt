@@ -1,0 +1,5 @@
+f3a77e75cf88530eae5253689e855870addbb7a8d8d5a82d786a58bb9342ee92  scripts/design-check.sh
+8c2b461aed9da452b9ed7f86296f19849c4d88eaf7b67da4297207bef96a2a7a  scripts/lib-json-schema.sh
+9810d7cfae80d5550a67e249596829f08bbe336db572f739b7c970a46f7ed55c  scripts/spec-check.sh
+530afc3a24e140a56f7670e226aac823915a9538f1ec843af632ed442f885c45  scripts/spec-scaffold.sh
+fba6446142a956540e7d0d02dae3cde690b668b55ef4c34d6dcbdc62b0d86495  standards/design-system/references/design-handoff.schema.json

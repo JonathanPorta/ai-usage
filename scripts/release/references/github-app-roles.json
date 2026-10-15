@@ -1,0 +1,32 @@
+{
+  "_comment": "The canonical PR-opening GitHub App roles (standards/releases/release-pr.md RP-6). Only the repository it is installed on, and the BWS project and Environment that hold its key, are per repository. app-token-prepare.sh enforces these against GitHub's own records on every run; the provisioning walkthrough registers Apps from them.",
+  "schema": "blessed/github-app-roles/v1",
+  "roles": {
+    "release-pr": {
+      "app_name": "<repository>-release-pr",
+      "environment": "release-pr",
+      "loader_profile": "release-pr",
+      "env_prefix": "RELEASE_PR",
+      "bwsm_project": "<repository>-release-pr",
+      "machine_account": "<repository>-release-pr-ci",
+      "installed_on": "exactly the one producer repository (Only select repositories)",
+      "webhook": { "active": false, "events": [] },
+      "installable": "only on this account",
+      "permissions": { "contents": "write", "issues": "write", "metadata": "read", "pull_requests": "write" },
+      "reader_job": ".github/workflows/release.yml → release-please"
+    },
+    "admission-pr": {
+      "app_name": "<surface>-admission-pr",
+      "environment": "admission-pr",
+      "loader_profile": "admission-pr",
+      "env_prefix": "ADMISSION_PR",
+      "bwsm_project": "<surface>-admission-pr",
+      "machine_account": "<surface>-admission-pr-ci",
+      "installed_on": "exactly the one surface repository (Only select repositories)",
+      "webhook": { "active": false, "events": [] },
+      "installable": "only on this account",
+      "permissions": { "contents": "write", "metadata": "read", "pull_requests": "write" },
+      "reader_job": ".github/workflows/admit-candidate.yml → open-pr"
+    }
+  }
+}

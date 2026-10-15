@@ -37,8 +37,26 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, O
 import uuid
 
 
-VERSION = "2.1.0"
-SERVICE_LABEL = "codes.porta.ai-usage"
+VERSION = "2.2.0"
+PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
+TEST_SERVICE_LABEL_PREFIX = f"{PRODUCTION_SERVICE_LABEL}.test."
+
+
+def resolve_service_label() -> str:
+    """The LaunchAgent label. AI_USAGE_SERVICE_LABEL exists only for the
+    explicitly invoked real-launchd integration check, and may only name a
+    disposable `codes.porta.ai-usage.test.*` agent, never the real one."""
+    override = os.environ.get("AI_USAGE_SERVICE_LABEL")
+    if override is None:
+        return PRODUCTION_SERVICE_LABEL
+    if not re.fullmatch(re.escape(TEST_SERVICE_LABEL_PREFIX) + r"[A-Za-z0-9-]{4,64}", override):
+        raise SystemExit(
+            f"ai-usage: AI_USAGE_SERVICE_LABEL must look like {TEST_SERVICE_LABEL_PREFIX}<id>; refusing {override!r}"
+        )
+    return override
+
+
+SERVICE_LABEL = resolve_service_label()
 DEFAULT_ROOT = Path.home() / ".ai-usage"
 DEFAULT_CONFIG_PATH = DEFAULT_ROOT / "config.json"
 DEFAULT_INSTALLED_SCRIPT = DEFAULT_ROOT / "collector.py"
@@ -86,6 +104,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "format_version": 1,
     "poll_interval_seconds": 3600,
     "poll_on_start": True,
+    "poll_paused": False,
     "paths": {
         "usage_csv": "~/.ai-usage/usage.csv",
         "log_file": "~/.ai-usage/collector.log",
@@ -217,6 +236,9 @@ def validate_config(config: Mapping[str, Any]) -> None:
         raise ValueError("poll_interval_seconds must be at least 60")
     if interval > 604800:
         raise ValueError("poll_interval_seconds must not exceed 604800")
+    for flag in ("poll_on_start", "poll_paused"):
+        if flag in config and not isinstance(config[flag], bool):
+            raise ValueError(f"{flag} must be true or false")
 
     paths = config.get("paths")
     if not isinstance(paths, Mapping):
@@ -3865,6 +3887,7 @@ def collect_snapshot(
     config: Mapping[str, Any],
     include_history: bool,
     state: MutableMapping[str, Any],
+    progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[dict[str, Any]]:
     collected_at = iso_utc(utc_now())
     handlers: dict[
@@ -3882,8 +3905,13 @@ def collect_snapshot(
     }
 
     rows: list[dict[str, Any]] = []
+    enabled = [
+        name for name in handlers if provider_config(config, name).get("enabled", True) is True
+    ]
     for name, handler in handlers.items():
         settings = provider_config(config, name)
+        if progress is not None and name in enabled:
+            progress(name, enabled.index(name) + 1, len(enabled))
         if settings.get("enabled", True) is not True:
             rows.append(
                 metric_row(
@@ -4189,6 +4217,15 @@ class FilesystemTransaction:
                     elif path.exists():
                         raise ValueError(f"rollback target became a directory: {path}")
                 else:
+                    if (
+                        path.is_file()
+                        and not path.is_symlink()
+                        and stat.S_IMODE(path.stat().st_mode) == int(record["mode"])
+                        and file_sha256(path) == file_sha256(Path(record["backup"]))
+                    ):
+                        # Unchanged since the snapshot (e.g. the write that failed
+                        # never replaced it): nothing to restore.
+                        continue
                     self.ensure_directory(path.parent)
                     descriptor, temporary_name = tempfile.mkstemp(
                         prefix=f".{path.name}.rollback-", dir=str(path.parent)
@@ -4529,12 +4566,10 @@ def apply_managed_file(plan: Mapping[str, Any], tx: FilesystemTransaction) -> No
 
 
 def launch_agent(domain: str) -> None:
-    bootstrap = run_launchctl(
-        ["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=False
-    )
-    if bootstrap.returncode != 0:
-        run_launchctl(["load", "-w", str(DEFAULT_PLIST_PATH)], check=True)
+    # Explicit order: clear any persistent disable (e.g. from `stop`) first,
+    # then bootstrap, then make sure it runs. No legacy `load -w` side effects.
     run_launchctl(["enable", f"{domain}/{SERVICE_LABEL}"], check=True)
+    run_launchctl(["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=True)
     run_launchctl(["kickstart", "-k", f"{domain}/{SERVICE_LABEL}"], check=True)
 
 
@@ -4608,11 +4643,28 @@ def install_service(config_path: Path, no_start: bool) -> None:
 
     domain = f"gui/{os.getuid()}"
     service_loaded = False
+    prior_disabled: Optional[bool] = None
     if not no_start:
         service_loaded = (
             run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False).returncode
             == 0
         )
+        # Starting re-enables the agent; a failed install must put this back.
+        prior_disabled = launchd_disabled(domain)
+
+    def restore_disabled_state(error: BaseException) -> None:
+        """After a failed install, re-disable an agent that was disabled before."""
+        if prior_disabled is not True or not launch_attempted:
+            return
+        target = f"{domain}/{SERVICE_LABEL}"
+        try:
+            run_launchctl(["disable", target], check=True)
+        except Exception as restore_error:
+            raise RuntimeError(
+                f"installation failed ({error}); files were restored, but the collector "
+                f"could not restore its disabled state ({restore_error}). It was disabled "
+                f"(stopped at login) before this install; run `launchctl disable {target}`"
+            ) from error
 
     tx = FilesystemTransaction(DEFAULT_ROOT.parent)
     service_stopped = False
@@ -4689,22 +4741,37 @@ def install_service(config_path: Path, no_start: bool) -> None:
             except Exception:
                 cleanup_failed = True
         if cleanup_failed:
+            # The new service may still be running: leave launchd as it is.
             raise RuntimeError(
                 f"installation failed ({error}) and the new service could not be "
                 f"stopped safely; installed files and recovery artifacts were preserved at "
                 f"{tx.recovery_dir}"
             ) from error
-        tx.rollback(preserve_recovery=service_stopped)
+        try:
+            tx.rollback(preserve_recovery=service_stopped)
+        except RuntimeError as rollback_error:
+            restore_disabled_state(error)
+            if service_stopped:
+                raise RuntimeError(
+                    f"installation failed ({error}); {rollback_error}. The collector was stopped "
+                    "for this install and has NOT been restarted: restore the recovery artifacts, "
+                    "then run `collector.py start`"
+                ) from error
+            raise
         if service_stopped:
             try:
                 launch_agent(domain)
             except Exception as recovery_error:
+                restore_disabled_state(error)
                 raise RuntimeError(
                     f"installation failed ({error}); files were restored but the prior "
                     f"service could not be restarted ({recovery_error}); recovery artifacts: "
                     f"{tx.recovery_dir}"
                 ) from error
             tx.cleanup()
+        # launch_agent() enables the agent; restore a prior disable (applies to
+        # the restarted service too, as a loaded agent can be disabled).
+        restore_disabled_state(error)
         raise
 
     if no_start:
@@ -4733,6 +4800,164 @@ def print_status() -> int:
         return 0
     print("Status: not loaded")
     return 1
+
+
+def launchd_disabled(domain: str) -> Optional[bool]:
+    """launchd's persistent disable flag for the agent, or None if unknown."""
+    result = run_launchctl(["print-disabled", domain], check=False)
+    if result.returncode != 0:
+        return None
+    match = re.search(rf'"{re.escape(SERVICE_LABEL)}"\s*=>\s*(\w+)', result.stdout)
+    if not match:
+        return False
+    return match.group(1) in ("disabled", "true")
+
+
+def service_status() -> dict[str, Any]:
+    """LaunchAgent state for the menu app: installed, loaded/running, pid, disabled."""
+    status: dict[str, Any] = {
+        "label": SERVICE_LABEL,
+        "plist": str(DEFAULT_PLIST_PATH),
+        "installed": DEFAULT_PLIST_PATH.is_file(),
+        "state": "unknown",
+        "pid": None,
+        "disabled": None,
+        "detail": "",
+    }
+    if sys.platform != "darwin" or find_launchctl() is None:
+        status["detail"] = "launchctl unavailable on this system"
+        return status
+    domain = f"gui/{os.getuid()}"
+    printed = run_launchctl(["print", f"{domain}/{SERVICE_LABEL}"], check=False)
+    if printed.returncode == 0:
+        status["state"] = "loaded"
+        for line in printed.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("state =") and status["state"] == "loaded":
+                status["state"] = "running" if stripped.split("=", 1)[1].strip() == "running" else "loaded"
+            elif stripped.startswith("pid =") and status["pid"] is None:
+                try:
+                    status["pid"] = int(stripped.split("=", 1)[1].strip())
+                except ValueError:
+                    pass
+    else:
+        status["state"] = "stopped" if status["installed"] else "not_installed"
+    status["disabled"] = launchd_disabled(domain)
+    status["detail"] = f"launchctl: state = {status['state']}"
+    return status
+
+
+SERVICE_SETTLE_SECONDS = 10.0
+
+
+def wait_for_service_state(accept: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+    """Poll service_status() until `accept` holds or SERVICE_SETTLE_SECONDS pass.
+
+    launchctl bootout/bootstrap can return before the job has finished exiting
+    or starting, so the reported state is re-read until it settles."""
+    deadline = time.monotonic() + SERVICE_SETTLE_SECONDS
+    status = service_status()
+    while not accept(status) and time.monotonic() < deadline:
+        time.sleep(0.2)
+        status = service_status()
+    return status
+
+
+def start_service() -> dict[str, Any]:
+    """Re-enable the LaunchAgent and start it. Never rewrites installed files."""
+    if sys.platform != "darwin" or find_launchctl() is None:
+        raise RuntimeError("launchctl is unavailable; the collector was not started")
+    if not DEFAULT_PLIST_PATH.is_file():
+        raise RuntimeError(
+            f"the collector is not installed ({DEFAULT_PLIST_PATH} is missing); run install first"
+        )
+    domain = f"gui/{os.getuid()}"
+    target = f"{domain}/{SERVICE_LABEL}"
+    run_launchctl(["enable", target], check=True)
+    if run_launchctl(["print", target], check=False).returncode != 0:
+        run_launchctl(["bootstrap", domain, str(DEFAULT_PLIST_PATH)], check=True)
+    status = wait_for_service_state(lambda current: current["state"] == "running")
+    if status["state"] != "running":
+        run_launchctl(["kickstart", target], check=True)
+        status = wait_for_service_state(lambda current: current["state"] == "running")
+    return status
+
+
+def stop_service() -> dict[str, Any]:
+    """Disable the LaunchAgent (so it stays stopped across login) and boot it out.
+
+    Installation, configuration, and collected data are preserved."""
+    if sys.platform != "darwin" or find_launchctl() is None:
+        raise RuntimeError("launchctl is unavailable; the collector was not stopped")
+    domain = f"gui/{os.getuid()}"
+    target = f"{domain}/{SERVICE_LABEL}"
+    run_launchctl(["disable", target], check=True)
+    if run_launchctl(["print", target], check=False).returncode == 0:
+        run_launchctl(["bootout", target], check=True)
+    # bootout can return while the job is still exiting; report the settled state.
+    return wait_for_service_state(lambda current: current["state"] in ("stopped", "not_installed"))
+
+
+CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}
+
+
+def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
+    if "=" not in assignment:
+        raise ValueError(f"expected KEY=JSON_VALUE, got {assignment!r}")
+    key, raw = assignment.split("=", 1)
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{key}: value is not JSON: {raw!r}") from error
+    parts = key.split(".")
+    if parts in (["poll_paused"], ["poll_interval_seconds"]):
+        return parts, value
+    if (
+        len(parts) == 3
+        and parts[0] == "providers"
+        and parts[1] in DEFAULT_CONFIG["providers"]
+        and parts[2] in CONFIGURABLE_PROVIDER_KEYS
+    ):
+        if parts[2] == "enabled" and not isinstance(value, bool):
+            raise ValueError(f"{key} must be true or false")
+        if parts[2] == "monthly_subscription_usd" and value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0
+        ):
+            raise ValueError(f"{key} must be a non-negative number or null")
+        return parts, value
+    raise ValueError(f"{key} is not a setting the menu app may change")
+
+
+def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
+    """Apply validated settings to config.json atomically, preserving every other key.
+
+    Writes are serialized with a lock beside the config, validated against the
+    full merged config before replacing the file, and keep mode 0600."""
+    parsed = [parse_config_assignment(item) for item in assignments]
+    if not parsed:
+        raise ValueError("no settings given")
+    with exclusive_file_lock(config_path.with_name(f"{config_path.name}.lock")):
+        with config_path.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if not isinstance(raw, dict):
+            raise ValueError("config root must be a JSON object")
+        updated = copy.deepcopy(raw)
+        for parts, value in parsed:
+            node = updated
+            for part in parts[:-1]:
+                child = node.get(part)
+                if not isinstance(child, dict):
+                    child = {}
+                    node[part] = child
+                node = child
+            node[parts[-1]] = value
+        merged = deep_merge(DEFAULT_CONFIG, updated)
+        validate_config(merged)
+        mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o600
+        atomic_write_bytes(config_path, (json.dumps(updated, indent=2) + "\n").encode("utf-8"), mode=mode)
+    load_config(config_path)  # the written file must load exactly as the collector will
+    return {".".join(parts): value for parts, value in parsed}
 
 
 def detach_owned_integration(
@@ -4866,7 +5091,15 @@ def uninstall_service(config_path: Path) -> None:
     print("Service removed. Config, CSV, and logs were preserved in ~/.ai-usage/.")
 
 
-def run_once(config_path: Path) -> int:
+def emit_progress(provider: str, index: int, total: int) -> None:
+    """One JSON line per provider, for the menu app's Collect now progress."""
+    print(
+        json.dumps({"event": "provider", "provider": provider, "index": index, "total": total}),
+        flush=True,
+    )
+
+
+def run_once(config_path: Path, progress: bool = False) -> int:
     config = load_config(config_path)
     usage_path, log_path = configured_paths(config)
     state_path = state_path_for(config)
@@ -4878,10 +5111,13 @@ def run_once(config_path: Path) -> int:
         candidate_state = copy.deepcopy(state)
         local_date = datetime_module.datetime.now().date().isoformat()
         include_history = state.get("history_date") != local_date
+        # Without --progress the call is unchanged from earlier versions.
+        progress_argument = {"progress": emit_progress} if progress else {}
         rows = collect_snapshot(
             config,
             include_history=include_history,
             state=candidate_state,
+            **progress_argument,
         )
         candidate_state["history_date"] = local_date
         commit_collection_transaction(
@@ -4894,6 +5130,56 @@ def run_once(config_path: Path) -> int:
     LOGGER.info("one-shot collection completed rows=%d errors=%d", len(rows), errors)
     print(f"Appended {len(rows)} rows to {usage_path}; errors={errors}")
     return 0 if errors == 0 else 2
+
+
+SCHEDULE_TICK_ENV = "AI_USAGE_SCHEDULE_TICK_SECONDS"
+DEFAULT_SCHEDULE_TICK_SECONDS = 15.0
+
+
+def schedule_tick_seconds() -> float:
+    """How often an idle daemon re-reads its config (to notice pause/resume).
+
+    The environment override exists for tests; launchd never sets it."""
+    try:
+        value = float(os.environ.get(SCHEDULE_TICK_ENV, DEFAULT_SCHEDULE_TICK_SECONDS))
+    except ValueError:
+        return DEFAULT_SCHEDULE_TICK_SECONDS
+    return min(max(value, 0.05), DEFAULT_SCHEDULE_TICK_SECONDS)
+
+
+def schedule_decision(
+    *,
+    paused: bool,
+    was_paused: bool,
+    next_due: Optional[float],
+    now: float,
+    interval: int,
+) -> tuple[str, Optional[float]]:
+    """Decide what an idle daemon does on one tick.
+
+    Returns (action, next_due). Actions: "pause" (paused just now), "paused"
+    (still paused), "resume" (pause cleared just now; next check one interval
+    later), "wait" (not due yet) or "collect".
+    """
+    if paused:
+        return ("paused" if was_paused else "pause"), next_due
+    if was_paused:
+        return "resume", now + interval
+    if next_due is not None and now < next_due:
+        return "wait", next_due
+    return "collect", next_due
+
+
+def schedule_wait_seconds(action: str, next_due: Optional[float], now: float, tick: float) -> float:
+    """How long an idle daemon sleeps before re-reading its config.
+
+    Always positive and at most `tick`, so pause/resume and shutdown stay
+    responsive. While paused the collection deadline is irrelevant: an
+    expired deadline must not turn the pause into a zero-wait loop.
+    """
+    if action in ("pause", "paused") or next_due is None:
+        return tick
+    return min(tick, max(next_due - now, 0.01))
 
 
 def run_daemon(config_path: Path) -> int:
@@ -4909,6 +5195,9 @@ def run_daemon(config_path: Path) -> int:
 
     current_log_path: Optional[Path] = None
     first_cycle = True
+    was_paused = False
+    next_due: Optional[float] = None
+    tick = schedule_tick_seconds()
 
     while not stop_event.is_set():
         try:
@@ -4922,8 +5211,26 @@ def run_daemon(config_path: Path) -> int:
             interval = int(config["poll_interval_seconds"])
             if first_cycle and config.get("poll_on_start", True) is not True:
                 first_cycle = False
+                next_due = time.monotonic() + interval
                 LOGGER.info("initial poll deferred interval_seconds=%d", interval)
-                stop_event.wait(interval)
+            action, next_due = schedule_decision(
+                paused=config.get("poll_paused") is True,
+                was_paused=was_paused,
+                next_due=next_due,
+                now=time.monotonic(),
+                interval=interval,
+            )
+            if action == "pause":
+                # Scheduled checks stop; the daemon, Collect now (`once`) and
+                # event-driven collection are unaffected.
+                was_paused = True
+                first_cycle = False
+                LOGGER.info("scheduled checks paused; collector keeps running")
+            if action == "resume":
+                was_paused = False
+                LOGGER.info("scheduled checks resumed next_poll_seconds=%d", interval)
+            if action != "collect":
+                stop_event.wait(schedule_wait_seconds(action, next_due, time.monotonic(), tick))
                 continue
 
             with state_transaction_lock(state_path):
@@ -4945,6 +5252,7 @@ def run_daemon(config_path: Path) -> int:
                     candidate_state,
                 )
             first_cycle = False
+            next_due = time.monotonic() + interval
             errors = sum(1 for row in rows if row.get("status") == "error")
             detected = sum(
                 1
@@ -4960,7 +5268,6 @@ def run_daemon(config_path: Path) -> int:
                 errors,
                 interval,
             )
-            stop_event.wait(interval)
         except Exception as error:
             if not LOGGER.handlers:
                 fallback_log = DEFAULT_ROOT / "collector.log"
@@ -4998,6 +5305,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     once_parser = subparsers.add_parser("once", help="collect one snapshot")
     add_config_argument(once_parser)
+    once_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="print one JSON line per provider as it is read",
+    )
 
     daemon_parser = subparsers.add_parser(
         "daemon", help="run the polling loop (normally launched by launchd)"
@@ -5017,6 +5329,22 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--json", action="store_true")
 
     subparsers.add_parser("status", help="show LaunchAgent status")
+    service_status_parser = subparsers.add_parser(
+        "service-status", help="LaunchAgent state as JSON (installed, state, pid, disabled)"
+    )
+    service_status_parser.add_argument("--json", action="store_true")
+    subparsers.add_parser("start", help="re-enable and start the LaunchAgent")
+    subparsers.add_parser(
+        "stop", help="stop and disable the LaunchAgent (stays stopped at login; data kept)"
+    )
+    configure_parser = subparsers.add_parser(
+        "configure", help="atomically change menu-app settings in config.json"
+    )
+    add_config_argument(configure_parser)
+    configure_parser.add_argument(
+        "--set", action="append", default=[], metavar="KEY=JSON",
+        help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd",
+    )
     uninstall_parser = subparsers.add_parser(
         "uninstall", help="remove the service but preserve config and data"
     )
@@ -5033,7 +5361,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             install_service(arguments.config, arguments.no_start)
             return 0
         if arguments.command == "once":
-            return run_once(arguments.config)
+            return run_once(arguments.config, progress=arguments.progress)
+        if arguments.command == "service-status":
+            print(json.dumps(service_status()))
+            return 0
+        if arguments.command == "start":
+            print(json.dumps(start_service()))
+            return 0
+        if arguments.command == "stop":
+            print(json.dumps(stop_service()))
+            return 0
+        if arguments.command == "configure":
+            print(json.dumps(configure(arguments.config, arguments.set)))
+            return 0
         if arguments.command == "daemon":
             return run_daemon(arguments.config)
         if arguments.command == "antigravity-statusline":

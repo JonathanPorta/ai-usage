@@ -1,0 +1,35 @@
+schema: blessed/spec-pack/v1
+repo_type: desktop-app
+# blessed.yml records the collector as the primary daemon component; the
+# macOS menu-bar app is the desktop-app surface over it.
+status: approved
+
+core:
+  idea: docs/IDEA.md
+  mvp: docs/MVP.md
+  decisions: docs/DECISIONS.md
+
+surfaces:
+  app:
+    required: true
+    spec: docs/APP.md
+    release: docs/RELEASE.md
+    design_bucket: docs/design/app
+    handoff: docs/design/app/handoff.yml
+  icon:
+    required: true
+    design_bucket: docs/design/icon
+  cli:
+    required: true
+    spec: docs/CLI.md
+    design_bucket: docs/design/cli
+    notes: Collector commands plus the ai-usage/report/v1 reporting contract consumed by the app
+
+checks:
+  status_blocks: required
+  acceptance_criteria: required
+  design_brief: required
+  asset_inventory: required
+  build_instructions: required
+
+waivers: []
