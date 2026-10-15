@@ -314,7 +314,7 @@ Requested from the owner's History screenshots, which are private references and
 Verification:
 - Five new state-logic tests (`HistoryAvailabilityTests`); Swift 48/48.
 - Offscreen renders of every state in light and dark, at 920 pt and at 760 pt.
-- The 24 non-History baselines are byte-identical. The six History baselines are replacement candidates pending review, so `make app-snapshot-check` reports them changed until they are accepted.
+- The 24 non-History baselines are byte-identical. The six History replacements and twenty new History states were accepted on 2026-10-15, so `make app-snapshot-check` matches all 50.
 - **Live interaction is not verified:**
   - the Tokens ↔ Quota and range switching on screen, provider switching, window resizing across the breakpoint, and keyboard focus through the new mode switch;
   - "Enable tracking", "Check again" and "Provider settings…" against the sandbox.
@@ -330,13 +330,13 @@ Live sandbox check (2026-10-15, synthetic data, at `9d30c61`):
   - "Provider settings…" opens Settings on first use: verified by a controlled agent check. Build: clean tree at `bf017a7` (app sources identical to `dbc1093`), executable sha256 `6567c577d179d49e5fb228350b361a390b58b20d8c412ab0b2aff333e3b0a010`, a fresh sandbox instance whose popover had not been opened. History → Gemini CLI → one "Provider settings…" click opened the popover directly on Settings for that instance (its sandbox config path shown). An earlier owner observation of Settings opening had unconfirmed build and launch conditions and is not counted. The earlier "popover did not appear" readings were a tool limit: the popover window sits at window layer 101, which the automation's window list omits.
 - Keyboard: the "About these numbers" focus ring was drawn in the disclosure triangle's gutter, over the sidebar divider; it is now drawn around the label (`dbc1093`, verified live; renders unchanged).
 - Not reproduced: a provider selection change seen once during a Tab pass; two full Tab passes and a Space selection left the selection unchanged. No cause is diagnosed.
-- These confirm behaviour only. The six History replacement baselines and twenty new states remain pending visual review.
+- These confirm behaviour only. The six History replacement baselines and twenty new states were accepted separately on 2026-10-15 (`references/README.md`).
 
 ### Current acceptance state (2026-10-11)
 
 | Item | State |
 | --- | --- |
-| Visual baselines (30 fixture renders, light and dark) | **Accepted** 2026-10-10; covers captured states only |
+| Visual baselines (50 fixture renders, light and dark) | **Accepted**: 30 on 2026-10-10; History's 6 replacements and 20 new states on 2026-10-15; covers captured states only |
 | Popover at 420 pt and short viewport, pinned header/footer; light and dark; overnight labels | Passed live |
 | Keyboard: `↑`/`↓`, chart `←`/`→`, `Esc`, `⌘R`, `⌘,` | Passed live |
 | Reopen re-read; Collect now; inline Stop/Start on the real collector; Pause/Resume | Passed live |

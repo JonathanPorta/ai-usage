@@ -7,7 +7,7 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 
 | Item | Value |
 | --- | --- |
-| Images | 30 PNGs: 15 views × light (`aqua`) and dark (`darkAqua`) |
+| Images | 50 PNGs: 25 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15 (below) |
 | Checksums | `SHA256SUMS` (identical to the package's `SHA256SUMS.txt`) |
 | Command | `make app-snapshot` (`AIUsage --snapshot .sandbox/snapshots/fixture`) |
 | Data | Committed synthetic fixture `macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json`, evaluated at 2026-09-29T16:40:00Z, `TZ=America/Denver` |
@@ -15,6 +15,24 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 | Toolchain | macOS 26.6.1, Swift 6.4 |
 | Rendered at | 28 images at `3d88c7b`; `detail-gemini_cli-tokens-{light,dark}.png` at `425699b` |
 | Re-verified | A fresh render at `22a5c56` is byte-identical to all 30 |
+
+## History update (accepted 2026-10-15)
+
+Accepted by the owner (Jonathan) on 2026-10-15 ("accept D3") from the review checkpoint
+`ai-usage-history-review-48b7ac0.zip`
+(sha256 `4404fa0fbd422508bf8cd60fd7e7cb61fea093ddd13bc18a41bf45b688ddf041`;
+review page https://claude.ai/artifact/LXT3hwaqpWU1cwb9SLWi9t).
+
+| Item | Value |
+| --- | --- |
+| Replaced (6) | `history-tokens`, `history-tokens-claude`, `history-quota`, light and dark |
+| Added (20) | `history-tokens-90d`, `history-quota-grok`, `history-tokens-narrow`, `history-tokens-claude-narrow`, `history-quota-narrow`, `history-empty-not-detected`, `history-empty-not-detected-narrow`, `history-empty-tracking-off`, `history-empty-no-usage`, `history-empty-none-in-range`, light and dark |
+| Rendered at | `48b7ac0` (History fixes); byte-identical at `dbc1093` (focus ring) and `eff480f` |
+| Toolchain | macOS 26.6.1, Swift 6.4 |
+| Re-verified | A fresh `make app-snapshot-check` at `eff480f` matches all 50 |
+
+Functional behaviour of the History fixes was verified separately in a live sandbox
+(`../design.md#verification`); this acceptance covers the rendered states only.
 
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 
