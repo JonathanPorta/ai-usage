@@ -2199,9 +2199,11 @@ for line in sys.stdin:
         for target in ("make check", "make fixture-check", "make app-test", "make app-build"):
             self.assertIn(f"run: {target}", fallback.group(1))
         # Hosted only after a valid answer that did not displace the lane.
-        # On by default, off when the MACOS_HOSTED_FALLBACK variable is `off`.
+        # Capacity answers only (CAPACITY_JQ), on by default, off when the
+        # MACOS_HOSTED_FALLBACK variable is `off`.
         self.assertIn("HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}", workflow)
-        self.assertRegex(workflow, r'elif \[ -n "\$answer" \] && \[ "\$\{HOSTED_FALLBACK\}" != "off" \]; then\n\s+hosted=true')
+        self.assertRegex(workflow, r'elif \[ -n "\$answer" \] && echo "\$answer" \| jq -e "\$\{CAPACITY_JQ\}" >/dev/null && \[ "\$\{HOSTED_FALLBACK\}" != "off" \]; then\n\s+hosted=true')
+        self.assertEqual(workflow.count("hosted=true"), 1)
         self.assertIn("needs: [plan, check-linux, spec-and-design, macos-hosted]", workflow)
         code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("pull_request_target", code)
@@ -2265,6 +2267,50 @@ for line in sys.stdin:
         for name, (body, expected) in rejected.items():
             with self.subTest(name):
                 self.assertFalse(displaced(body, expected))
+
+    def test_hosted_fallback_only_for_missing_proofglass_capacity(self) -> None:
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is not installed")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = re.search(r"# BEGIN CAPACITY_JQ\n\s*CAPACITY_JQ: >-\n(.*?)\n\s*# END CAPACITY_JQ", workflow, re.S)
+        self.assertIsNotNone(block)
+        program = " ".join(line.strip() for line in block.group(1).splitlines())
+        # Shapes of ProofGlass's capacity refusals (worker/src/ci/admission.ts:
+        # noLaneWhy + hostedLanes): the only refusals that carry lanes[].
+        lane = {"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": [],
+                "reason": "hosted: no eligible supervisor online for ai-usage-macos@1"}
+        offline = {"mode": "displace", "admitted": False, "offloaded": [], "lanes": [dict(lane)],
+                   "reason": "no eligible supervisor online (ai-usage-macos@1: supervisor paused); hosted execution retained"}
+        full = dict(offline, reason="no lane can be offloaded now (ai-usage-macos@1: predicted wait 17m exceeds target 10m); hosted execution retained",
+                    lanes=[dict(lane, reason="hosted: predicted wait 17m exceeds target 10m (interactive; 1 job(s) ahead on 1 slot(s))")])
+
+        def capacity(body: dict) -> bool:
+            result = subprocess.run([jq, "-e", program], input=json.dumps(body), capture_output=True, text=True)
+            self.assertIn(result.returncode, (0, 1), result.stderr)
+            return result.returncode == 0
+
+        self.assertTrue(capacity(offline))
+        self.assertTrue(capacity(full))
+        rejected = {
+            "trust denial (ruleset evidence)": {"mode": "off", "admitted": False, "offloaded": [],
+                                                "reason": "ruleset 24873836 bypass evidence unavailable"},
+            "policy denial": {"mode": "off", "admitted": False, "offloaded": [], "reason": "repository is not in the CI policy"},
+            "older attempt": {"mode": "displace", "admitted": False, "offloaded": [],
+                              "reason": "run 1 attempt 1 is older than the current admission"},
+            "capacity words without lanes": {k: v for k, v in offline.items() if k != "lanes"},
+            "admitted (displaced)": dict(offline, admitted=True),
+            "shadow admission": dict(offline, admitted=True, mode="shadow", reason="Pull-request routing is in shadow mode"),
+            "lane offloaded": dict(offline, lanes=[dict(lane, offloaded=[{}])]),
+            "lane not kept hosted": dict(offline, lanes=[dict(lane, reason="displaced")]),
+            "another profile": dict(offline, lanes=[dict(lane, profile="ai-usage-macos@2")]),
+            "duplicate lane": dict(offline, lanes=[dict(lane), dict(lane)]),
+            "malformed lanes": dict(offline, lanes="ai-usage-macos@1"),
+            "non-string reason": dict(offline, reason=None),
+        }
+        for name, body in rejected.items():
+            with self.subTest(name):
+                self.assertFalse(capacity(body))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

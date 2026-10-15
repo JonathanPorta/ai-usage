@@ -12,15 +12,13 @@ name: tests
 #
 # Heavy macOS work (Swift build and tests, the macOS Python checks) runs in a fresh
 # disposable ProofGlass macOS VM when ProofGlass displaces the `ai-usage-macos@1`
-# lane. When ProofGlass answers but does not displace it (no Mac builder free:
-# paused, draining, offline, full, or shadow), the same commands run once on a
-# GitHub-hosted macOS runner instead (owner decision, proofglass#170). When no
-# builder is free, ProofGlass holds no job for the lane, so nothing runs twice.
-# The one exception is a shadow admission (main, until it is promoted to
-# displace): ProofGlass also runs a non-authoritative `[shadow]` comparison job
-# on its Mac, and the hosted result stays the verdict. Without a valid answer
-# (route error, fork, other event, not enrolled) the lane is BLOCKED and the
-# `PR test gate` fails: an unexecuted lane is never green.
+# lane. When ProofGlass answers that it has no Mac builder for it (capacity only:
+# offline, paused, draining, stale, or full), the same commands run once on a
+# GitHub-hosted macOS runner instead (owner directive, proofglass#170); ProofGlass
+# then holds no job for the lane, so nothing runs twice. Every other outcome is
+# BLOCKED and the `PR test gate` fails, because the fallback must never conceal an
+# authorization or policy denial, shadow mode, invalid input or a route error
+# (route error, fork, other event, not enrolled): an unexecuted lane is never green.
 #
 # This follows the ProofGlass CI-offload contract (proofglass docs/ci-offload.md)
 # on both paths, as its reference consumers do (docsort for pull requests,
@@ -51,8 +49,8 @@ jobs:
   # and only when the repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork
   # pull requests never reach the call (ProofGlass refuses them as well). Any
   # error, timeout, malformed body, shadow mode, ineligible lane or empty
-  # `offloaded` list means "not displaced". A valid answer that does not displace
-  # the lane sends it to the hosted macOS fallback; no valid answer BLOCKS it (a
+  # `offloaded` list means "not displaced". Only a capacity answer (CAPACITY_JQ)
+  # sends the lane to the hosted macOS fallback; everything else BLOCKS it (a
   # timed-out call may still have admitted the lane, so it never runs hosted too).
   # No `${{ }}` inside shell bodies; inputs arrive through env.
   plan:
@@ -76,9 +74,12 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
-          # Owner directive (2026-10-15): fall back to hosted macOS by default. Set the
-          # repository variable MACOS_HOSTED_FALLBACK to `off` to wait for a Proof
-          # Glass Mac instead (the lane is then BLOCKED until a re-run is admitted).
+          # Owner directive (2026-10-15): fall back to hosted macOS by default when no
+          # ProofGlass Mac is free. MACOS_HOSTED_FALLBACK=off is an INTERIM opt-out:
+          # the lane then fails closed (BLOCKED) instead of running hosted; it is not
+          # a bounded wait. The bounded wait for pull requests is ProofGlass#166's
+          # per-lane `pull_requests_offline: "wait"` once deployed; waiting on main
+          # pushes needs a separate ProofGlass extension.
           HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}
           # The displacement decision (tested against fixture answers in
           # test_ai_usage_service.py). Displaced only when admitted in displace mode,
@@ -93,6 +94,19 @@ jobs:
             def lane: view as $v | if $v == null then false else ($v | map(select(.profile == "ai-usage-macos@1"))) as $m | ($m|length) == 1 and $m[0].mode == "displace" and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) > 0 end;
             .admitted == true and .mode == "displace" and ($expected != "") and .overall.name == $expected and (.overall.check_run_id|type) == "number" and .overall.check_run_id > 0 and lane
           # END DISPLACED_JQ
+          # The hosted fallback is for missing capacity only (owner OD-2a): it must
+          # never conceal an authorization failure, invalid input or a test failure.
+          # ProofGlass marks a capacity answer structurally: it is the only refusal
+          # that carries lanes[] (worker/src/ci/admission.ts, hostedLanes), with the
+          # reason "no eligible supervisor online" (offline, paused, draining, stale)
+          # or "no lane can be offloaded now" (full: predicted wait over target), and
+          # this lane kept hosted ("hosted: ...", nothing offloaded). The answer has
+          # no typed cause field; these phrases are pinned by test_ai_usage_service.py.
+          # Shadow, an older attempt, a trust or policy denial are not capacity.
+          # BEGIN CAPACITY_JQ
+          CAPACITY_JQ: >-
+            .admitted == false and (.reason|type) == "string" and ((.reason|startswith("no eligible supervisor online")) or (.reason|startswith("no lane can be offloaded now"))) and (.lanes|type) == "array" and (.lanes|all(type == "object")) and ([.lanes[] | select(.profile == "ai-usage-macos@1")] as $m | ($m|length) == 1 and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) == 0 and ($m[0].reason|type) == "string" and ($m[0].reason|startswith("hosted: ")))
+          # END CAPACITY_JQ
         run: |
           set -euo pipefail
           routed=false; macos=false; hosted=false; reason=""
@@ -129,11 +143,13 @@ jobs:
           if [ -n "$answer" ] && echo "$answer" | jq -e '.admitted == true' >/dev/null; then routed=true; fi
           if [ -n "$answer" ] && echo "$answer" | jq -e --arg expected "${expected}" "${DISPLACED_JQ}" >/dev/null; then
             macos=true
-          elif [ -n "$answer" ] && [ "${HOSTED_FALLBACK}" != "off" ]; then
+          elif [ -n "$answer" ] && echo "$answer" | jq -e "${CAPACITY_JQ}" >/dev/null && [ "${HOSTED_FALLBACK}" != "off" ]; then
             hosted=true
-            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
+            reason="$(echo "$answer" | jq -r '"no ProofGlass Mac builder is available (\(.reason))"')"
+          elif [ -n "$answer" ] && echo "$answer" | jq -e "${CAPACITY_JQ}" >/dev/null; then
+            reason="$(echo "$answer" | jq -r '"no ProofGlass Mac builder is available (\(.reason)) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off, interim: fails closed)"')"
           elif [ -n "$answer" ]; then
-            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given")) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off)"')"
+            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane and the cause is not missing capacity, so it is not run hosted (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
           fi
           {
             echo "routed=${routed}"
@@ -146,7 +162,7 @@ jobs:
           elif [ "${hosted}" = "true" ]; then
             echo "::notice::macOS lane runs on a GitHub-hosted macOS runner: ${reason}"
           else
-            echo "::warning::macOS lane BLOCKED (no valid ProofGlass answer): ${reason}"
+            echo "::warning::macOS lane BLOCKED: ${reason}"
           fi
 
   # ---- Lightweight hosted checks (Linux) --------------------------------------
@@ -325,7 +341,7 @@ jobs:
           fi
           echo "hosted Linux and spec/design legs succeeded"
           if [ "${MACOS_DISPLACED}" != "true" ]; then
-            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. Without a valid ProofGlass answer it runs neither in a ProofGlass VM nor on the hosted fallback. Use 'Re-run all jobs' once the route answers."
+            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. It runs on the hosted fallback only when ProofGlass reports missing capacity. Fix the cause, or use 'Re-run all jobs' once the route answers."
             exit 1
           fi
           if [ "${EVENT}" = "push" ]; then
