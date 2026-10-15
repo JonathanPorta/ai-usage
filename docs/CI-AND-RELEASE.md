@@ -8,9 +8,9 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 
 | Area | State | Remaining dependency |
 | --- | --- | --- |
-| Hosted CI | Linux only: Python 3.9 and 3.14, spec/design checks, vendored-script and candidate-plan checks | — |
-| macOS lane, pull requests | Never on a hosted runner. Runs only when Proof Glass displaces `ai-usage-macos@1`; verdict `proofglass / pr-gate`. Otherwise `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154) and [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15) merged; supervisor upgraded; control-plane shadow trial passed on PR #5, 2026-10-14); then a separately approved promotion to displace |
-| macOS lane, main | The Proof Glass protected-main contract: the push is routed and judged by `proofglass / overall`. Not displaced means BLOCKED, so **main is red until the lane is displaced on main** | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
+| Hosted CI | Linux: Python 3.9 and 3.14, spec/design checks, vendored-script and candidate-plan checks. macOS only as the fallback below | — |
+| macOS lane, pull requests | Runs in a disposable Proof Glass VM when Proof Glass displaces `ai-usage-macos@1` (verdict `proofglass / pr-gate`). When Proof Glass answers without displacing it (no Mac builder free: paused, draining, offline, full), the same commands run once on a GitHub-hosted `macos-26` runner with Xcode 26.5, and Proof Glass concludes `proofglass / pr-gate` hosted (owner decision 2026-10-15, [proofglass#170](https://github.com/JonathanPorta/proofglass/issues/170)). Without a valid answer the lane is BLOCKED and `PR test gate` fails with the reason | Enrollment ([proofglass#154](https://github.com/JonathanPorta/proofglass/pull/154) and [proofglass-supervisor#15](https://github.com/JonathanPorta/proofglass-supervisor/pull/15) merged; supervisor upgraded; control-plane shadow trial passed on PR #5, 2026-10-14); then a separately approved promotion to displace |
+| macOS lane, main | The Proof Glass protected-main contract: the push is routed and, when displaced, judged by `proofglass / overall`. A valid answer that does not displace the lane (main is still shadow) sends it to the same hosted fallback, so main's `PR test gate` reflects the hosted macOS result until main is promoted | The above, plus Proof Glass's ruleset inspector token extended to ai-usage (operator) |
 | Merge protection | **Transitional ruleset active** (id 24873836): pull request required, `check (ubuntu-latest, 3.9)` and `check (ubuntu-latest, 3.14)` strict, no bypass. PR #4 merged as `9946386`; its merge push was deliberately **not run** | Final ruleset before PR #5 merges |
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
 | Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | OD-2 settles the executor (Proof Glass). Implementation in progress upstream (proofglass#157, blessed-cicd#361); H-1 is still open; Apple credential creation is on hold |
@@ -47,7 +47,7 @@ protected main).
   `workflow_run` or privileged downstream workflow.
 - **Token:** `contents: read`; `plan` and `gate` add only `id-token: write` (Proof
   Glass OIDC). They check out nothing and run no repository code. The contract test
-  fails on any other write scope, a hosted macOS runner, or a privileged trigger.
+  fails on any other write scope, any hosted macOS job other than the single gated fallback, or a privileged trigger.
 - **plan** asks Proof Glass (OIDC, body `{}`) about a same-repository PR into main
   or a push to main, if `PROOFGLASS_CI_ROUTE_URL` is set. Forks never reach the call.
   The answer counts as displaced only when it is admitted in `displace` mode with
@@ -74,8 +74,9 @@ behind), the right repository (E2), and a repository whose ruleset requires a pu
 request and the policy's contexts with the strict policy and no bypass actors (E4).
 It inspects the ruleset with its own operator-held token; this workflow holds no
 privileged credential. `proofglass / overall` is a post-push verdict and is not
-listed in any ruleset (Proof Glass P10). ai-usage has no hosted macOS fallback, so
-until main's lane is in `displace` mode, every push to main is red with the reason.
+listed in any ruleset (Proof Glass P10). Until main's lane is in `displace` mode, a
+push to main whose route answer does not displace the lane runs it on the hosted
+macOS fallback instead; a push with no valid answer is red with the reason.
 
 ### Negative controls
 
@@ -159,7 +160,7 @@ until main's lane is in `displace` mode, every push to main is red with the reas
 Next phase: PR enforcement, **prepared, not applied** (owner approval needed):
 
 - **Policy:** [proofglass#164](https://github.com/JonathanPorta/proofglass/pull/164) sets only the ai-usage lane's `pull_requests_mode` to `"displace"`; main stays `"shadow"`. Deploying it changes the PR policy version, not the main one.
-- **Final ruleset** (replaces 24873836 in place; same rules, PR required, strict, deletion and force-push protection, no bypass): required checks `PR test gate` (GitHub Actions, 15368) and `proofglass / pr-gate` (Proof Glass, 3987831). `PR test gate` succeeds only when the route plan, both Linux checks and `spec-and-design` succeed and the macOS lane was displaced, so it covers the two Linux contexts it replaces. `proofglass / overall` is a post-push check and is not required for merging. Only #5's branch carries the workflow that produces `PR test gate`; a branch without it stays blocked.
+- **Final ruleset** (replaces 24873836 in place; same rules, PR required, strict, deletion and force-push protection, no bypass): required checks `PR test gate` (GitHub Actions, 15368) and `proofglass / pr-gate` (Proof Glass, 3987831). `PR test gate` succeeds only when the route plan, both Linux checks and `spec-and-design` succeed and the macOS lane was executed (displaced to Proof Glass, or passed on the hosted fallback), so it covers the two Linux contexts it replaces. `proofglass / overall` is a post-push check and is not required for merging. Only #5's branch carries the workflow that produces `PR test gate`; a branch without it stays blocked.
 - **Order:** deploy #164 → a fresh displace admission and guest run for #5's current head (shadow results do not count) → both required checks green from the right producers on that head → only then replace the ruleset and verify it through the API.
 - **Rollback:** revert #164 (the merge redeploys) and keep the ruleset and `PROOFGLASS_CI_ROUTE_URL`. ai-usage merges are then blocked (`PR test gate` reports the lane BLOCKED); this is deliberate and does not restore enforced macOS CI. Linux-only requirements, bypass actors and hosted macOS execution are not restored.
 - **Later, separately:** inspector access for ai-usage (`PROOFGLASS_CI_RULESET_TOKEN`), then main displace.
@@ -231,7 +232,7 @@ Current state, 2026-10-12.
   - signing, notarization and stapling before the candidate digests;
   - separate code-signing, notarization and publication authorities;
   - an App Store Connect API key, never an account password.
-- **Executor (decided, OD-2, blessed-cicd #362, merged):** Proof Glass is the only macOS and Windows executor. That covers builds, tests, signing, notarization, stapling and credential canaries, with no hosted fallback. Ordinary build and test guests stay credential-free. Signing runs in a dedicated native-finalization workload.
+- **Executor (decided, OD-2, blessed-cicd #362, merged):** Proof Glass is the only macOS and Windows executor for release work: release builds, signing, notarization, stapling and credential canaries, with no hosted fallback. Exception for ordinary, credential-free test CI (owner decision 2026-10-15, proofglass#170): when no Proof Glass Mac is available, the PR and main test lane falls back to a GitHub-hosted macOS runner. Ordinary build and test guests stay credential-free. Signing runs in a dedicated native-finalization workload.
 - **Implementation, in progress upstream (ai-usage adds nothing of its own):**
   - **proofglass#157 (PRD 18)** is the control plane for that workload, stacked on #154. It has OIDC admission bound to `main`, the exact workflow, Environment and run attempt, and its predecessors' evidence digests. It defines authority-scoped profiles (`macos-devid-sign` with `apple-codesign`, `macos-devid-notarize` with `apple-notary`, `macos-devid-staple`, the canaries) and authority-scoped supervisor tokens.
   - The supervisor half and the Blessed integration are separate, later PRs.

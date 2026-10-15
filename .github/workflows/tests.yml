@@ -10,11 +10,14 @@ name: tests
 # - No caches and no artifacts are produced, so nothing built from a pull request
 #   can reach another job, workflow, or release.
 #
-# Heavy macOS work (Swift build and tests, the macOS Python checks) is never run on
-# a GitHub-hosted macOS runner here. It runs only when Proof Glass displaces the
-# `ai-usage-macos@1` lane into a fresh disposable macOS VM. Otherwise the macOS lane
-# is reported as BLOCKED and the `PR test gate` fails: an unexecuted lane is never
-# green, whether the reason is shadow mode, missing capacity or no enrollment.
+# Heavy macOS work (Swift build and tests, the macOS Python checks) runs in a fresh
+# disposable Proof Glass macOS VM when Proof Glass displaces the `ai-usage-macos@1`
+# lane. When Proof Glass answers but does not displace it (no Mac builder free:
+# paused, draining, offline, full, or shadow), the same commands run once on a
+# GitHub-hosted macOS runner instead (owner decision, proofglass#170). Proof Glass
+# then holds no job for the lane, so nothing runs twice. Without a valid answer
+# (route error, fork, other event, not enrolled) the lane is BLOCKED and the
+# `PR test gate` fails: an unexecuted lane is never green.
 #
 # This follows the Proof Glass CI-offload contract (proofglass docs/ci-offload.md)
 # on both paths, as its reference consumers do (docsort for pull requests,
@@ -45,8 +48,9 @@ jobs:
   # and only when the repository variable PROOFGLASS_CI_ROUTE_URL is set. Fork
   # pull requests never reach the call (Proof Glass refuses them as well). Any
   # error, timeout, malformed body, shadow mode, ineligible lane or empty
-  # `offloaded` list means "not displaced", which BLOCKS the macOS lane (no hosted
-  # macOS fallback).
+  # `offloaded` list means "not displaced". A valid answer that does not displace
+  # the lane sends it to the hosted macOS fallback; no valid answer BLOCKS it (a
+  # timed-out call may still have admitted the lane, so it never runs hosted too).
   # No `${{ }}` inside shell bodies; inputs arrive through env.
   plan:
     name: Plan (Proof Glass route)
@@ -57,6 +61,7 @@ jobs:
     outputs:
       routed: ${{ steps.route.outputs.routed }}
       macos_displaced: ${{ steps.route.outputs.macos_displaced }}
+      macos_hosted: ${{ steps.route.outputs.macos_hosted }}
       reason: ${{ steps.route.outputs.reason }}
     steps:
       - name: Ask Proof Glass which lanes are displaced
@@ -83,7 +88,7 @@ jobs:
           # END DISPLACED_JQ
         run: |
           set -euo pipefail
-          routed=false; macos=false; reason=""
+          routed=false; macos=false; hosted=false; reason=""
           answer=""; expected=""
           if [ "${EVENT}" = "push" ] && [ "${REF}" = "refs/heads/main" ]; then
             expected="proofglass / overall"
@@ -118,17 +123,21 @@ jobs:
           if [ -n "$answer" ] && echo "$answer" | jq -e --arg expected "${expected}" "${DISPLACED_JQ}" >/dev/null; then
             macos=true
           elif [ -n "$answer" ]; then
+            hosted=true
             reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
           fi
           {
             echo "routed=${routed}"
             echo "macos_displaced=${macos}"
+            echo "macos_hosted=${hosted}"
             echo "reason=${reason}"
           } >> "$GITHUB_OUTPUT"
           if [ "${macos}" = "true" ]; then
             echo "::notice::macOS lane displaced to a disposable Proof Glass VM (verdict: ${expected})"
+          elif [ "${hosted}" = "true" ]; then
+            echo "::notice::macOS lane runs on a GitHub-hosted macOS runner: ${reason}"
           else
-            echo "::warning::macOS lane BLOCKED (no hosted macOS fallback): ${reason}"
+            echo "::warning::macOS lane BLOCKED (no valid Proof Glass answer): ${reason}"
           fi
 
   # ---- Lightweight hosted checks (Linux) --------------------------------------
@@ -173,14 +182,48 @@ jobs:
       - name: Release candidate plan (secret-free; no build, no key)
         run: make release-plan-check
 
+  # ---- Hosted macOS fallback (only when Proof Glass did not take the lane) ------
+  # The same commands as the ai-usage-macos@1 guest, on the toolchain it pins
+  # (Xcode 26.5). Runs at most once per run attempt and never alongside a
+  # displaced lane.
+  macos-hosted:
+    name: macOS (hosted fallback)
+    needs: plan
+    if: needs.plan.outputs.macos_hosted == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - name: Select Xcode 26.5
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.5.app
+          xcodebuild -version
+          swift --version
+      - name: Canonical checks
+        run: make check
+      - name: Fixture contract
+        run: make fixture-check
+      - name: Swift tests
+        run: make app-test
+      - name: App build
+        run: make app-build
+
   # ---- Gate (always runs; the single verdict a ruleset should require) --------
-  # Succeeds only when every hosted leg succeeded AND the macOS lane was displaced
-  # to Proof Glass, on pull requests and on main alike. When admitted, the hosted
+  # Succeeds only when every hosted leg succeeded AND the macOS lane was executed:
+  # displaced to Proof Glass, or run and passed on the hosted fallback. When admitted, the hosted
   # outcome is reported once so the Worker can combine it with the VM result in
   # its own verdict (`proofglass / pr-gate` or `proofglass / overall`).
   gate:
     name: PR test gate
-    needs: [plan, check-linux, spec-and-design]
+    needs: [plan, check-linux, spec-and-design, macos-hosted]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -193,12 +236,17 @@ jobs:
           PLAN_RESULT: ${{ needs.plan.result }}
           LINUX_RESULT: ${{ needs.check-linux.result }}
           SPEC_RESULT: ${{ needs.spec-and-design.result }}
+          MACOS_HOSTED: ${{ needs.plan.outputs.macos_hosted }}
+          MACOS_HOSTED_RESULT: ${{ needs.macos-hosted.result }}
         run: |
           set -euo pipefail
           bad=""
           [ "${PLAN_RESULT}" = "success" ] || bad="${bad} plan:${PLAN_RESULT}"
           [ "${LINUX_RESULT}" = "success" ] || bad="${bad} check-linux:${LINUX_RESULT}"
           [ "${SPEC_RESULT}" = "success" ] || bad="${bad} spec-and-design:${SPEC_RESULT}"
+          if [ "${MACOS_HOSTED}" = "true" ]; then
+            [ "${MACOS_HOSTED_RESULT}" = "success" ] || bad="${bad} macos-hosted:${MACOS_HOSTED_RESULT}"
+          fi
           bad="${bad# }"
           if [ -n "$bad" ]; then echo "result=failure" >> "$GITHUB_OUTPUT"; else echo "result=success" >> "$GITHUB_OUTPUT"; fi
           echo "bad=${bad}" >> "$GITHUB_OUTPUT"
@@ -256,14 +304,19 @@ jobs:
         env:
           HOSTED_BAD: ${{ steps.gate.outputs.bad }}
           MACOS_DISPLACED: ${{ needs.plan.outputs.macos_displaced }}
+          MACOS_HOSTED: ${{ needs.plan.outputs.macos_hosted }}
           REASON: ${{ needs.plan.outputs.reason }}
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if [ -n "${HOSTED_BAD}" ]; then echo "::error::hosted legs did not succeed: ${HOSTED_BAD}"; exit 1; fi
+          if [ "${MACOS_HOSTED}" = "true" ]; then
+            echo "hosted legs succeeded, including the macOS lane on the hosted fallback (${REASON})"
+            exit 0
+          fi
           echo "hosted Linux and spec/design legs succeeded"
           if [ "${MACOS_DISPLACED}" != "true" ]; then
-            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. It runs only in a disposable Proof Glass VM (profile ai-usage-macos@1); there is no hosted macOS fallback. Run 'make check app-test app-build' locally for evidence, or enroll the repository in Proof Glass."
+            echo "::error::macOS lane BLOCKED, not run: ${REASON:-unknown}. Without a valid Proof Glass answer it runs neither in a Proof Glass VM nor on the hosted fallback. Use 'Re-run all jobs' once the route answers."
             exit 1
           fi
           if [ "${EVENT}" = "push" ]; then

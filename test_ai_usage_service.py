@@ -2187,9 +2187,20 @@ for line in sys.stdin:
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in references))
         self.assertIn('python: ["3.9", "3.14"]', workflow)
         # Trust boundary and runner policy: no privileged triggers, a read-only
-        # token, and no GitHub-hosted macOS runner (macOS work runs only in a
-        # disposable Proof Glass VM; otherwise the gate reports it blocked).
-        self.assertNotRegex(workflow, r"(?m)^\s*runs-on:.*macos")
+        # token, and exactly one GitHub-hosted macOS job: the fallback, which runs
+        # only when Proof Glass answered without displacing the lane (proofglass#170),
+        # so the lane never runs both in a Proof Glass VM and hosted.
+        self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(macos\S*)", workflow), ["macos-26"])
+        fallback = re.search(r"(?ms)^  macos-hosted:\n(.*?)(?=^  \S)", workflow)
+        self.assertIsNotNone(fallback)
+        self.assertIn("if: needs.plan.outputs.macos_hosted == 'true'", fallback.group(1))
+        self.assertIn("runs-on: macos-26", fallback.group(1))
+        self.assertNotIn("id-token", fallback.group(1))
+        for target in ("make check", "make fixture-check", "make app-test", "make app-build"):
+            self.assertIn(f"run: {target}", fallback.group(1))
+        # Hosted only after a valid answer that did not displace the lane.
+        self.assertRegex(workflow, r'elif \[ -n "\$answer" \]; then\n\s+hosted=true')
+        self.assertIn("needs: [plan, check-linux, spec-and-design, macos-hosted]", workflow)
         code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("pull_request_target", code)
         self.assertNotIn("workflow_run", code)
