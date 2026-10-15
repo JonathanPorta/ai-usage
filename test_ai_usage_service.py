@@ -2199,7 +2199,9 @@ for line in sys.stdin:
         for target in ("make check", "make fixture-check", "make app-test", "make app-build"):
             self.assertIn(f"run: {target}", fallback.group(1))
         # Hosted only after a valid answer that did not displace the lane.
-        self.assertRegex(workflow, r'elif \[ -n "\$answer" \]; then\n\s+hosted=true')
+        # On by default, off when the MACOS_HOSTED_FALLBACK variable is `off`.
+        self.assertIn("HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}", workflow)
+        self.assertRegex(workflow, r'elif \[ -n "\$answer" \] && \[ "\$\{HOSTED_FALLBACK\}" != "off" \]; then\n\s+hosted=true')
         self.assertIn("needs: [plan, check-linux, spec-and-design, macos-hosted]", workflow)
         code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("pull_request_target", code)

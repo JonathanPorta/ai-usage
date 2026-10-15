@@ -76,6 +76,10 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
+          # Owner directive (2026-10-15): fall back to hosted macOS by default. Set the
+          # repository variable MACOS_HOSTED_FALLBACK to `off` to wait for a Proof
+          # Glass Mac instead (the lane is then BLOCKED until a re-run is admitted).
+          HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}
           # The displacement decision (tested against fixture answers in
           # test_ai_usage_service.py). Displaced only when admitted in displace mode,
           # with the Worker-owned verdict this event expects (`proofglass / pr-gate`
@@ -125,9 +129,11 @@ jobs:
           if [ -n "$answer" ] && echo "$answer" | jq -e '.admitted == true' >/dev/null; then routed=true; fi
           if [ -n "$answer" ] && echo "$answer" | jq -e --arg expected "${expected}" "${DISPLACED_JQ}" >/dev/null; then
             macos=true
-          elif [ -n "$answer" ]; then
+          elif [ -n "$answer" ] && [ "${HOSTED_FALLBACK}" != "off" ]; then
             hosted=true
             reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
+          elif [ -n "$answer" ]; then
+            reason="$(echo "$answer" | jq -r '"Proof Glass did not displace the ai-usage-macos@1 lane (mode: \(.mode // "none"); \(.reason // "no reason given")) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off)"')"
           fi
           {
             echo "routed=${routed}"
