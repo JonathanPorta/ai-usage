@@ -325,8 +325,12 @@ Live sandbox check (2026-10-15, synthetic data, at `9d30c61`):
 - Passed: Tokens ↔ Quota with a remembered range per mode, Quota disabled with its reason, provider switching with no vertical movement, the compact layout across the breakpoint (between 849 and 854 pt), Tab/Shift-Tab with visible focus, Enable tracking and Check again against the sandbox only.
 - Fixed in `48b7ac0`: the Tokens/Quota segments are sized by their semibold title, so switching modes no longer moves the switch 2 pt and the 640 pt minimum width no longer truncates "Tokens"; "Provider settings…" opens Settings on the first request after launch (it opened Overview). The fix changes six Quota-mode renders; review checkpoint `ai-usage-history-review-48b7ac0`.
 - Observed limitation (no redesign planned): after Check again, History itself shows no result; the outcome appears only in the menu-bar popover.
-- Re-checked live (2026-10-15, sandbox, fixed build): switching Tokens ↔ Quota leaves "Last check" and both segments in place; at the 640 pt minimum "Tokens" is complete and the switch and range control work. "Provider settings…" on a fresh launch is not re-verified live: the popover did not appear for any request, including a direct click on the menu-bar item, while another app was full screen on that display.
-- Keyboard: the "About these numbers" focus ring was drawn in the disclosure triangle's gutter, over the sidebar divider; it is now drawn around the label (renders unchanged). The provider selection change seen once during a Tab pass did not reproduce: two full Tab passes and a Space selection left the selection unchanged.
+- Verified live (2026-10-15, sandbox, synthetic data): all three fixes.
+  - Tokens ↔ Quota leaves "Last check" and both segments in place, and at the 640 pt minimum "Tokens" is complete and the switch and range control work (agent-checked on the `48b7ac0` build).
+  - On a fresh launch, the first "Provider settings…" request opened the popover directly on Settings (owner's manual observation on the `dbc1093` build; the agent's automated attempt could not show the popover while another app was full screen on that display).
+- Keyboard: the "About these numbers" focus ring was drawn in the disclosure triangle's gutter, over the sidebar divider; it is now drawn around the label (`dbc1093`, verified live; renders unchanged).
+- Not reproduced: a provider selection change seen once during a Tab pass; two full Tab passes and a Space selection left the selection unchanged. No cause is diagnosed.
+- These confirm behaviour only. The six History replacement baselines and twenty new states remain pending visual review.
 
 ### Current acceptance state (2026-10-11)
 
