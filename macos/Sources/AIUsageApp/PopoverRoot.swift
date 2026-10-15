@@ -70,8 +70,9 @@ struct PopoverRoot: View {
         // A `.window` MenuBarExtra keeps its content alive between opens, so
         // `.onAppear` runs only once; the panel becoming key marks each open.
         .background(PanelShownObserver { store.popoverOpened() })
-        // History's "Provider settings…" opens the popover on Settings.
-        .onChange(of: navigation.settingsRequest) { _, request in
+        // History's "Provider settings…" opens the popover on Settings,
+        // including a request made before the popover was first shown.
+        .onChange(of: navigation.settingsRequest, initial: true) { _, request in
             if request != nil { screen = .settings }
         }
         .background {

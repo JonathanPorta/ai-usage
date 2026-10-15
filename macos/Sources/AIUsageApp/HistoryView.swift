@@ -253,8 +253,15 @@ private struct ModeSwitch: View {
     private func segment(_ title: String, _ value: ProviderDetailView.Metric, enabled: Bool) -> some View {
         let isOn = effective == value
         return Button { selection = value } label: {
-            Text(title).font(.auCaption.weight(isOn ? .semibold : .regular))
-                .foregroundStyle(enabled ? T.Color.text.color : T.Color.muted.color.opacity(0.6))
+            // Sized by the semibold title, so selecting a segment never
+            // changes its width, and never truncated in a narrow window.
+            ZStack {
+                Text(title).font(.auCaption.weight(.semibold)).hidden()
+                Text(title).font(.auCaption.weight(isOn ? .semibold : .regular))
+                    .foregroundStyle(enabled ? T.Color.text.color : T.Color.muted.color.opacity(0.6))
+            }
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, T.Space.s2).padding(.vertical, 3)
                 .frame(minWidth: 52)
                 .background(isOn ? T.Color.accentBackground.color : .clear, in: RoundedRectangle(cornerRadius: 4))
