@@ -127,6 +127,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "projects_dir": "~/.claude/projects",
             "stale_after_seconds": 172800,
             "max_session_bytes_per_poll": 26214400,
+            # Subscription limits (/usage), read from Claude Code's own cache in
+            # ~/.claude.json and refreshed by one locked-down headless `/usage`
+            # run only when that cache is older than the max age.
+            "subscription_usage": True,
+            "usage_cache_file": "~/.claude.json",
+            "usage_cache_max_age_seconds": 900,
+            "timeout_seconds": 30,
             "monthly_subscription_usd": None,
         },
         "antigravity": {
@@ -2521,21 +2528,253 @@ def collect_claude(
         )
     )
 
-    rows.append(
+    rows.extend(collect_claude_subscription_usage(collected_at, provider_config, executable))
+    return rows
+
+
+# --- Claude subscription usage (/usage) -------------------------------------
+# Claude Code keeps the limits its `/usage` command shows in ~/.claude.json
+# (`cachedUsageUtilization`, with `fetchedAtMs`). The collector reads that
+# cache; only when it is older than `usage_cache_max_age_seconds` does it run
+# `claude -p /usage` once, locked down as far as Claude Code allows while still
+# using the subscription login:
+# - no customizations, settings files, MCP servers, tools, permission prompts
+#   or saved session (`--safe-mode --restricted --setting-sources ""
+#   --strict-mcp-config --tools "" --no-session-persistence ...`);
+# - an empty temporary working directory and no stdin;
+# - telemetry, error reporting, the auto-updater and the bug command off.
+# Measured on Claude Code 2.1.302: only api.anthropic.com is contacted
+# (account bootstrap and the usage endpoint), and the only file it changes is
+# that cache entry. It is not `--bare` or CLAUDE_CODE_SIMPLE (both drop the
+# subscription login), not --disable-slash-commands (it disables /usage), and
+# not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC (it classifies the usage fetch
+# as non-essential and silently replays the cache). Because Claude Code
+# answers from its cache when it cannot fetch, the exit status proves nothing:
+# freshness is decided by `fetchedAtMs` alone.
+CLAUDE_USAGE_ARGUMENTS = (
+    "--safe-mode",
+    "--restricted",
+    "--setting-sources",
+    "",
+    "--strict-mcp-config",
+    "--tools",
+    "",
+    "--no-session-persistence",
+    "--permission-mode",
+    "dontAsk",
+    "--permission-prompts",
+    "none",
+    "--max-budget-usd",
+    "0.01",
+    "--print",
+    "/usage",
+    "--output-format",
+    "json",
+)
+CLAUDE_USAGE_ENVIRONMENT = {
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_BUG_COMMAND": "1",
+}
+CLAUDE_USAGE_REFRESH_GRACE_MS = 120_000
+CLAUDE_USAGE_WINDOWS = {"session": ("session", 18000), "weekly_all": ("weekly", 604800)}
+
+
+def claude_usage_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        # Nothing inherited may redirect, re-authenticate or reconfigure the
+        # run (a base URL, an API key, simple/non-essential-traffic modes).
+        if not key.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))
+    }
+    environment["PATH"] = discovery_path()
+    environment.update(CLAUDE_USAGE_ENVIRONMENT)
+    return environment
+
+
+def read_claude_usage_cache(path: Path) -> Optional[dict[str, Any]]:
+    """The cached limits, or None when Claude Code has not cached any.
+
+    Raises ValueError when the entry exists but has an unrecognized shape.
+    """
+
+    if not path.is_file():
+        return None
+    with path.open(encoding="utf-8") as handle:
+        document = json.load(handle)
+    if not isinstance(document, Mapping):
+        raise ValueError("Claude Code's config is not a JSON object")
+    cached = document.get("cachedUsageUtilization")
+    if cached is None:
+        return None
+    if not isinstance(cached, Mapping):
+        raise ValueError("cachedUsageUtilization is not an object")
+    fetched_at_ms = cached.get("fetchedAtMs")
+    utilization = cached.get("utilization")
+    limits = utilization.get("limits") if isinstance(utilization, Mapping) else None
+    if isinstance(fetched_at_ms, bool) or not isinstance(fetched_at_ms, (int, float)):
+        raise ValueError("cachedUsageUtilization.fetchedAtMs is missing")
+    if not isinstance(limits, list):
+        raise ValueError("cachedUsageUtilization.utilization.limits is missing")
+    windows: list[dict[str, Any]] = []
+    for limit in limits:
+        if not isinstance(limit, Mapping):
+            raise ValueError("a usage limit is not an object")
+        kind, percent = limit.get("kind"), limit.get("percent")
+        if kind in CLAUDE_USAGE_WINDOWS:
+            scope, seconds = CLAUDE_USAGE_WINDOWS[kind]
+        elif kind == "weekly_scoped":
+            model = (limit.get("scope") or {}).get("model") if isinstance(limit.get("scope"), Mapping) else None
+            name = model.get("display_name") if isinstance(model, Mapping) else None
+            if not isinstance(name, str) or not name.strip():
+                continue
+            scope, seconds = f"weekly:{name.strip()}", 604800
+        else:
+            continue  # A limit kind this collector does not know yet.
+        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+            raise ValueError(f"usage limit {kind} has no numeric percent")
+        resets_at = parse_iso_timestamp(limit.get("resets_at"))
+        windows.append(
+            {
+                "scope": scope,
+                "window_seconds": seconds,
+                "used_percent": percent,
+                "resets_at": timestamp_to_iso(resets_at) if resets_at is not None else "",
+            }
+        )
+    if not windows:
+        raise ValueError("no recognized usage limit in cachedUsageUtilization")
+    cached_account = cached.get("accountUuid")
+    account = document.get("oauthAccount")
+    signed_in = account.get("accountUuid") if isinstance(account, Mapping) else None
+    return {
+        "fetched_at_ms": float(fetched_at_ms),
+        "windows": windows,
+        "same_account": not (cached_account and signed_in and cached_account != signed_in),
+    }
+
+
+def run_claude_usage(executable: Path, timeout_seconds: int) -> None:
+    """Run the locked-down `/usage` once; it refreshes the cache as a side effect."""
+
+    timeout_seconds = max(5, min(int(timeout_seconds), 120))
+    with tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
+        process = subprocess.Popen(
+            [str(executable), *CLAUDE_USAGE_ARGUMENTS],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=workdir,
+            env=claude_usage_environment(),
+            start_new_session=os.name == "posix",
+        )
+        process_group = process.pid if os.name == "posix" else None
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            terminate_provider_process(process, process_group)
+            raise RuntimeError(f"claude /usage did not finish within {timeout_seconds}s")
+        finally:
+            terminate_provider_process(process, process_group)
+    if process.returncode != 0:
+        detail = (stderr or "").strip().splitlines()[-1:] or [f"exit {process.returncode}"]
+        raise RuntimeError(f"claude /usage failed: {detail[0][:200]}")
+    try:
+        answer = json.loads(stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError("claude /usage did not answer with JSON") from None
+    if not isinstance(answer, Mapping) or answer.get("is_error") or answer.get("subtype") != "success":
+        raise RuntimeError("claude /usage reported an error")
+
+
+def claude_usage_rows(
+    collected_at: str, cache: Mapping[str, Any], source: str, status: str, message: str = ""
+) -> list[dict[str, Any]]:
+    return [
         metric_row(
             collected_at,
             "claude",
             "quota",
-            "personal_subscription_quota",
-            source="unsupported",
-            status="unsupported",
-            message=(
-                "No supported personal Claude Max quota API; no private "
-                "endpoint or TUI was invoked"
-            ),
+            "used_percent",
+            scope=window["scope"],
+            value=window["used_percent"],
+            unit="percent",
+            window_seconds=window["window_seconds"],
+            resets_at=window["resets_at"],
+            source=source,
+            status=status,
+            message=message,
         )
-    )
-    return rows
+        for window in cache["windows"]
+    ]
+
+
+def collect_claude_subscription_usage(
+    collected_at: str, provider_config: Mapping[str, Any], executable: Optional[Path]
+) -> list[dict[str, Any]]:
+    if provider_config.get("subscription_usage", True) is not True:
+        return [
+            metric_row(
+                collected_at,
+                "claude",
+                "quota",
+                "personal_subscription_quota",
+                source="config",
+                status="disabled",
+                message="subscription usage disabled in config; nothing was read or run",
+            )
+        ]
+    cache_path = expand_path(str(provider_config.get("usage_cache_file", "~/.claude.json")))
+    max_age_ms = 1000 * max(60, int(provider_config.get("usage_cache_max_age_seconds", 900)))
+
+    def error_row(message: str) -> dict[str, Any]:
+        return metric_row(
+            collected_at,
+            "claude",
+            "collection",
+            "subscription_usage_query",
+            source="claude-usage-command",
+            status="error",
+            message=message,
+        )
+
+    try:
+        cache = read_claude_usage_cache(cache_path)
+    except (OSError, ValueError) as error:
+        return [error_row(f"Claude Code's usage cache is unreadable: {error}")]
+    now_ms = time.time() * 1000
+    if cache is not None and cache["same_account"] and now_ms - cache["fetched_at_ms"] <= max_age_ms:
+        return claude_usage_rows(collected_at, cache, "claude-usage-cache", "ok")
+    if executable is None:
+        rows = [error_row("claude is not installed, so its usage could not be refreshed")]
+        if cache is not None and cache["same_account"]:
+            rows += claude_usage_rows(collected_at, cache, "claude-usage-cache", "stale",
+                                      "last reading Claude Code cached; not refreshed")
+        return rows
+
+    started_ms = time.time() * 1000
+    try:
+        run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)))
+        refreshed = read_claude_usage_cache(cache_path)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        rows = [error_row(str(error))]
+        if cache is not None and cache["same_account"]:
+            rows += claude_usage_rows(collected_at, cache, "claude-usage-cache", "stale",
+                                      "last reading Claude Code cached; the refresh failed")
+        return rows
+    if refreshed is None:
+        return [error_row("claude /usage ran but cached no usage (is it signed in to a subscription?)")]
+    if not refreshed["same_account"]:
+        return [error_row("Claude Code's cached usage belongs to another account than the one signed in")]
+    if refreshed["fetched_at_ms"] < started_ms - CLAUDE_USAGE_REFRESH_GRACE_MS:
+        # Claude Code answered from its cache: offline, signed out, or blocked.
+        return [error_row("claude /usage did not fetch fresh usage; showing its older cached reading")] + \
+            claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "stale",
+                              "Claude Code did not refresh its usage")
+    return claude_usage_rows(collected_at, refreshed, "claude-usage-command", "ok")
 
 
 def sanitized_antigravity_payload(payload: Mapping[str, Any]) -> dict[str, Any]:

@@ -121,8 +121,12 @@ def claude_stats(ts: float, stale: bool = False) -> list[dict[str, Any]]:
         rows.append(R(ts, "claude", "freshness", "source_age_seconds", 3 * DAY, unit="seconds",
                       source="claude-stats-cache", status="stale",
                       message="Stats cache has not been rewritten; session transcripts are the live source"))
-    rows.append(R(ts, "claude", "quota", "personal_subscription_quota", source="unsupported", status="unsupported"))
     return rows
+
+
+def claude_quota(ts: float, scope: str, used: float, window: int, resets: float) -> dict[str, Any]:
+    return R(ts, "claude", "quota", "used_percent", used, scope=scope, unit="percent", window=window,
+             resets=resets, source="claude-usage-cache")
 
 
 def grok_event(ts: float, scope: str, inp: int, out: int, *, incomplete: bool = False, cost: float = 0.0) -> list[dict[str, Any]]:
@@ -236,6 +240,12 @@ def fixture_rows(now: float) -> CsvBuilder:
         # Claude
         rows.append(detected(ts, "claude"))
         rows.extend(claude_stats(ts, stale=ts > now - 3 * DAY))
+        claude_week_reset = now + 4 * DAY + 2 * HOUR
+        rows.append(claude_quota(ts, "session", round((ts % (5 * HOUR)) / (5 * HOUR) * 60 + 5, 1), 18000,
+                                 ts - (ts % (5 * HOUR)) + 5 * HOUR))
+        rows.append(claude_quota(ts, "weekly", round(min(100.0, 20 + (ts - (now - 3 * DAY)) / (3 * DAY) * 45)
+                                                     if ts > now - 3 * DAY else 20.0, 1), 604800, claude_week_reset))
+        rows.append(claude_quota(ts, "weekly:Fable", 4.0 if ts > now - DAY else 0.0, 604800, claude_week_reset))
         # Antigravity
         rows.append(detected(ts, "antigravity"))
         rows.append(R(ts, "antigravity", "context", "used_percentage", 12, unit="percent",
@@ -291,6 +301,7 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600) -> Path:
             "codex": {"enabled": True, "executable": str(root / "bin" / "codex"), "monthly_subscription_usd": 20},
             "claude": {"enabled": True, "stats_file": str(root / "claude" / "stats-cache.json"),
                        "projects_dir": str(root / "claude" / "projects"), "executable": str(root / "bin" / "claude"),
+                       "usage_cache_file": str(root / "claude" / "claude.json"),
                        "monthly_subscription_usd": 100},
             "antigravity": {"enabled": True, "executable": str(root / "bin" / "agy"),
                             "cache_file": str(data / "cache" / "antigravity.json"),

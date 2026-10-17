@@ -74,8 +74,10 @@ final class HistoryAvailabilityTests: XCTestCase {
         let grok = try provider("grok")
         XCTAssertEqual(grok.quota.status, .stale)
         XCTAssertTrue(Presentation.quotaSupport(grok).supported)
-        let claude = try provider("claude")
-        let support = Presentation.quotaSupport(claude)
+        // Claude's plan limits come from its /usage cache (session, weekly, per model).
+        XCTAssertTrue(Presentation.quotaSupport(try provider("claude")).supported)
+        let gemini = try provider("gemini_cli")
+        let support = Presentation.quotaSupport(gemini)
         XCTAssertFalse(support.supported)
         XCTAssertNotNil(support.reason)
     }

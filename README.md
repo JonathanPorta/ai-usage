@@ -12,10 +12,33 @@ reloads its JSON config between polls.
 | Provider | Source | Provider process started? | Capacity / cost caveats |
 | --- | --- | --- | --- |
 | OpenAI Codex | `account/usage/read` and `account/rateLimits/read` through `codex app-server` | Yes, only when `codex` exists | Quota is a weighted percentage, not an unused-token count. Subscription price is configured manually. |
-| Claude Code | Read-only `~/.claude/stats-cache.json` plus local `~/.claude/projects/**/*.jsonl` transcripts | No | The stats cache is an undocumented local format and may be stale; session JSONL is the live token source. Claude Max subscription capacity is not available through a supported public API, so the collector does not scrape the TUI or call a private endpoint. Transcript events are append-only (`source=claude-session-log`) and do not rewrite other providers' rows. |
+| Claude Code | Read-only `~/.claude/stats-cache.json` and `~/.claude/projects/**/*.jsonl` transcripts; plan limits from the `cachedUsageUtilization` entry Claude Code keeps in `~/.claude.json` (what its `/usage` shows) | Only when that cached reading is older than `usage_cache_max_age_seconds` (15 min), and only when `claude` exists: one `claude -p /usage` run, locked down (below) | The stats cache and the usage cache are undocumented local formats. A run that does not refresh the cache is reported stale, never current. Turn plan limits off with `"subscription_usage": false`. Transcript events are append-only (`source=claude-session-log`) and do not rewrite other providers' rows. |
 | Antigravity CLI | Official status-line callback | No polling command | The callback writes sanitized token deltas and quota snapshots as Antigravity runs. Raw conversation IDs are hashed; email, paths, prompts, and transcripts are not retained. |
 | Grok Build | Local session JSONL and fresh local billing log; billing-only `x.ai/billing` fallback | Only for a stale/missing billing snapshot, and only when `grok` and its auth cache exist | The fallback fetches billing metadata and never samples a model. Consumer credit percentages and cent values are not the recurring SuperGrok price. |
 | Gemini CLI | Existing local OpenTelemetry file | No | Automatic telemetry setup is **off by default** because raw Gemini telemetry includes account identifiers. See [Optional Gemini telemetry](#optional-gemini-telemetry). |
+
+### What the Claude `/usage` run does
+
+When Claude Code's cached limits are stale, the collector runs one command,
+measured on Claude Code 2.1.302:
+
+```
+claude --safe-mode --restricted --setting-sources "" --strict-mcp-config --tools "" \
+  --no-session-persistence --permission-mode dontAsk --permission-prompts none \
+  --max-budget-usd 0.01 --print /usage --output-format json
+```
+
+It runs in a new empty temporary directory, with no stdin, with
+`DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER` and
+`DISABLE_BUG_COMMAND` set, and with every inherited `ANTHROPIC_*` and
+`CLAUDE_CODE_*` variable removed. `/usage` makes no model request (cost 0).
+
+- **Network:** only `api.anthropic.com`, for Claude Code's account bootstrap and the usage endpoint. Without the telemetry switches it also contacts Datadog's log intake; with them it does not.
+- **Writes:** only the `cachedUsageUtilization` entry in `~/.claude.json` (the rest of the file is byte-identical), plus Claude Code's transient process lock. No transcript is saved.
+- **Reads (unavoidable):** the signed-in subscription login (Keychain) and Claude Code's own configuration, plugin list and settings files; two built-in Claude Code plugins still load, with project memory off in the empty directory. Your hooks, MCP servers, skills, CLAUDE.md files and installed plugins do not load.
+- **Not used, and why:** `--bare` and `CLAUDE_CODE_SIMPLE` never read the subscription login, so `/usage` has nothing to show; `--disable-slash-commands` disables `/usage` itself; `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` treats the usage fetch as non-essential and silently replays the old cache.
+
+The collector itself only reads `~/.claude.json`; it never writes it.
 
 Missing or disabled providers are skipped. `doctor` performs filesystem-only
 discovery and never executes a provider binary.

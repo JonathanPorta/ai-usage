@@ -193,6 +193,21 @@ class QuotaFreshnessTests(ReportCase):
             rows.append(fx.codex_quota(ts, "codex:secondary", weekly, 604800, week_reset or ts + 3 * DAY))
         self.check(ts, *rows)
 
+    def test_claude_plan_limits_are_labelled_like_usage_shows_them(self) -> None:
+        self.assertEqual(report.window_identity("claude", "session", 18000)[0], "5-hour limit")
+        self.assertEqual(report.window_identity("claude", "weekly", 604800)[0], "Weekly limit")
+        self.assertEqual(report.window_identity("claude", "weekly:Fable", 604800)[:2],
+                         ("Weekly limit · Fable", "Weekly · Fable"))
+        rows = [fx.R(self.now - 600, "claude", "quota", "used_percent", used, scope=scope, unit="percent",
+                     window=window, resets=self.now + DAY, source="claude-usage-cache")
+                for scope, used, window in (("session", 20, 18000), ("weekly:Fable", 4, 604800))]
+        self.check(self.now - 600, *rows, providers=("claude",))
+        claude = self.provider(self.build(), "claude")
+        five, fable = self.window(claude, "5-hour limit"), self.window(claude, "Weekly limit · Fable")
+        self.assertEqual((five["basis"], five["percent"], five["derived"]), ("used", 20, False))
+        self.assertEqual((fable["basis"], fable["percent"]), ("used", 4))
+        self.assertIsNone(fable["limit"], "4% used is nowhere near the limit")
+
     def test_fresh_weekly_limit_survives_a_stale_five_hour_window(self) -> None:
         self.codex_check(self.now - 2 * HOUR, five=40, weekly=90)
         self.codex_check(self.now - 20 * 60, five=None, weekly=100)  # 5-hour omitted

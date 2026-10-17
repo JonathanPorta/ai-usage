@@ -114,9 +114,9 @@ PROVIDERS = [
     ),
     ProviderDef(
         "claude", "Claude Code", "Claude Code", mode="event", split="input_output",
-        record_kind="event_total", quota="unsupported",
+        record_kind="event_total", quota="polled",
         reported_note="Claude Code's local data doesn't include a usage cost.",
-        quota_note="Claude subscription capacity isn't available through a supported API.",
+        quota_note="Your plan's session and weekly limits, as Claude Code's /usage shows them.",
         sources=[
             SourceDef("sessions", "usage", "Session transcripts",
                       "Local Claude Code session transcripts (~/.claude/projects)",
@@ -126,6 +126,10 @@ PROVIDERS = [
                       "Claude Code local stats cache (undocumented format)",
                       ["claude-stats-cache"], needs_rows=True,
                       error_metrics=["stats_cache"]),
+            SourceDef("subscription-usage", "quota", "Plan limits",
+                      "Claude Code's /usage: its cached limits, refreshed by one locked-down headless run when stale",
+                      ["claude-usage-command", "claude-usage-cache"], needs_rows=True,
+                      error_metrics=["subscription_usage_query"]),
         ],
     ),
     ProviderDef(
@@ -655,6 +659,9 @@ def window_identity(provider: str, scope: str, window_seconds: Optional[float]) 
         label, short, ranges = f"{text} limit", text, ["24h", "7d"] if seconds <= DAY else ["7d", "35d"]
     else:
         label, short, ranges = "Limit", "Limit", ["7d", "35d"]
+    if provider == "claude" and scope.startswith("weekly:"):
+        model = scope.split(":", 1)[1]
+        return f"{label} · {model}", f"{short} · {model}", ranges
     limit_id = scope.split(":", 1)[0] if ":" in scope else ""
     if provider == "codex" and limit_id and limit_id != "codex":
         label = f"{limit_id} · {label}"
@@ -707,7 +714,7 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
     for row in rows:
         if definition.id == "codex" and row.metric != "used_percent":
             continue
-        if definition.id == "grok" and row.metric != "used_percent":
+        if definition.id in ("grok", "claude") and row.metric != "used_percent":
             continue
         if definition.id == "antigravity" and row.metric != "remaining_percent":
             continue
@@ -717,7 +724,8 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
         window_seconds = next((number(r.window) for r in reversed(group) if number(r.window)), None)
         label, short, ranges = window_identity(definition.id, scope, window_seconds)
         derived = definition.id == "codex"
-        basis = "used" if definition.id == "grok" else "remaining"
+        # Claude Code's own /usage says "% used", so its limits are shown the same way.
+        basis = "used" if definition.id in ("grok", "claude") else "remaining"
         readings: dict[float, dict[str, Any]] = {}
         for row in group:
             value = number(row.value)
