@@ -27,6 +27,9 @@ struct HistoryView: View {
     @State private var tokenRange = 30
     @State private var quotaRange: String?
     @State private var windowId: String?
+    /// macOS gives the first control keyboard focus when the window opens; its
+    /// ring shows only once the keyboard is used (as in the popover).
+    @State private var focusRingsVisible = false
 
     init(providerId: String? = nil, metric: ProviderDetailView.Metric = .tokens, tokenRange: Int = 30) {
         _providerId = State(initialValue: providerId)
@@ -61,6 +64,14 @@ struct HistoryView: View {
         }
         .onAppear(perform: applyRequest)
         .onChange(of: navigation.historyRequest) { _, _ in applyRequest() }
+        .focusEffectDisabled(!focusRingsVisible)
+        .environment(\.focusRingsVisible, focusRingsVisible)
+        .onKeyPress(phases: .down) { _ in
+            focusRingsVisible = true
+            return .ignored
+        }
+        .background(MouseDownObserver { focusRingsVisible = false })
+        .background(PanelShownObserver { focusRingsVisible = false })
     }
 
     private func applyRequest() {
@@ -306,6 +317,7 @@ private struct SummaryCards: View {
 private struct AboutNumbers: View {
     let text: String
     @FocusState private var focused: Bool
+    @Environment(\.focusRingsVisible) private var focusRingsVisible
 
     var body: some View {
         DisclosureGroup {
@@ -318,7 +330,7 @@ private struct AboutNumbers: View {
             // sidebar divider; draw it around the label instead.
             Text("About these numbers").font(.auCaption)
                 .overlay {
-                    if focused {
+                    if focused && focusRingsVisible {
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
                             .padding(.horizontal, -4).padding(.vertical, -2)

@@ -76,6 +76,7 @@ struct PopoverRoot: View {
         // `.onAppear` runs only once; the panel becoming key marks each open.
         .background(PanelShownObserver { focusRingsVisible = false; store.popoverOpened() })
         .focusEffectDisabled(!focusRingsVisible)
+        .environment(\.focusRingsVisible, focusRingsVisible)
         .onKeyPress(phases: .down) { _ in
             // Keys a screen handles itself (arrows) never get here; it shows the rings.
             focusRingsVisible = true
@@ -156,6 +157,18 @@ struct PanelShownObserver: NSViewRepresentable {
         }
 
         deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
+}
+
+/// Whether keyboard focus rings should be drawn in this window. The popover and
+/// History set it: rings show while the keyboard is in use and hide on a click
+/// or when the window comes forward. Defaults to true elsewhere.
+private struct FocusRingsVisibleKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+    var focusRingsVisible: Bool {
+        get { self[FocusRingsVisibleKey.self] }
+        set { self[FocusRingsVisibleKey.self] = newValue }
     }
 }
 
