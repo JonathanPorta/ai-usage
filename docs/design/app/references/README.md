@@ -34,6 +34,19 @@ review page https://claude.ai/artifact/LXT3hwaqpWU1cwb9SLWi9t).
 Functional behaviour of the History fixes was verified separately in a live sandbox
 (`../design.md#verification`); this acceptance covers the rendered states only.
 
+## Claude plan limits (accepted 2026-10-17)
+
+Accepted by the owner (Jonathan) on 2026-10-17 from the review checkpoint
+`ai-usage-claude-limits-review-f6537ee.zip` (sha256 `458e760dea52dbbb26e046839141bbf9ffe6b4de481aec711156a636088450e9`), together with the
+feature's acceptance criteria. The fixture now carries Claude Code plan limits (5-hour 20% used,
+weekly 65% used, weekly Fable 4% used), shown as "% used" like Claude Code's `/usage`.
+
+| Item | Value |
+| --- | --- |
+| Replaced (12) | `detail-claude-tokens`, `history-tokens-claude`, `history-tokens-claude-narrow`, `popover-monitoring`, `popover-overview`, `popover-overview-short`, light and dark |
+| Rendered at | `f6537ee`; byte-identical after merging the focus-ring and notice fixes (`5874dc8`) |
+| Re-verified | A fresh `make app-snapshot-check` matches all 50 |
+
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 
 To compare a build: `make app-snapshot`, then

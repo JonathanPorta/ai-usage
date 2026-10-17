@@ -336,7 +336,7 @@ Live sandbox check (2026-10-15, synthetic data, at `9d30c61`):
 
 | Item | State |
 | --- | --- |
-| Visual baselines (50 fixture renders, light and dark) | **Accepted**: 30 on 2026-10-10; History's 6 replacements and 20 new states on 2026-10-15; covers captured states only |
+| Visual baselines (50 fixture renders, light and dark) | **Accepted**: 30 on 2026-10-10; History's 6 replacements and 20 new states on 2026-10-15; 12 Claude plan-limit replacements on 2026-10-17; covers captured states only |
 | Popover at 420 pt and short viewport, pinned header/footer; light and dark; overnight labels | Passed live |
 | Keyboard: `↑`/`↓`, chart `←`/`→`, `Esc`, `⌘R`, `⌘,` | Passed live |
 | Reopen re-read; Collect now; inline Stop/Start on the real collector; Pause/Resume | Passed live |
