@@ -14,6 +14,10 @@ struct OverviewView: View {
 
     @State private var pinnedHeight: CGFloat = 200
     @State private var listHeight: CGFloat = 400
+    /// macOS gives the status row keyboard focus whenever the popover opens.
+    /// Its ring stays hidden until the keyboard is used, so the row never
+    /// looks selected after a mouse open; each open hides it again.
+    @State private var keyboardActive = false
     @FocusState private var focus: FocusTarget?
 
     enum FocusTarget: Hashable { case status, card(String) }
@@ -34,6 +38,13 @@ struct OverviewView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .overlay {
+                    if focus == .status && keyboardActive {
+                        RoundedRectangle(cornerRadius: T.Radius.small)
+                            .stroke(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+                    }
+                }
                 .focused($focus, equals: .status)
                 .accessibilityHint("Opens Monitoring")
                 notice(now: now)
@@ -62,6 +73,11 @@ struct OverviewView: View {
         }
         .onKeyPress(.downArrow) { moveFocus(1) }
         .onKeyPress(.upArrow) { moveFocus(-1) }
+        .onChange(of: focus) { _, target in
+            // Tab or Shift-Tab moving focus off the status row is keyboard use too.
+            if target != nil && target != .status { keyboardActive = true }
+        }
+        .background(PanelShownObserver { keyboardActive = false })
         .onChange(of: returnFocus) { _, id in
             if let id { focus = .card(id); returnFocus = nil }
         }
@@ -179,6 +195,11 @@ struct OverviewView: View {
 
     private func moveFocus(_ delta: Int) -> KeyPress.Result {
         guard let report = store.report else { return .ignored }
+        if !keyboardActive {
+            keyboardActive = true
+            // The first arrow press shows where focus already is.
+            if focus == .status { return .handled }
+        }
         let order: [FocusTarget] = [.status] + report.providers.map { .card($0.id) }
         let index = focus.flatMap { order.firstIndex(of: $0) } ?? (delta > 0 ? -1 : order.count)
         let next = max(0, min(order.count - 1, index + delta))

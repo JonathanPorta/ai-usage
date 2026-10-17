@@ -198,18 +198,48 @@ struct ProviderDetailView: View {
     private func moreSection(now: Date) -> some View {
         VStack(alignment: .leading, spacing: T.Space.s2) {
             SectionLabel("More")
-            Panel {
-                DisclosureGroup("Cost and accounting", isExpanded: $accountingOpen) {
-                    AccountingView(provider: provider, now: now).padding(.top, T.Space.s2)
-                }
-                .font(.auBody)
+            AccordionPanel("Cost and accounting", isExpanded: $accountingOpen) {
+                AccountingView(provider: provider, now: now)
             }
-            Panel {
-                DisclosureGroup("Sources and diagnostics", isExpanded: $sourcesOpen) {
-                    SourcesView(provider: provider, now: now).padding(.top, T.Space.s2)
-                }
-                .font(.auBody)
+            AccordionPanel("Sources and diagnostics", isExpanded: $sourcesOpen) {
+                SourcesView(provider: provider, now: now)
             }
+        }
+    }
+}
+
+/// A Panel holding one disclosure group whose whole header band toggles it,
+/// not just the title text. The native disclosure look is unchanged: the
+/// larger hit area is an invisible layer over the header.
+private struct AccordionPanel<Content: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: () -> Content
+    @State private var titleHeight: CGFloat = 17
+
+    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        _isExpanded = isExpanded
+        self.content = content
+    }
+
+    var body: some View {
+        Panel {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                content().padding(.top, T.Space.s2)
+            } label: {
+                Text(title).readHeight($titleHeight)
+            }
+            .font(.auBody)
+        }
+        .overlay(alignment: .top) {
+            // Panel padding above the title, the title row, and the gap below it
+            // (all the way to the bottom edge while collapsed).
+            Color.clear
+                .frame(height: T.Space.s3 + titleHeight + (isExpanded ? T.Space.s2 : T.Space.s3))
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.easeOut(duration: T.Duration.fast)) { isExpanded.toggle() } }
+                .accessibilityHidden(true)
         }
     }
 }
