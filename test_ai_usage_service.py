@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional
+from typing import Any, Optional
 import unittest
 from unittest import mock
 
@@ -127,6 +127,10 @@ class IsolatedHome:
             name: {"enabled": name == enabled}
             for name in ("codex", "claude", "antigravity", "gemini_cli", "grok")
         }
+        if enabled == "claude":
+            # Plan limits run `claude /usage` (ClaudeSubscriptionUsageTests); these
+            # tests cover transcripts and stats, whose fake claude must never launch.
+            providers["claude"]["subscription_usage"] = False
         providers[enabled].update(settings)
         return {
             "poll_interval_seconds": 3600,
@@ -519,6 +523,7 @@ for line in sys.stdin:
                         "executable": str(fake),
                         "stats_file": str(stats),
                         "projects_dir": str(projects),
+                        "subscription_usage": False,
                     },
                     "antigravity": {"enabled": False},
                     "gemini_cli": {"enabled": False},
@@ -2762,3 +2767,133 @@ class InstallerRecoveryTests(unittest.TestCase):
                 result = subprocess.run([sys.executable, str(SCRIPT), "version"], env=environment,
                                         capture_output=True, text=True, timeout=30, check=False)
                 self.assertEqual(result.returncode == 0, ok, result.stderr)
+
+
+class ClaudeSubscriptionUsageTests(unittest.TestCase):
+    """Claude plan limits: Claude Code's own cache first, one locked-down /usage run only when stale."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="ai-usage-claude-usage-")
+        self.root = Path(self._tmp.name)
+        self.cache = self.root / "claude.json"
+        self.calls = self.root / "calls.jsonl"
+        self.now_ms = time.time() * 1000
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def write_cache(self, fetched_at_ms: float, *, limits: Any = None, account: str = "acct-1",
+                    cached_account: str = "acct-1") -> None:
+        if limits is None:
+            limits = [
+                {"kind": "session", "percent": 8, "resets_at": "2026-10-17T10:10:00.157608+00:00"},
+                {"kind": "weekly_all", "percent": 85, "resets_at": "2026-10-20T13:00:00+00:00"},
+                {"kind": "weekly_scoped", "percent": 0, "resets_at": "2026-10-20T13:00:00+00:00",
+                 "scope": {"model": {"id": None, "display_name": "Fable"}}},
+                {"kind": "some_future_kind", "percent": 1},
+            ]
+        self.cache.write_text(json.dumps({
+            "oauthAccount": {"accountUuid": account},
+            "unrelated": {"keep": True},
+            "cachedUsageUtilization": {"accountUuid": cached_account, "fetchedAtMs": fetched_at_ms,
+                                       "utilization": {"limits": limits}},
+        }), encoding="utf-8")
+
+    def fake_claude(self, *, refresh: bool) -> Path:
+        """A stand-in `claude` that records how it was run and, if asked, refreshes the cache."""
+        path = self.root / "claude"
+        path.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys, time\n"
+            f"calls, cache, refresh = {str(self.calls)!r}, {str(self.cache)!r}, {refresh!r}\n"
+            "with open(calls, 'a') as h:\n"
+            "    h.write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'cwd_entries': os.listdir('.'),\n"
+            "                        'stdin_tty': sys.stdin.isatty(), 'env': dict(os.environ)}) + '\\n')\n"
+            "if refresh:\n"
+            "    d = json.load(open(cache)); d['cachedUsageUtilization']['fetchedAtMs'] = time.time() * 1000\n"
+            "    json.dump(d, open(cache, 'w'))\n"
+            "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'usage'}))\n",
+            encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def collect(self, executable: Optional[Path], **settings: Any) -> list[dict[str, Any]]:
+        config = {"usage_cache_file": str(self.cache), "usage_cache_max_age_seconds": 900, **settings}
+        return SERVICE.collect_claude_subscription_usage("2026-10-17T09:00:00Z", config, executable)
+
+    def runs(self) -> list[dict[str, Any]]:
+        if not self.calls.exists():
+            return []
+        return [json.loads(line) for line in self.calls.read_text(encoding="utf-8").splitlines()]
+
+    def test_fresh_cache_is_read_without_running_claude(self) -> None:
+        self.write_cache(self.now_ms - 60_000)
+        rows = self.collect(self.fake_claude(refresh=True))
+        self.assertEqual(self.runs(), [])
+        self.assertEqual(
+            [(r["metric"], r["scope"], r["value"], r["window_seconds"], r["resets_at"], r["source"], r["status"])
+             for r in rows],
+            [("used_percent", "session", 8, 18000, "2026-10-17T10:10:00.157608Z", "claude-usage-cache", "ok"),
+             ("used_percent", "weekly", 85, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok"),
+             ("used_percent", "weekly:Fable", 0, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok")])
+
+    def test_stale_cache_runs_usage_once_locked_down_and_reports_the_refresh(self) -> None:
+        self.write_cache(self.now_ms - 3_600_000)
+        polluted = {"ANTHROPIC_API_KEY": "x", "ANTHROPIC_BASE_URL": "http://elsewhere", "CLAUDECODE": "1",
+                    "CLAUDE_CODE_SIMPLE": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+        with mock.patch.dict(os.environ, polluted):
+            rows = self.collect(self.fake_claude(refresh=True))
+        runs = self.runs()
+        self.assertEqual(len(runs), 1)
+        run = runs[0]
+        self.assertEqual(tuple(run["argv"]), SERVICE.CLAUDE_USAGE_ARGUMENTS)
+        for flag in ("--safe-mode", "--restricted", "--strict-mcp-config", "--no-session-persistence"):
+            self.assertIn(flag, run["argv"])
+        self.assertEqual(run["argv"][run["argv"].index("--tools") + 1], "")
+        self.assertEqual(run["argv"][run["argv"].index("--setting-sources") + 1], "")
+        self.assertNotIn("--bare", run["argv"])
+        self.assertNotIn("--disable-slash-commands", run["argv"])
+        self.assertEqual(run["cwd_entries"], [], "runs in an empty working directory")
+        self.assertFalse(Path(run["cwd"]).exists(), "the working directory is removed afterwards")
+        self.assertFalse(run["stdin_tty"])
+        for key, value in SERVICE.CLAUDE_USAGE_ENVIRONMENT.items():
+            self.assertEqual(run["env"].get(key), value)
+        self.assertFalse([k for k in run["env"] if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))])
+        self.assertEqual({(r["source"], r["status"]) for r in rows}, {("claude-usage-command", "ok")})
+        self.assertEqual(len(rows), 3)
+        document = json.loads(self.cache.read_text(encoding="utf-8"))
+        self.assertEqual(document["unrelated"], {"keep": True}, "the collector never writes Claude Code's config")
+
+    def test_a_run_that_does_not_refresh_the_cache_is_never_ok(self) -> None:
+        # Claude Code answers from its cache when it cannot fetch (offline, signed out, blocked).
+        self.write_cache(self.now_ms - 3_600_000)
+        rows = self.collect(self.fake_claude(refresh=False))
+        self.assertEqual(len(self.runs()), 1)
+        self.assertEqual(rows[0]["metric"], "subscription_usage_query")
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertEqual({r["status"] for r in rows[1:]}, {"stale"})
+        self.assertNotIn("ok", {r["status"] for r in rows})
+
+    def test_unrecognized_cache_shape_is_an_error_not_a_guess(self) -> None:
+        for name, limits in {"no limits": "x", "non-numeric percent": [{"kind": "session", "percent": "8"}],
+                             "only unknown kinds": [{"kind": "new", "percent": 1}]}.items():
+            with self.subTest(name):
+                self.write_cache(self.now_ms, limits=limits)
+                rows = self.collect(None)
+                self.assertEqual([(r["metric"], r["status"]) for r in rows], [("subscription_usage_query", "error")])
+
+    def test_cache_for_another_account_is_not_shown(self) -> None:
+        self.write_cache(self.now_ms, cached_account="someone-else")
+        rows = self.collect(self.fake_claude(refresh=False))
+        self.assertNotIn("used_percent", {r["metric"] for r in rows})
+        self.assertIn("error", {r["status"] for r in rows})
+
+    def test_disabled_reads_nothing_and_runs_nothing(self) -> None:
+        self.write_cache(self.now_ms - 3_600_000)
+        self.cache.chmod(0)
+        try:
+            rows = self.collect(self.fake_claude(refresh=True), subscription_usage=False)
+        finally:
+            self.cache.chmod(0o600)
+        self.assertEqual(self.runs(), [])
+        self.assertEqual([(r["metric"], r["status"]) for r in rows], [("personal_subscription_quota", "disabled")])
