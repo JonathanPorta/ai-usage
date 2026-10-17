@@ -20,6 +20,11 @@ struct PopoverRoot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var screen: PopoverScreen?
     @State private var returnFocus: String?
+    /// macOS gives the first control keyboard focus whenever the popover opens.
+    /// Rings show only while the keyboard is in use, like a web page's
+    /// :focus-visible: any key press shows them, a mouse click or a new open
+    /// hides them again.
+    @State private var focusRingsVisible = false
     private let detailMetric: ProviderDetailView.Metric
     private let screenHeight: CGFloat?
 
@@ -43,7 +48,7 @@ struct PopoverRoot: View {
         ZStack {
             OverviewView(openDetail: { screen = .detail($0) }, openHistory: showHistory,
                          openMonitoring: { screen = .monitoring }, openSettings: { screen = .settings },
-                         returnFocus: $returnFocus, maxHeight: maxHeight)
+                         returnFocus: $returnFocus, focusRingsVisible: $focusRingsVisible, maxHeight: maxHeight)
                 .opacity(screen == nil ? 1 : 0)
                 .allowsHitTesting(screen == nil)
                 .accessibilityHidden(screen != nil)
@@ -69,7 +74,14 @@ struct PopoverRoot: View {
         .animation(reduceMotion ? nil : .easeOut(duration: T.Duration.medium), value: screen)
         // A `.window` MenuBarExtra keeps its content alive between opens, so
         // `.onAppear` runs only once; the panel becoming key marks each open.
-        .background(PanelShownObserver { store.popoverOpened() })
+        .background(PanelShownObserver { focusRingsVisible = false; store.popoverOpened() })
+        .focusEffectDisabled(!focusRingsVisible)
+        .onKeyPress(phases: .down) { _ in
+            // Keys a screen handles itself (arrows) never get here; it shows the rings.
+            focusRingsVisible = true
+            return .ignored
+        }
+        .background(MouseDownObserver { focusRingsVisible = false })
         // History's "Provider settings…" opens the popover on Settings,
         // including a request made before the popover was first shown.
         .onChange(of: navigation.settingsRequest, initial: true) { _, request in
@@ -144,5 +156,39 @@ struct PanelShownObserver: NSViewRepresentable {
         }
 
         deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
+}
+
+/// Calls `onMouseDown` for every mouse click in this app's windows while the
+/// view is mounted (a local monitor: it only observes, never consumes, events).
+struct MouseDownObserver: NSViewRepresentable {
+    let onMouseDown: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView { MonitorView(onMouseDown: onMouseDown) }
+    func updateNSView(_ view: MonitorView, context: Context) { view.onMouseDown = onMouseDown }
+
+    final class MonitorView: NSView {
+        var onMouseDown: () -> Void
+        private var monitor: Any?
+
+        init(onMouseDown: @escaping () -> Void) {
+            self.onMouseDown = onMouseDown
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                if event.window === self?.window { self?.onMouseDown() }
+                return event
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
