@@ -59,14 +59,18 @@ public struct NoticeBanner: View {
     private let action: (() -> Void)?
     private let actionTitle: String
     private let moreAction: (() -> Void)?
+    private let dismiss: (() -> Void)?
+    private let dismissLabel: String
 
     public init(notice: Presentation.Notice, more: Int, action: (() -> Void)?, actionTitle: String = "Details",
-                moreAction: (() -> Void)? = nil) {
+                moreAction: (() -> Void)? = nil, dismiss: (() -> Void)? = nil, dismissLabel: String = "Dismiss") {
         self.notice = notice
         self.more = more
         self.action = action
         self.actionTitle = actionTitle
         self.moreAction = moreAction
+        self.dismiss = dismiss
+        self.dismissLabel = dismissLabel
     }
 
     private var symbol: String {
@@ -105,6 +109,13 @@ public struct NoticeBanner: View {
             Spacer(minLength: 0)
             if let action {
                 Button(actionTitle, action: action).buttonStyle(.link).font(.auCaption)
+            }
+            // The close button sits inside the box, aligned with the title.
+            if let dismiss {
+                Button(action: dismiss) { Image(systemName: "xmark").font(.auCaption) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(T.Color.muted.color)
+                    .accessibilityLabel(dismissLabel)
             }
         }
         .padding(T.Space.s3)

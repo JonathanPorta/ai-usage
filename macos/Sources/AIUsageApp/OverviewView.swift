@@ -327,13 +327,7 @@ struct CollectResultBanner: View {
                 detail += " · \(summary.skipped.joined(separator: ", ")) off, cached values kept"
             }
         }
-        return HStack(alignment: .top) {
-            NoticeBanner(notice: .init(id: "collect", tone: tone, title: title, detail: detail, providerId: nil),
-                         more: 0, action: nil)
-            Button(action: dismiss) { Image(systemName: "xmark").font(.auCaption) }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Dismiss check result")
-                .padding(.top, T.Space.s2)
-        }
+        return NoticeBanner(notice: .init(id: "collect", tone: tone, title: title, detail: detail, providerId: nil),
+                            more: 0, action: nil, dismiss: dismiss, dismissLabel: "Dismiss check result")
     }
 }
