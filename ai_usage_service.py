@@ -4348,10 +4348,36 @@ def write_json_object(path: Path, value: Mapping[str, Any]) -> None:
     atomic_write_bytes(path, content.encode("utf-8"), mode=0o600)
 
 
+def stable_python_executable(executable: Optional[str] = None) -> Path:
+    """The interpreter path to record in the LaunchAgent and wrappers.
+
+    Never the symlink-resolved path: for Homebrew that is
+    `.../Cellar/python@X.Y/X.Y.Z/...`, which every patch upgrade deletes, so
+    the collector and the app would stop starting. Keep the path Python was
+    run as, and map a Cellar path onto Homebrew's stable `opt/<formula>` link
+    when that link points at the same interpreter.
+    """
+
+    path = Path(executable or sys.executable)
+    parts = path.parts
+    if "Cellar" in parts:
+        index = parts.index("Cellar")
+        if len(parts) > index + 3:
+            prefix = Path(*parts[:index])
+            formula, rest = parts[index + 1], parts[index + 3:]
+            stable = prefix.joinpath("opt", formula, *rest)
+            try:
+                if stable.exists() and os.path.samefile(stable, path):
+                    return stable
+            except OSError:
+                pass
+    return path
+
+
 def antigravity_wrapper_content(config_path: Path) -> str:
     return (
         "#!/bin/sh\n"
-        f"exec {shlex.quote(str(Path(sys.executable).resolve()))} "
+        f"exec {shlex.quote(str(stable_python_executable()))} "
         f"{shlex.quote(str(DEFAULT_INSTALLED_SCRIPT))} "
         "antigravity-statusline --config "
         f"{shlex.quote(str(config_path))}\n"
@@ -4847,7 +4873,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
     integration_plans = prepare_integration_plans(
         config, config_path, previous_ownership
     )
-    python_executable = Path(sys.executable).resolve()
+    python_executable = stable_python_executable()
     plist_bytes = build_launch_agent_plist(
         python_executable,
         DEFAULT_INSTALLED_SCRIPT,

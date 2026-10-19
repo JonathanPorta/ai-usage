@@ -2897,3 +2897,39 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
             self.cache.chmod(0o600)
         self.assertEqual(self.runs(), [])
         self.assertEqual([(r["metric"], r["status"]) for r in rows], [("personal_subscription_quota", "disabled")])
+
+
+class StablePythonExecutableTests(unittest.TestCase):
+    """The LaunchAgent must survive Homebrew patch upgrades of Python."""
+
+    def test_cellar_path_is_recorded_as_homebrew_opt_link(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            interpreter = root / "Cellar" / "python@3.14" / "3.14.7" / "bin" / "python3.14"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.write_text("", encoding="utf-8")
+            (root / "opt").mkdir()
+            (root / "opt" / "python@3.14").symlink_to(root / "Cellar" / "python@3.14" / "3.14.7")
+            self.assertEqual(SERVICE.stable_python_executable(str(interpreter)),
+                             root / "opt" / "python@3.14" / "bin" / "python3.14")
+
+    def test_opt_path_is_kept_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "Cellar" / "python@3.14" / "3.14.8" / "bin").mkdir(parents=True)
+            (root / "Cellar" / "python@3.14" / "3.14.8" / "bin" / "python3.14").write_text("", encoding="utf-8")
+            (root / "opt").mkdir()
+            (root / "opt" / "python@3.14").symlink_to(root / "Cellar" / "python@3.14" / "3.14.8")
+            invoked = root / "opt" / "python@3.14" / "bin" / "python3.14"
+            self.assertEqual(SERVICE.stable_python_executable(str(invoked)), invoked)
+
+    def test_cellar_path_without_a_matching_opt_link_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            interpreter = Path(tmp).resolve() / "Cellar" / "python@3.14" / "3.14.7" / "bin" / "python3.14"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.write_text("", encoding="utf-8")
+            self.assertEqual(SERVICE.stable_python_executable(str(interpreter)), interpreter)
+
+    def test_system_python_is_unchanged(self) -> None:
+        self.assertEqual(SERVICE.stable_python_executable("/usr/bin/python3"), Path("/usr/bin/python3"))
+
