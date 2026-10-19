@@ -2386,6 +2386,28 @@ class MenuAppCommandTests(unittest.TestCase):
                 self.assertNotEqual(failed.returncode, 0)
                 self.assertEqual(self.case.config.read_bytes(), before, "a rejected change must not touch the file")
 
+    def test_configure_through_a_symlink_updates_the_target(self) -> None:
+        self.case.write_config(self.disabled_config())
+        target = self.case.config
+        alias = target.with_name("alias-config.json")
+        alias.symlink_to(target)
+        SERVICE.configure(alias, ["poll_paused=true"])  # the function, not the CLI that resolves --config
+        self.assertTrue(alias.is_symlink(), "the alias must stay a link to the target")
+        self.assertEqual(alias.resolve(), target.resolve())
+        self.assertIs(json.loads(target.read_text(encoding="utf-8"))["poll_paused"], True)
+        self.assertTrue(target.with_name(f"{target.name}.lock").exists(), "the lock sits beside the target")
+        self.assertFalse(alias.with_name(f"{alias.name}.lock").exists())
+
+        SERVICE.configure(target, ["poll_paused=false"])
+        self.assertIs(json.loads(target.read_text(encoding="utf-8"))["poll_paused"], False)
+
+        dangling = target.with_name("dangling-config.json")
+        dangling.symlink_to(target.with_name("missing-config.json"))
+        with self.assertRaises(OSError):
+            SERVICE.configure(dangling, ["poll_paused=true"])
+        self.assertTrue(dangling.is_symlink())
+        self.assertFalse(target.with_name("missing-config.json").exists(), "a dangling alias must not create a file")
+
     def test_once_progress_reports_each_enabled_provider(self) -> None:
         config = self.disabled_config()
         for name in ("codex", "grok"):

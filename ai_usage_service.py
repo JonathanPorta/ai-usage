@@ -5202,6 +5202,10 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
     parsed = [parse_config_assignment(item) for item in assignments]
     if not parsed:
         raise ValueError("no settings given")
+    # Write the file the collector actually reads: replacing a symlinked alias
+    # would detach it from its target, and the lock must sit beside the target
+    # so every alias serializes on the same one.
+    config_path = config_path.resolve(strict=True)
     with exclusive_file_lock(config_path.with_name(f"{config_path.name}.lock")):
         with config_path.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
