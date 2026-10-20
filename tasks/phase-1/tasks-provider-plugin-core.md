@@ -142,23 +142,23 @@
     - `make fixture-check` passes (the committed `report-fixture.json` is unchanged).
     - The snapshot renders match the accepted baselines under the same rendering conditions.
 
-- [ ] 7.0 Validation and CI evidence                                    <- Serves: AC-8
+- [x] 7.0 Validation and CI evidence                                    <- Serves: AC-8
   - [x] 7.1 Add `ai_usage_plugins/*.py` and `tests/parity/*.py` to the Makefile `py_compile`
     list and to whatever lint or spec checks cover Python sources.
   - [x] 7.2 Run `make check`, `make app-test`, `make fixture-check`,
     `make design-check ARGS=--strict` and `make spec-check ARGS=--strict` locally.
-  - [ ] 7.3 Push the feature branch and open the PR. Record the CI run ID and the executor that
+  - [x] 7.3 Push the feature branch and open the PR. Record the CI run ID and the executor that
     actually ran the macOS job, from the job's runner labels and logs. A routing response alone
     doesn't count as evidence.
   - **Validates when:** every command in 7.2 exits 0, and the final revision's CI is green with
     the macOS job shown to have run on Proofglass.
 
-- [ ] 8.0 Documentation and records                                     <- Serves: AC-9
+- [x] 8.0 Documentation and records                                     <- Serves: AC-9
   - [x] 8.1 `docs/PLUGINS.md` covers the interface, registry, load and collect error behavior,
     packaging, compatibility guarantees, and "external plugins: phase 3, not implemented".
   - [x] 8.2 Update the collector row in `docs/RELEASE.md`, plus `docs/CLI.md`/`docs/SPEC.yml`
     wherever they describe the single-file collector.
-  - [ ] 8.3 Mark the tasks done, update the session state, and run the phase-gate audit
+  - [x] 8.3 Mark the tasks done, update the session state, and run the phase-gate audit
     (rule 13) before the PR description is written.
   - **Validates when:** `make spec-check ARGS=--strict` exits 0, and the PR description maps
     each AC to its evidence.
@@ -181,4 +181,4 @@ How the work differed from the plan above. None of it changes an acceptance crit
 - **6.0 renders:** `make app-snapshot-check` (local only, not in CI) fails on this Mac (macOS 27.0.1) against the committed `SHA256SUMS` for **both** the baseline `ddb923f` and this branch: 50 of 50. Rendered on the same machine, this branch's 52 renders are byte-identical to the baseline's, which is the "matching rendering conditions" comparison. The reference mismatch predates phase 1.
 - **CI:** the Linux job fetches full history and sets `AI_USAGE_REQUIRE_PARITY_HISTORY=1`, so the ancestry, carry-forward and verbatim tests run there instead of skipping.
 - **`VERSION`** stays 2.2.0. Phase 1 changes no behavior, and nothing is released.
-
+- **7.3:** PR #10. Final head `c821a35`: run 39513826018 is green, and the macOS lane ran on ProofGlass (job `job_01M5DSK1WAHRE6XN0NBCBYEPJT`). The review findings are addressed in `c821a35`.

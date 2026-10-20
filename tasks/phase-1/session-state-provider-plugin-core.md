@@ -2,7 +2,7 @@
 Last updated: 2026-10-20
 
 ### Current Position
-- **Current phase:** implementation done. Validation and the PR are in progress (tasks 7.3, 8.3).
+- **Current phase:** done. PR #10 is open and ready for review, CI is green with the macOS lane on ProofGlass, and the review findings are addressed (`c821a35`).
 - **Branch:** `jp/f/provider-plugin-core`, cut from main `ddb923f` (#5's merge commit; main CI green on ProofGlass, job `job_01M5DNWQ5C2WVBQFBW7XKAP75B`).
 - **Validation review mode:** auto-proceed (owner, 2026-10-20: "No further permission is needed for each task or commit").
 - **Blocked:** no. The PR's merge is the owner's next approval checkpoint.
@@ -31,9 +31,8 @@ Last updated: 2026-10-20
 - Docs: `docs/PLUGINS.md`, plus the CLI, RELEASE, APP, IDEA, DECISIONS and README updates.
 
 ### What's Next
-1. Push the branch, open the PR (ready for review), and record CI. Name the macOS executor from the ProofGlass check, not the routing answer.
-2. Phase-gate audit (rule 13), then the PR description that maps each AC to its evidence.
-3. Owner: the merge decision. Phase 2 needs its own PRD and AC approval.
+1. Owner: the merge decision on PR #10.
+2. After the merge: phase 2 needs its own PRD and AC approval.
 
 ### Blockers / Open Questions
 - None blocking. `make launchd-integration-check` (real launchd, disposable agent) was updated but not run in phase 1.
