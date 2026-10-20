@@ -912,7 +912,12 @@ class FilesystemTransaction:
         os.chmod(self.recovery_dir, 0o700)
         self.snapshots: dict[Path, dict[str, Any]] = {}
         self.created_directories: list[Path] = []
-        self._write_manifest()
+        try:
+            self._write_manifest()
+        except BaseException:
+            # Nothing was changed yet; leave no empty recovery directory behind.
+            shutil.rmtree(self.recovery_dir, ignore_errors=True)
+            raise
 
     def _write_manifest(self) -> None:
         entries = {
