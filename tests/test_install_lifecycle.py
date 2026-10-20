@@ -261,6 +261,37 @@ class InstallLifecycleTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), content, f"{path} must be preserved")
         self.assertFalse((self.root / "install-ownership.json").exists())
 
+    def test_a_kept_modified_collector_keeps_its_plugins(self) -> None:
+        self.case.run("install", "--no-start", "--config", str(self.config))
+        installed = self.root / "collector.py"
+        installed.write_text(installed.read_text(encoding="utf-8") + "\n# local change\n", encoding="utf-8")
+        result = self.case.run("uninstall", "--config", str(self.config))
+        self.assertIn(f"Preserved modified installer file: {installed}", result.stdout)
+        self.assertIn("Preserved the provider plugins because collector.py was kept", result.stdout)
+        self.assertEqual(sorted(p.name for p in (self.root / "ai_usage_plugins").iterdir()),
+                         sorted(f"{name}.py" for name in ai_usage_plugins.MODULES))
+        version = subprocess.run([sys.executable, "-I", str(installed), "version"], env=self.case.environment(),
+                                 capture_output=True, text=True, check=False)
+        self.assertEqual((version.returncode, version.stderr), (0, ""), "the kept collector still runs")
+
+    def test_install_reports_each_integration_as_before(self) -> None:
+        # The integration messages are generic now; their text must not change.
+        self.config.parent.mkdir(mode=0o700)
+        self.config.write_text(json.dumps({"providers": {"gemini_cli": {"configure_telemetry": True}}}), encoding="utf-8")
+        missing = self.case.run("install", "--no-start", "--config", str(self.config))
+        self.assertIn("Skipped Antigravity integration: agy was not found", missing.stdout)
+        self.assertIn("Skipped Gemini CLI integration: gemini was not found", missing.stdout)
+        self.case.write_executable("agy")
+        self.case.write_executable("gemini")
+        configured = self.case.run("install", "--no-start", "--config", str(self.config))
+        antigravity = (self.case.home / ".gemini" / "antigravity-cli" / "settings.json").resolve()
+        gemini = (self.case.home / ".gemini" / "settings.json").resolve()
+        self.assertIn(f"Configured Antigravity status-line capture: {antigravity}", configured.stdout)
+        self.assertIn(f"Configured local Gemini CLI telemetry: {gemini}", configured.stdout)
+        managed = self.case.run("install", "--no-start", "--config", str(self.config))
+        self.assertIn(f"Preserved Antigravity statusLine (managed): {antigravity}", managed.stdout)
+        self.assertIn(f"Preserved Gemini CLI telemetry (managed): {gemini}", managed.stdout)
+
     def test_uninstall_removes_the_package_directory_once_empty(self) -> None:
         self.case.run("install", "--no-start", "--config", str(self.config))
         self.case.run("uninstall", "--config", str(self.config))

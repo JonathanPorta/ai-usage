@@ -30,7 +30,7 @@ from typing import Any, Callable, Iterable, Optional
 sys.dont_write_bytecode = True
 _REPORT_DIR = os.path.dirname(os.path.realpath(__file__))
 if _REPORT_DIR not in sys.path:
-    sys.path.insert(0, _REPORT_DIR)
+    sys.path.append(_REPORT_DIR)  # after the standard library, never ahead of it
 
 import ai_usage_service as collector  # noqa: E402
 from ai_usage_plugins.base import ProviderDef, SourceDef  # noqa: E402,F401  (re-exported)

@@ -42,7 +42,7 @@ import uuid
 sys.dont_write_bytecode = True
 _COLLECTOR_DIR = os.path.dirname(os.path.realpath(__file__))
 if _COLLECTOR_DIR not in sys.path:
-    sys.path.insert(0, _COLLECTOR_DIR)
+    sys.path.append(_COLLECTOR_DIR)  # after the standard library, never ahead of it
 
 import ai_usage_plugins  # noqa: E402
 from ai_usage_plugins.base import CollectContext, ProviderPlugin  # noqa: E402
@@ -1463,8 +1463,9 @@ def install_service(config_path: Path, no_start: bool) -> None:
             print(f"Preserved existing config: {config_path}")
 
         # The collector and its plugin package are written together, in one
-        # transaction: a failure restores every one of them.
-        for key in ("installed_script", *module_plans):
+        # transaction: a failure restores every one of them. Modules go first, so
+        # a collector.py started mid-install never finds an older package.
+        for key in (*module_plans, "installed_script"):
             apply_managed_file(file_plans[key], tx)
         for key, record in obsolete_modules.items():
             remove_owned_file(key, record, tx)
@@ -1698,7 +1699,7 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
     if (
         len(parts) == 3
         and parts[0] == "providers"
-        and parts[1] in DEFAULT_CONFIG["providers"]
+        and parts[1] in ai_usage_plugins.BUNDLED
         and parts[2] in CONFIGURABLE_PROVIDER_KEYS
     ):
         if parts[2] == "enabled" and not isinstance(value, bool):
@@ -1879,8 +1880,10 @@ def uninstall_service(config_path: Path) -> None:
             if not hook_safe:
                 unsafe_hooks.append(integration_display_name(name))
         remove_owned_file("plist", files.get("plist"), tx)
-        if not unsafe_hooks:
-            remove_owned_file("installed_script", files.get("installed_script"), tx)
+        if not unsafe_hooks and not remove_owned_file("installed_script", files.get("installed_script"), tx):
+            # collector.py stays (modified or unowned), so it keeps the package it needs.
+            print("Preserved the provider plugins because collector.py was kept")
+        elif not unsafe_hooks:
             for key in [key for key in files if key.startswith("plugin_module:")]:
                 remove_owned_file(key, files.get(key), tx)
             package_dir = DEFAULT_ROOT / PLUGIN_PACKAGE

@@ -66,6 +66,7 @@ Each provider module defines `PLUGIN = ProviderPlugin(...)`.
 | A provider module fails to import | The other providers load and collect as before. On every poll, the failed provider gets one `collection/unexpected_error` row whose message is `provider module failed to load: <error>`, unless it is disabled in the config. `doctor` shows `load_error` for it. The report leaves it out and lists the error in `collector.plugin_errors`; the key is present only when something failed. |
 | `collect()` raises | Unchanged from before: one `collection/unexpected_error` row with the error message, and the other providers still run. |
 | `install` from a source tree with a module that fails to load | Refused before anything is written. The installer does not install an incomplete module set. |
+| The Antigravity module fails to load (known limit) | Its `antigravity-statusline` command isn't registered, so the status-line hook gets a usage error instead of the plain name "Antigravity" that it shows for any other failure. If `base` or `support` fails, no command works. Install never writes an incomplete set, and it writes the modules before `collector.py`, so this needs a damaged install. |
 
 The tests break a provider module in a copy of the tree and compare the other
 providers' rows with the parity golden files (`tests/test_plugin_architecture.py`).

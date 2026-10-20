@@ -160,6 +160,7 @@ class FailureIsolationTests(unittest.TestCase):
     def assert_others_unchanged(self, observed: dict[str, Any], broken: str) -> list[dict[str, Any]]:
         golden = json.loads(driver.golden_path("all_providers").read_text(encoding="utf-8"))
         broken_rows: list[dict[str, Any]] = []
+        self.assertEqual([r["op"] for r in observed["results"]], [r["op"] for r in golden["results"]])
         for expected, actual in zip(golden["results"], observed["results"]):
             if expected["op"] != "once":
                 continue
