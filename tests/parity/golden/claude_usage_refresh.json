@@ -1,0 +1,1046 @@
+{
+ "results": [
+  {
+   "csv": [
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "codex",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "0",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "binary=/sandbox/bin/claude",
+     "metric": "detected",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "filesystem-discovery",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "1",
+     "unit": "boolean",
+     "value": "1",
+     "window_seconds": ""
+    },
+    {
+     "category": "collection",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "stats cache not found: /sandbox/claude.json; Claude was not executed",
+     "metric": "stats_cache",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "local-file",
+     "status": "missing",
+     "transaction_id": "<normalized>",
+     "transaction_index": "2",
+     "unit": "",
+     "value": "",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-21T14:10:00.157608Z",
+     "scope": "session",
+     "source": "claude-usage-command",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "3",
+     "unit": "percent",
+     "value": "8",
+     "window_seconds": "18000"
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T13:00:00Z",
+     "scope": "weekly",
+     "source": "claude-usage-command",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "4",
+     "unit": "percent",
+     "value": "85",
+     "window_seconds": "604800"
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T13:00:00Z",
+     "scope": "weekly:Fable",
+     "source": "claude-usage-command",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "5",
+     "unit": "percent",
+     "value": "4",
+     "window_seconds": "604800"
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "6",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "gemini_cli",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "7",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "grok",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "8",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    }
+   ],
+   "op": "once",
+   "pending": false,
+   "return": 0,
+   "state": {
+    "history_date": "2026-08-21"
+   },
+   "stderr": "",
+   "stdout": "Appended 9 rows to /sandbox/data/usage.csv; errors=0\n"
+  },
+  {
+   "op": "report",
+   "report": {
+    "collection": {
+     "failures": [
+      {
+       "at": "2026-08-21T12:00:00Z",
+       "auth": false,
+       "kind": "usage",
+       "message": "stats cache not found: /sandbox/claude.json; Claude was not executed",
+       "provider": "claude",
+       "source": "stats-cache"
+      }
+     ],
+     "last_attempt_at": "2026-08-21T12:00:00Z",
+     "last_attempt_result": "partial",
+     "last_success_at": "2026-08-21T12:00:00Z",
+     "summary": {
+      "providers_attempted": 1,
+      "providers_failed": 0,
+      "providers_partly": 1,
+      "providers_updated": 0,
+      "skipped": [
+       "Codex",
+       "Antigravity",
+       "Grok Build",
+       "Gemini CLI"
+      ]
+     }
+    },
+    "collector": {
+     "capabilities": {
+      "pause": true,
+      "progress": true,
+      "service_control": true,
+      "settings": true
+     },
+     "config_path": "/sandbox/config.json",
+     "csv_rows": 9,
+     "installed_version": "2.2.0",
+     "interval_seconds": 3600,
+     "log_file": "/sandbox/data/collector.log",
+     "usage_csv": "/sandbox/data/usage.csv",
+     "version": "2.2.0"
+    },
+    "generated_at": "2026-08-21T12:00:00Z",
+    "providers": [
+     {
+      "costs": {
+       "api_equivalent": null,
+       "reported": null,
+       "reported_note": "Codex does not report a usage cost.",
+       "subscription": null
+      },
+      "coverage_start": null,
+      "days": [
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-15",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-16",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-17",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-18",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-19",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-20",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-21",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       }
+      ],
+      "enabled": false,
+      "id": "codex",
+      "models_today": [],
+      "name": "Codex",
+      "notes": [],
+      "product": "OpenAI Codex",
+      "quota": {
+       "collected_at": null,
+       "measured_at": null,
+       "note": null,
+       "stale_cause": null,
+       "status": "none",
+       "windows": []
+      },
+      "setup": "disabled",
+      "setup_note": "Turned off in the collector config; cached values are kept.",
+      "sources": [
+       {
+        "error": null,
+        "id": "rate-limits",
+        "kind": "Codex account API, read-only (account/rateLimits/read)",
+        "label": "Rate limits",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "quota",
+        "status": "off"
+       },
+       {
+        "error": null,
+        "id": "account-usage",
+        "kind": "Codex account API, read-only (account/usage/read)",
+        "label": "Account usage",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "usage",
+        "status": "off"
+       }
+      ],
+      "today": null,
+      "usage": {
+       "becomes_stale_at": null,
+       "becomes_stale_cause": null,
+       "collected_at": null,
+       "measured_at": null,
+       "mode": "polled",
+       "record_kind": "period_total",
+       "split": "total_only",
+       "stale_cause": null,
+       "status": "none"
+      }
+     },
+     {
+      "costs": {
+       "api_equivalent": null,
+       "reported": null,
+       "reported_note": "Claude Code's local data doesn't include a usage cost.",
+       "subscription": null
+      },
+      "coverage_start": null,
+      "days": [
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-15",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-16",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-17",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-18",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-19",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-20",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-21",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       }
+      ],
+      "enabled": true,
+      "id": "claude",
+      "models_today": [],
+      "name": "Claude Code",
+      "notes": [],
+      "product": "Claude Code",
+      "quota": {
+       "collected_at": "2026-08-21T12:00:00Z",
+       "measured_at": "2026-08-21T12:00:00Z",
+       "note": "Your plan's session and weekly limits, as Claude Code's /usage shows them.",
+       "stale_cause": null,
+       "status": "current",
+       "windows": [
+        {
+         "basis": "used",
+         "becomes_stale_at": "2026-08-21T14:00:00Z",
+         "becomes_stale_cause": "not_collected",
+         "collected_at": "2026-08-21T12:00:00Z",
+         "derived": false,
+         "id": "session",
+         "label": "5-hour limit",
+         "limit": null,
+         "measured_at": "2026-08-21T12:00:00Z",
+         "omitted": false,
+         "percent": 8,
+         "ranges": [
+          "24h",
+          "7d"
+         ],
+         "readings": [
+          {
+           "percent": 8,
+           "resets_at": "2026-08-21T14:10:00Z",
+           "t": "2026-08-21T12:00:00Z"
+          }
+         ],
+         "reset_passed": false,
+         "resets": [],
+         "resets_at": "2026-08-21T14:10:00Z",
+         "retired": false,
+         "short": "5-hour",
+         "stale_cause": null,
+         "status": "current",
+         "window_seconds": 18000
+        },
+        {
+         "basis": "used",
+         "becomes_stale_at": "2026-08-21T14:00:00Z",
+         "becomes_stale_cause": "not_collected",
+         "collected_at": "2026-08-21T12:00:00Z",
+         "derived": false,
+         "id": "weekly",
+         "label": "Weekly limit",
+         "limit": null,
+         "measured_at": "2026-08-21T12:00:00Z",
+         "omitted": false,
+         "percent": 85,
+         "ranges": [
+          "7d",
+          "35d"
+         ],
+         "readings": [
+          {
+           "percent": 85,
+           "resets_at": "2026-08-24T13:00:00Z",
+           "t": "2026-08-21T12:00:00Z"
+          }
+         ],
+         "reset_passed": false,
+         "resets": [],
+         "resets_at": "2026-08-24T13:00:00Z",
+         "retired": false,
+         "short": "Weekly",
+         "stale_cause": null,
+         "status": "current",
+         "window_seconds": 604800
+        },
+        {
+         "basis": "used",
+         "becomes_stale_at": "2026-08-21T14:00:00Z",
+         "becomes_stale_cause": "not_collected",
+         "collected_at": "2026-08-21T12:00:00Z",
+         "derived": false,
+         "id": "weekly:Fable",
+         "label": "Weekly limit \u00b7 Fable",
+         "limit": null,
+         "measured_at": "2026-08-21T12:00:00Z",
+         "omitted": false,
+         "percent": 4,
+         "ranges": [
+          "7d",
+          "35d"
+         ],
+         "readings": [
+          {
+           "percent": 4,
+           "resets_at": "2026-08-24T13:00:00Z",
+           "t": "2026-08-21T12:00:00Z"
+          }
+         ],
+         "reset_passed": false,
+         "resets": [],
+         "resets_at": "2026-08-24T13:00:00Z",
+         "retired": false,
+         "short": "Weekly \u00b7 Fable",
+         "stale_cause": null,
+         "status": "current",
+         "window_seconds": 604800
+        }
+       ]
+      },
+      "setup": "ready",
+      "setup_note": null,
+      "sources": [
+       {
+        "error": null,
+        "id": "sessions",
+        "kind": "Local Claude Code session transcripts (~/.claude/projects)",
+        "label": "Session transcripts",
+        "last_attempt_at": "2026-08-21T12:00:00Z",
+        "last_read_at": "2026-08-21T12:00:00Z",
+        "measured_at": null,
+        "role": "usage",
+        "status": "ok"
+       },
+       {
+        "error": "stats cache not found: /sandbox/claude.json; Claude was not executed",
+        "id": "stats-cache",
+        "kind": "Claude Code local stats cache (undocumented format)",
+        "label": "Daily stats",
+        "last_attempt_at": "2026-08-21T12:00:00Z",
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "history",
+        "status": "failed"
+       },
+       {
+        "error": null,
+        "id": "subscription-usage",
+        "kind": "Claude Code's /usage: its cached limits, refreshed by one locked-down headless run when stale",
+        "label": "Plan limits",
+        "last_attempt_at": "2026-08-21T12:00:00Z",
+        "last_read_at": "2026-08-21T12:00:00Z",
+        "measured_at": "2026-08-21T12:00:00Z",
+        "role": "quota",
+        "status": "ok"
+       }
+      ],
+      "today": null,
+      "usage": {
+       "becomes_stale_at": null,
+       "becomes_stale_cause": null,
+       "collected_at": "2026-08-21T12:00:00Z",
+       "measured_at": null,
+       "mode": "event",
+       "record_kind": "event_total",
+       "split": "input_output",
+       "stale_cause": null,
+       "status": "none"
+      }
+     },
+     {
+      "costs": {
+       "api_equivalent": null,
+       "reported": null,
+       "reported_note": "Antigravity does not report a usage cost.",
+       "subscription": null
+      },
+      "coverage_start": null,
+      "days": [
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-15",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-16",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-17",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-18",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-19",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-20",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-21",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       }
+      ],
+      "enabled": false,
+      "id": "antigravity",
+      "models_today": [],
+      "name": "Antigravity",
+      "notes": [],
+      "product": "Antigravity CLI",
+      "quota": {
+       "collected_at": null,
+       "measured_at": null,
+       "note": "Reported by Antigravity while it runs. Between sessions the last reading is kept; that is normal, not stale.",
+       "stale_cause": null,
+       "status": "none",
+       "windows": []
+      },
+      "setup": "disabled",
+      "setup_note": "Turned off in the collector config; cached values are kept.",
+      "sources": [
+       {
+        "error": null,
+        "id": "status-line",
+        "kind": "Sent by Antigravity while it runs (status-line callback)",
+        "label": "Status-line updates",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "both",
+        "status": "off"
+       }
+      ],
+      "today": null,
+      "usage": {
+       "becomes_stale_at": null,
+       "becomes_stale_cause": null,
+       "collected_at": null,
+       "measured_at": null,
+       "mode": "event",
+       "record_kind": "delta",
+       "split": "input_output",
+       "stale_cause": null,
+       "status": "none"
+      }
+     },
+     {
+      "costs": {
+       "api_equivalent": null,
+       "reported": null,
+       "reported_note": "No billing snapshot has been read yet.",
+       "subscription": null
+      },
+      "coverage_start": null,
+      "days": [
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-15",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-16",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-17",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-18",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-19",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-20",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-21",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       }
+      ],
+      "enabled": false,
+      "id": "grok",
+      "models_today": [],
+      "name": "Grok Build",
+      "notes": [],
+      "product": "Grok Build CLI",
+      "quota": {
+       "collected_at": null,
+       "measured_at": null,
+       "note": "Credit percentage for the current billing period, from xAI billing. It is not your subscription price.",
+       "stale_cause": null,
+       "status": "none",
+       "windows": []
+      },
+      "setup": "disabled",
+      "setup_note": "Turned off in the collector config; cached values are kept.",
+      "sources": [
+       {
+        "error": null,
+        "id": "session-log",
+        "kind": "Local Grok session files",
+        "label": "Session log",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "usage",
+        "status": "off"
+       },
+       {
+        "error": null,
+        "id": "billing",
+        "kind": "Local billing log; xAI billing lookup as fallback (no model calls)",
+        "label": "Billing snapshot",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "quota",
+        "status": "off"
+       }
+      ],
+      "today": null,
+      "usage": {
+       "becomes_stale_at": null,
+       "becomes_stale_cause": null,
+       "collected_at": null,
+       "measured_at": null,
+       "mode": "event",
+       "record_kind": "event_total",
+       "split": "input_output",
+       "stale_cause": null,
+       "status": "none"
+      }
+     },
+     {
+      "costs": {
+       "api_equivalent": null,
+       "reported": null,
+       "reported_note": "Gemini CLI does not report a usage cost.",
+       "subscription": null
+      },
+      "coverage_start": null,
+      "days": [
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-15",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-16",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-17",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-18",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-19",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-20",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       },
+       {
+        "as_of": null,
+        "cache_read": null,
+        "cache_write": null,
+        "date": "2026-08-21",
+        "incomplete_events": 0,
+        "input": null,
+        "output": null,
+        "state": "not_collected",
+        "total": null
+       }
+      ],
+      "enabled": false,
+      "id": "gemini_cli",
+      "models_today": [],
+      "name": "Gemini CLI",
+      "notes": [],
+      "product": "Gemini CLI",
+      "quota": {
+       "collected_at": null,
+       "measured_at": null,
+       "note": null,
+       "stale_cause": null,
+       "status": "unsupported",
+       "windows": []
+      },
+      "setup": "disabled",
+      "setup_note": "Turned off in the collector config; cached values are kept.",
+      "sources": [
+       {
+        "error": null,
+        "id": "telemetry",
+        "kind": "Gemini CLI telemetry (opt-in)",
+        "label": "Local telemetry file",
+        "last_attempt_at": null,
+        "last_read_at": null,
+        "measured_at": null,
+        "role": "usage",
+        "status": "off"
+       }
+      ],
+      "today": null,
+      "usage": {
+       "becomes_stale_at": null,
+       "becomes_stale_cause": null,
+       "collected_at": null,
+       "measured_at": null,
+       "mode": "event",
+       "record_kind": "event_total",
+       "split": "input_output",
+       "stale_cause": null,
+       "status": "none"
+      }
+     }
+    ],
+    "schedule": {
+     "interval_minutes": 60,
+     "next_scheduled_at": null,
+     "pause_requested": false,
+     "pause_supported": true,
+     "state": "unknown"
+    },
+    "schema": "ai-usage/report/v1",
+    "service": {
+     "detail": "service probe skipped",
+     "disabled": null,
+     "pid": null,
+     "state": "unknown"
+    },
+    "thresholds": {
+     "grok_billing_stale_after_seconds": 10800,
+     "stale_after_seconds": 7200
+    },
+    "timezone": "UTC",
+    "today": "2026-08-21"
+   },
+   "return": 0,
+   "stderr": ""
+  }
+ ],
+ "tripwire": ""
+}

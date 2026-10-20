@@ -1,0 +1,230 @@
+{
+ "results": [
+  {
+   "is_symlink": true,
+   "op": "configure",
+   "return": {
+    "poll_paused": true,
+    "providers.codex.monthly_subscription_usd": 25
+   },
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": false,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "is_symlink": true,
+   "op": "configure",
+   "return": {
+    "providers.grok.enabled": true
+   },
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "error": "ValueError: providers.unknown.enabled is not a setting the menu app may change",
+   "is_symlink": true,
+   "op": "configure",
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "error": "ValueError: providers.codex.executable is not a setting the menu app may change",
+   "is_symlink": true,
+   "op": "configure",
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "error": "ValueError: providers.claude.enabled must be true or false",
+   "is_symlink": true,
+   "op": "configure",
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "error": "ValueError: providers.claude.monthly_subscription_usd must be a non-negative number or null",
+   "is_symlink": true,
+   "op": "configure",
+   "stderr": "",
+   "stdout": "",
+   "text": "{\n  \"poll_interval_seconds\": 3600,\n  \"paths\": {\n    \"usage_csv\": \"/sandbox/data/usage.csv\",\n    \"log_file\": \"/sandbox/data/collector.log\",\n    \"state_file\": \"/sandbox/data/state.json\",\n    \"cache_dir\": \"/sandbox/data/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": false,\n      \"monthly_subscription_usd\": 25\n    },\n    \"claude\": {\n      \"enabled\": false\n    },\n    \"antigravity\": {\n      \"enabled\": false\n    },\n    \"gemini_cli\": {\n      \"enabled\": false\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable_names\": [\n        \"definitely-missing-grok\"\n      ],\n      \"grok_home\": \"/sandbox/grok\",\n      \"auth_file\": \"/sandbox/grok/auth.json\",\n      \"billing_cache_file\": \"/sandbox/grok/unified.jsonl\"\n    }\n  },\n  \"poll_paused\": true\n}\n"
+  },
+  {
+   "op": "load_config",
+   "return": {
+    "format_version": 1,
+    "paths": {
+     "cache_dir": "/sandbox/data/cache",
+     "log_file": "/sandbox/data/collector.log",
+     "state_file": "/sandbox/data/state.json",
+     "usage_csv": "/sandbox/data/usage.csv"
+    },
+    "poll_interval_seconds": 3600,
+    "poll_on_start": true,
+    "poll_paused": true,
+    "providers": {
+     "antigravity": {
+      "cache_file": "~/.ai-usage/cache/antigravity.json",
+      "configure_status_line": true,
+      "enabled": false,
+      "events_file": "~/.ai-usage/cache/antigravity-events.jsonl",
+      "executable": null,
+      "executable_names": [
+       "agy"
+      ],
+      "monthly_subscription_usd": null,
+      "settings_file": "~/.gemini/antigravity-cli/settings.json",
+      "stale_after_seconds": 7200
+     },
+     "claude": {
+      "enabled": false,
+      "executable": null,
+      "executable_names": [
+       "claude"
+      ],
+      "max_session_bytes_per_poll": 26214400,
+      "monthly_subscription_usd": null,
+      "projects_dir": "~/.claude/projects",
+      "stale_after_seconds": 172800,
+      "stats_file": "~/.claude/stats-cache.json",
+      "subscription_usage": true,
+      "timeout_seconds": 30,
+      "usage_cache_file": "~/.claude.json",
+      "usage_cache_max_age_seconds": 900
+     },
+     "codex": {
+      "enabled": false,
+      "executable": null,
+      "executable_names": [
+       "codex"
+      ],
+      "monthly_subscription_usd": 25,
+      "timeout_seconds": 30
+     },
+     "gemini_cli": {
+      "configure_telemetry": false,
+      "enabled": false,
+      "executable": null,
+      "executable_names": [
+       "gemini"
+      ],
+      "monthly_subscription_usd": null,
+      "settings_file": "~/.gemini/settings.json",
+      "telemetry_file": "~/.ai-usage/cache/gemini-telemetry.log"
+     },
+     "grok": {
+      "auth_file": "/sandbox/grok/auth.json",
+      "billing_cache_file": "/sandbox/grok/unified.jsonl",
+      "billing_cache_max_age_seconds": 7200,
+      "billing_cache_tail_bytes": 2097152,
+      "collect_billing_via_acp": true,
+      "enabled": true,
+      "executable": null,
+      "executable_names": [
+       "definitely-missing-grok"
+      ],
+      "grok_home": "/sandbox/grok",
+      "max_session_bytes_per_poll": 26214400,
+      "monthly_subscription_usd": null,
+      "timeout_seconds": 30
+     }
+    }
+   },
+   "stderr": "",
+   "stdout": ""
+  },
+  {
+   "csv": [
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "codex",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "0",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "claude",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "1",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "2",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "availability",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "provider disabled in config; no discovery or command was run",
+     "metric": "enabled",
+     "period_end": "",
+     "period_start": "",
+     "provider": "gemini_cli",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "config",
+     "status": "disabled",
+     "transaction_id": "<normalized>",
+     "transaction_index": "3",
+     "unit": "boolean",
+     "value": "0",
+     "window_seconds": ""
+    }
+   ],
+   "op": "once",
+   "pending": false,
+   "return": 0,
+   "state": {
+    "history_date": "2026-08-21"
+   },
+   "stderr": "",
+   "stdout": "Appended 4 rows to /sandbox/data/usage.csv; errors=0\n"
+  }
+ ],
+ "tripwire": ""
+}

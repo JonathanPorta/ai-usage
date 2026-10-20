@@ -1,0 +1,110 @@
+{
+ "results": [
+  {
+   "error": "ValueError: path role collision: providers.antigravity.cache_file and providers.grok.auth_file both resolve to /sandbox/shared.json",
+   "op": "load_config",
+   "stderr": "",
+   "stdout": ""
+  },
+  {
+   "error": "ValueError: providers.gemini_cli must be an object",
+   "op": "load_config",
+   "stderr": "",
+   "stdout": ""
+  },
+  {
+   "error": "ValueError: providers.claude.projects_dir must be a non-empty string",
+   "op": "load_config",
+   "stderr": "",
+   "stdout": ""
+  },
+  {
+   "op": "load_config",
+   "return": {
+    "format_version": 1,
+    "paths": {
+     "cache_dir": "/sandbox/data/cache",
+     "log_file": "/sandbox/data/collector.log",
+     "state_file": "/sandbox/data/state.json",
+     "usage_csv": "/sandbox/data/usage.csv"
+    },
+    "poll_interval_seconds": 3600,
+    "poll_on_start": true,
+    "poll_paused": false,
+    "providers": {
+     "antigravity": {
+      "cache_file": "~/.ai-usage/cache/antigravity.json",
+      "configure_status_line": true,
+      "enabled": true,
+      "events_file": "~/.ai-usage/cache/antigravity-events.jsonl",
+      "executable": null,
+      "executable_names": [
+       "agy"
+      ],
+      "monthly_subscription_usd": null,
+      "settings_file": "~/.gemini/antigravity-cli/settings.json",
+      "stale_after_seconds": 7200
+     },
+     "claude": {
+      "enabled": true,
+      "executable": null,
+      "executable_names": [
+       "claude"
+      ],
+      "max_session_bytes_per_poll": 26214400,
+      "monthly_subscription_usd": null,
+      "projects_dir": "~/.claude/projects",
+      "stale_after_seconds": 172800,
+      "stats_file": "~/.claude/stats-cache.json",
+      "subscription_usage": true,
+      "timeout_seconds": 30,
+      "usage_cache_file": "~/.claude.json",
+      "usage_cache_max_age_seconds": 900
+     },
+     "codex": {
+      "enabled": true,
+      "executable": null,
+      "executable_names": [
+       "codex"
+      ],
+      "monthly_subscription_usd": null,
+      "timeout_seconds": 30
+     },
+     "gemini_cli": {
+      "configure_telemetry": false,
+      "enabled": true,
+      "executable": null,
+      "executable_names": [
+       "gemini"
+      ],
+      "monthly_subscription_usd": null,
+      "settings_file": "~/.gemini/settings.json",
+      "telemetry_file": "~/.ai-usage/cache/gemini-telemetry.log"
+     },
+     "grok": {
+      "auth_file": "~/.grok/auth.json",
+      "billing_cache_file": "~/.grok/logs/unified.jsonl",
+      "billing_cache_max_age_seconds": 7200,
+      "billing_cache_tail_bytes": 2097152,
+      "collect_billing_via_acp": true,
+      "enabled": true,
+      "executable": null,
+      "executable_names": [
+       "grok"
+      ],
+      "grok_home": "~/.grok",
+      "max_session_bytes_per_poll": 26214400,
+      "monthly_subscription_usd": null,
+      "timeout_seconds": 30
+     },
+     "someday": {
+      "enabled": true
+     }
+    }
+   },
+   "stderr": "",
+   "stdout": ""
+  }
+ ],
+ "tripwire": ""
+}
