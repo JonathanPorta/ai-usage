@@ -351,7 +351,14 @@ def scenario_provider_errors(box: Sandbox) -> list[dict[str, Any]]:
                  "auth_file": auth, "billing_cache_file": box.missing("grok-home/logs/unified.jsonl"),
                  "timeout_seconds": 1},
     })
-    return [{"op": "doctor_json"}, box.once(), {"op": "report", "days": 7}]
+    return [
+        {"op": "doctor_json"},
+        # A payload that is not an object: logged, and the bare name is shown.
+        {"op": "statusline", "payload": [1, 2], "cache_file": agy_cache,
+         "events_file": box.missing("data/cache/antigravity-events.jsonl")},
+        box.once(),
+        {"op": "report", "days": 7},
+    ]
 
 
 def scenario_claude_usage_refresh(box: Sandbox) -> list[dict[str, Any]]:

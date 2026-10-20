@@ -7,6 +7,23 @@
    "stdout": "{\n  \"antigravity\": {\n    \"cache_file\": \"/sandbox/data/cache/antigravity.json\",\n    \"cache_file_readable\": true,\n    \"detected\": true,\n    \"enabled\": true,\n    \"events_file\": \"/sandbox/data/cache/antigravity-events.jsonl\",\n    \"events_file_readable\": false,\n    \"executable\": \"/sandbox/bin/agy\"\n  },\n  \"claude\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/claude\",\n    \"projects_dir\": \"/sandbox/claude-projects\",\n    \"session_log_count\": 0,\n    \"stats_file\": \"/sandbox/claude-stats.json\",\n    \"stats_file_readable\": true\n  },\n  \"codex\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/codex\"\n  },\n  \"gemini_cli\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/gemini\",\n    \"telemetry_file\": \"/sandbox/gemini.log\",\n    \"telemetry_file_readable\": true\n  },\n  \"grok\": {\n    \"auth_file_present\": true,\n    \"billing_cache_file\": \"/sandbox/grok-home/logs/unified.jsonl\",\n    \"billing_cache_readable\": false,\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/grok\",\n    \"session_log_count\": 0\n  }\n}\n"
   },
   {
+   "cache": {
+    "captured_at": "2026-08-20T12:00:00Z",
+    "plan_tier": "pro",
+    "quota": {
+     "weekly": {
+      "remaining_fraction": 0.4,
+      "reset_time": "2026-08-24T00:00:00Z"
+     }
+    }
+   },
+   "events": null,
+   "op": "statusline",
+   "return": 0,
+   "stderr": "",
+   "stdout": "Antigravity\n"
+  },
+  {
    "csv": [
     {
      "category": "availability",

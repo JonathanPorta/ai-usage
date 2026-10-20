@@ -110,7 +110,9 @@ def main() -> int:
     for step in plan["steps"]:
         op = step["op"]
         if op == "default_config":
-            results.append({"op": op, "value": json.loads(json.dumps(service.DEFAULT_CONFIG))})
+            # The text keeps key order: install writes it as the new config.json.
+            results.append({"op": op, "value": json.loads(json.dumps(service.DEFAULT_CONFIG)),
+                            "text": json.dumps(service.DEFAULT_CONFIG, indent=2)})
         elif op == "doctor_json":
             results.append({"op": op, **captured(lambda: service.main(["doctor", "--json", "--config", str(config_path)]))})
         elif op == "doctor_text":
@@ -125,7 +127,7 @@ def main() -> int:
             results.append({"op": op, **outcome})
         elif op == "statusline":
             stdin = sys.stdin
-            sys.stdin = io.StringIO(json.dumps(step["payload"]))
+            sys.stdin = io.TextIOWrapper(io.BytesIO(json.dumps(step["payload"]).encode("utf-8")), encoding="utf-8")
             try:
                 outcome = captured(
                     lambda: service.main(["antigravity-statusline", "--config", str(config_path)])

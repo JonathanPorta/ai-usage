@@ -2,6 +2,7 @@
  "results": [
   {
    "op": "default_config",
+   "text": "{\n  \"format_version\": 1,\n  \"poll_interval_seconds\": 3600,\n  \"poll_on_start\": true,\n  \"poll_paused\": false,\n  \"paths\": {\n    \"usage_csv\": \"~/.ai-usage/usage.csv\",\n    \"log_file\": \"~/.ai-usage/collector.log\",\n    \"state_file\": \"~/.ai-usage/state.json\",\n    \"cache_dir\": \"~/.ai-usage/cache\"\n  },\n  \"providers\": {\n    \"codex\": {\n      \"enabled\": true,\n      \"executable\": null,\n      \"executable_names\": [\n        \"codex\"\n      ],\n      \"timeout_seconds\": 30,\n      \"monthly_subscription_usd\": null\n    },\n    \"claude\": {\n      \"enabled\": true,\n      \"executable\": null,\n      \"executable_names\": [\n        \"claude\"\n      ],\n      \"stats_file\": \"~/.claude/stats-cache.json\",\n      \"projects_dir\": \"~/.claude/projects\",\n      \"stale_after_seconds\": 172800,\n      \"max_session_bytes_per_poll\": 26214400,\n      \"subscription_usage\": true,\n      \"usage_cache_file\": \"~/.claude.json\",\n      \"usage_cache_max_age_seconds\": 900,\n      \"timeout_seconds\": 30,\n      \"monthly_subscription_usd\": null\n    },\n    \"antigravity\": {\n      \"enabled\": true,\n      \"executable\": null,\n      \"executable_names\": [\n        \"agy\"\n      ],\n      \"cache_file\": \"~/.ai-usage/cache/antigravity.json\",\n      \"events_file\": \"~/.ai-usage/cache/antigravity-events.jsonl\",\n      \"settings_file\": \"~/.gemini/antigravity-cli/settings.json\",\n      \"configure_status_line\": true,\n      \"stale_after_seconds\": 7200,\n      \"monthly_subscription_usd\": null\n    },\n    \"gemini_cli\": {\n      \"enabled\": true,\n      \"executable\": null,\n      \"executable_names\": [\n        \"gemini\"\n      ],\n      \"telemetry_file\": \"~/.ai-usage/cache/gemini-telemetry.log\",\n      \"settings_file\": \"~/.gemini/settings.json\",\n      \"configure_telemetry\": false,\n      \"monthly_subscription_usd\": null\n    },\n    \"grok\": {\n      \"enabled\": true,\n      \"executable\": null,\n      \"executable_names\": [\n        \"grok\"\n      ],\n      \"grok_home\": \"~/.grok\",\n      \"auth_file\": \"~/.grok/auth.json\",\n      \"billing_cache_file\": \"~/.grok/logs/unified.jsonl\",\n      \"billing_cache_max_age_seconds\": 7200,\n      \"billing_cache_tail_bytes\": 2097152,\n      \"max_session_bytes_per_poll\": 26214400,\n      \"collect_billing_via_acp\": true,\n      \"timeout_seconds\": 30,\n      \"monthly_subscription_usd\": null\n    }\n  }\n}",
    "value": {
     "format_version": 1,
     "paths": {
@@ -95,12 +96,45 @@
    "stdout": "Provider discovery (no provider commands executed):\n  codex         detected \u2014 binary /sandbox/bin/codex\n  claude        detected \u2014 binary /sandbox/bin/claude, stats /sandbox/claude-stats.json, session logs 2\n  antigravity   detected \u2014 binary /sandbox/bin/agy\n  gemini_cli    detected \u2014 binary /sandbox/bin/gemini, telemetry /sandbox/gemini/telemetry.log\n  grok          detected \u2014 binary /sandbox/bin/grok, session logs 1, billing cache /sandbox/grok-home/logs/unified.jsonl, OAuth cache present\n"
   },
   {
-   "cache": null,
-   "events": null,
+   "cache": {
+    "agent_state": null,
+    "captured_at": "2026-08-21T12:00:00Z",
+    "context_window": {
+     "context_window_size": 1000,
+     "current_usage": {
+      "cache_creation_input_tokens": null,
+      "cache_read_input_tokens": null,
+      "input_tokens": 33,
+      "output_tokens": 4
+     },
+     "remaining_percentage": 58,
+     "total_input_tokens": 400,
+     "total_output_tokens": 20,
+     "used_percentage": 42
+    },
+    "exceeds_200k_tokens": null,
+    "execution_mode": null,
+    "model": {
+     "display_name": "Gemini Pro",
+     "id": "gemini-pro"
+    },
+    "plan_tier": "pro",
+    "product": null,
+    "quota": {
+     "weekly": {
+      "remaining_fraction": 0.75,
+      "reset_in_seconds": 100,
+      "reset_time": "2026-08-24T00:00:00Z"
+     }
+    },
+    "session_scope": "eab74c416d01ec36",
+    "version": null
+   },
+   "events": "{\"captured_at\":\"2026-08-21T12:00:00Z\",\"session_scope\":\"eab74c416d01ec36\",\"product\":null,\"version\":null,\"plan_tier\":\"pro\",\"agent_state\":null,\"execution_mode\":null,\"exceeds_200k_tokens\":null,\"model\":{\"id\":\"gemini-pro\",\"display_name\":\"Gemini Pro\"},\"context_window\":{\"total_input_tokens\":400,\"total_output_tokens\":20,\"context_window_size\":1000,\"used_percentage\":42,\"remaining_percentage\":58,\"current_usage\":{\"input_tokens\":33,\"output_tokens\":4,\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null}},\"quota\":{\"weekly\":{\"remaining_fraction\":0.75,\"reset_time\":\"2026-08-24T00:00:00Z\",\"reset_in_seconds\":100}}}\n",
    "op": "statusline",
    "return": 0,
    "stderr": "",
-   "stdout": "Antigravity\n"
+   "stdout": "Gemini Pro | context 58% left | weekly 75% left\n"
   },
   {
    "csv": [
@@ -639,7 +673,7 @@
     {
      "category": "availability",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "binary=/sandbox/bin/agy",
+     "message": "binary=/sandbox/bin/agy; cache=/sandbox/data/cache/antigravity.json; events=/sandbox/data/cache/antigravity-events.jsonl",
      "metric": "detected",
      "period_end": "",
      "period_start": "",
@@ -656,10 +690,48 @@
      "window_seconds": ""
     },
     {
-     "category": "collection",
+     "category": "usage",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "No latest status-line snapshot is available; agy was not invoked",
-     "metric": "status_line_cache",
+     "message": "",
+     "metric": "input_tokens",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "delta",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line-events",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "29",
+     "unit": "tokens",
+     "value": "400",
+     "window_seconds": ""
+    },
+    {
+     "category": "usage",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "output_tokens",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "delta",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line-events",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "30",
+     "unit": "tokens",
+     "value": "20",
+     "window_seconds": ""
+    },
+    {
+     "category": "freshness",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "source_age_seconds",
      "period_end": "",
      "period_start": "",
      "provider": "antigravity",
@@ -667,11 +739,125 @@
      "resets_at": "",
      "scope": "",
      "source": "antigravity-status-line",
-     "status": "missing",
+     "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "29",
+     "transaction_index": "31",
+     "unit": "seconds",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "subscription",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "plan_tier",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "32",
      "unit": "",
-     "value": "",
+     "value": "pro",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "context_window_size",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "33",
+     "unit": "tokens",
+     "value": "1000",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "34",
+     "unit": "percent",
+     "value": "42",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "35",
+     "unit": "percent",
+     "value": "58",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "36",
+     "unit": "percent",
+     "value": "75.0",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "37",
+     "unit": "percent",
+     "value": "25.0",
      "window_seconds": ""
     },
     {
@@ -688,7 +874,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "30",
+     "transaction_index": "38",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -707,7 +893,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "31",
+     "transaction_index": "39",
      "unit": "tokens",
      "value": "10",
      "window_seconds": ""
@@ -726,7 +912,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "32",
+     "transaction_index": "40",
      "unit": "tokens",
      "value": "5",
      "window_seconds": ""
@@ -745,7 +931,7 @@
      "source": "gemini-telemetry",
      "status": "unsupported_format",
      "transaction_id": "<normalized>",
-     "transaction_index": "33",
+     "transaction_index": "41",
      "unit": "records",
      "value": "1",
      "window_seconds": ""
@@ -764,7 +950,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "34",
+     "transaction_index": "42",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -783,7 +969,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "35",
+     "transaction_index": "43",
      "unit": "tokens",
      "value": "100",
      "window_seconds": ""
@@ -802,7 +988,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "36",
+     "transaction_index": "44",
      "unit": "tokens",
      "value": "25",
      "window_seconds": ""
@@ -821,7 +1007,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "37",
+     "transaction_index": "45",
      "unit": "tokens",
      "value": "125",
      "window_seconds": ""
@@ -840,7 +1026,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "38",
+     "transaction_index": "46",
      "unit": "USD",
      "value": "1.23",
      "window_seconds": ""
@@ -859,7 +1045,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "39",
+     "transaction_index": "47",
      "unit": "seconds",
      "value": "600",
      "window_seconds": ""
@@ -878,7 +1064,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "40",
+     "transaction_index": "48",
      "unit": "percent",
      "value": "21.0",
      "window_seconds": ""
@@ -897,7 +1083,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "41",
+     "transaction_index": "49",
      "unit": "percent",
      "value": "79.0",
      "window_seconds": ""
@@ -916,7 +1102,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "42",
+     "transaction_index": "50",
      "unit": "USD_cents",
      "value": "4500",
      "window_seconds": ""
@@ -935,7 +1121,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "43",
+     "transaction_index": "51",
      "unit": "USD_cents",
      "value": "945",
      "window_seconds": ""
@@ -954,7 +1140,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "44",
+     "transaction_index": "52",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -973,7 +1159,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "45",
+     "transaction_index": "53",
      "unit": "",
      "value": "supergrok",
      "window_seconds": ""
@@ -992,7 +1178,7 @@
      "source": "config",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "46",
+     "transaction_index": "54",
      "unit": "USD/month",
      "value": "30.0",
      "window_seconds": ""
@@ -1002,6 +1188,19 @@
    "pending": false,
    "return": 0,
    "state": {
+    "antigravity_offsets": {
+     "/sandbox/data/cache/antigravity-events.jsonl": {
+      "inode": "<normalized>",
+      "offset": 615,
+      "pending_inodes": []
+     }
+    },
+    "antigravity_session_totals": {
+     "eab74c416d01ec36": {
+      "total_input_tokens": 400,
+      "total_output_tokens": 20
+     }
+    },
     "claude_accounted_usage": {
      "msg_a": {
       "file": "/sandbox/claude-projects/workspace/session-one.jsonl",
@@ -1071,18 +1270,51 @@
     }
    },
    "stderr": "",
-   "stdout": "{\"event\": \"provider\", \"provider\": \"codex\", \"index\": 1, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"claude\", \"index\": 2, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"antigravity\", \"index\": 3, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"gemini_cli\", \"index\": 4, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"grok\", \"index\": 5, \"total\": 5}\nAppended 47 rows to /sandbox/data/usage.csv; errors=0\n"
+   "stdout": "{\"event\": \"provider\", \"provider\": \"codex\", \"index\": 1, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"claude\", \"index\": 2, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"antigravity\", \"index\": 3, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"gemini_cli\", \"index\": 4, \"total\": 5}\n{\"event\": \"provider\", \"provider\": \"grok\", \"index\": 5, \"total\": 5}\nAppended 55 rows to /sandbox/data/usage.csv; errors=0\n"
   },
   {
    "op": "append"
   },
   {
-   "cache": null,
-   "events": null,
+   "cache": {
+    "agent_state": null,
+    "captured_at": "2026-08-21T12:00:00Z",
+    "context_window": {
+     "context_window_size": 1000,
+     "current_usage": {
+      "cache_creation_input_tokens": null,
+      "cache_read_input_tokens": null,
+      "input_tokens": 33,
+      "output_tokens": 4
+     },
+     "remaining_percentage": 58,
+     "total_input_tokens": 450,
+     "total_output_tokens": 20,
+     "used_percentage": 42
+    },
+    "exceeds_200k_tokens": null,
+    "execution_mode": null,
+    "model": {
+     "display_name": "Gemini Pro",
+     "id": "gemini-pro"
+    },
+    "plan_tier": "pro",
+    "product": null,
+    "quota": {
+     "weekly": {
+      "remaining_fraction": 0.5,
+      "reset_in_seconds": 100,
+      "reset_time": "2026-08-24T00:00:00Z"
+     }
+    },
+    "session_scope": "eab74c416d01ec36",
+    "version": null
+   },
+   "events": "{\"captured_at\":\"2026-08-21T12:00:00Z\",\"session_scope\":\"eab74c416d01ec36\",\"product\":null,\"version\":null,\"plan_tier\":\"pro\",\"agent_state\":null,\"execution_mode\":null,\"exceeds_200k_tokens\":null,\"model\":{\"id\":\"gemini-pro\",\"display_name\":\"Gemini Pro\"},\"context_window\":{\"total_input_tokens\":400,\"total_output_tokens\":20,\"context_window_size\":1000,\"used_percentage\":42,\"remaining_percentage\":58,\"current_usage\":{\"input_tokens\":33,\"output_tokens\":4,\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null}},\"quota\":{\"weekly\":{\"remaining_fraction\":0.75,\"reset_time\":\"2026-08-24T00:00:00Z\",\"reset_in_seconds\":100}}}\n{\"captured_at\":\"2026-08-21T12:00:00Z\",\"session_scope\":\"eab74c416d01ec36\",\"product\":null,\"version\":null,\"plan_tier\":\"pro\",\"agent_state\":null,\"execution_mode\":null,\"exceeds_200k_tokens\":null,\"model\":{\"id\":\"gemini-pro\",\"display_name\":\"Gemini Pro\"},\"context_window\":{\"total_input_tokens\":450,\"total_output_tokens\":20,\"context_window_size\":1000,\"used_percentage\":42,\"remaining_percentage\":58,\"current_usage\":{\"input_tokens\":33,\"output_tokens\":4,\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null}},\"quota\":{\"weekly\":{\"remaining_fraction\":0.5,\"reset_time\":\"2026-08-24T00:00:00Z\",\"reset_in_seconds\":100}}}\n",
    "op": "statusline",
    "return": 0,
    "stderr": "",
-   "stdout": "Antigravity\n"
+   "stdout": "Gemini Pro | context 58% left | weekly 50% left\n"
   },
   {
    "csv": [
@@ -1621,7 +1853,7 @@
     {
      "category": "availability",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "binary=/sandbox/bin/agy",
+     "message": "binary=/sandbox/bin/agy; cache=/sandbox/data/cache/antigravity.json; events=/sandbox/data/cache/antigravity-events.jsonl",
      "metric": "detected",
      "period_end": "",
      "period_start": "",
@@ -1638,10 +1870,48 @@
      "window_seconds": ""
     },
     {
-     "category": "collection",
+     "category": "usage",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "No latest status-line snapshot is available; agy was not invoked",
-     "metric": "status_line_cache",
+     "message": "",
+     "metric": "input_tokens",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "delta",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line-events",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "29",
+     "unit": "tokens",
+     "value": "400",
+     "window_seconds": ""
+    },
+    {
+     "category": "usage",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "output_tokens",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "delta",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line-events",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "30",
+     "unit": "tokens",
+     "value": "20",
+     "window_seconds": ""
+    },
+    {
+     "category": "freshness",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "source_age_seconds",
      "period_end": "",
      "period_start": "",
      "provider": "antigravity",
@@ -1649,11 +1919,125 @@
      "resets_at": "",
      "scope": "",
      "source": "antigravity-status-line",
-     "status": "missing",
+     "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "29",
+     "transaction_index": "31",
+     "unit": "seconds",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "subscription",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "plan_tier",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "32",
      "unit": "",
-     "value": "",
+     "value": "pro",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "context_window_size",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "33",
+     "unit": "tokens",
+     "value": "1000",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "34",
+     "unit": "percent",
+     "value": "42",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "35",
+     "unit": "percent",
+     "value": "58",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "36",
+     "unit": "percent",
+     "value": "75.0",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "37",
+     "unit": "percent",
+     "value": "25.0",
      "window_seconds": ""
     },
     {
@@ -1670,7 +2054,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "30",
+     "transaction_index": "38",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -1689,7 +2073,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "31",
+     "transaction_index": "39",
      "unit": "tokens",
      "value": "10",
      "window_seconds": ""
@@ -1708,7 +2092,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "32",
+     "transaction_index": "40",
      "unit": "tokens",
      "value": "5",
      "window_seconds": ""
@@ -1727,7 +2111,7 @@
      "source": "gemini-telemetry",
      "status": "unsupported_format",
      "transaction_id": "<normalized>",
-     "transaction_index": "33",
+     "transaction_index": "41",
      "unit": "records",
      "value": "1",
      "window_seconds": ""
@@ -1746,7 +2130,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "34",
+     "transaction_index": "42",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -1765,7 +2149,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "35",
+     "transaction_index": "43",
      "unit": "tokens",
      "value": "100",
      "window_seconds": ""
@@ -1784,7 +2168,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "36",
+     "transaction_index": "44",
      "unit": "tokens",
      "value": "25",
      "window_seconds": ""
@@ -1803,7 +2187,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "37",
+     "transaction_index": "45",
      "unit": "tokens",
      "value": "125",
      "window_seconds": ""
@@ -1822,7 +2206,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "38",
+     "transaction_index": "46",
      "unit": "USD",
      "value": "1.23",
      "window_seconds": ""
@@ -1841,7 +2225,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "39",
+     "transaction_index": "47",
      "unit": "seconds",
      "value": "600",
      "window_seconds": ""
@@ -1860,7 +2244,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "40",
+     "transaction_index": "48",
      "unit": "percent",
      "value": "21.0",
      "window_seconds": ""
@@ -1879,7 +2263,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "41",
+     "transaction_index": "49",
      "unit": "percent",
      "value": "79.0",
      "window_seconds": ""
@@ -1898,7 +2282,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "42",
+     "transaction_index": "50",
      "unit": "USD_cents",
      "value": "4500",
      "window_seconds": ""
@@ -1917,7 +2301,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "43",
+     "transaction_index": "51",
      "unit": "USD_cents",
      "value": "945",
      "window_seconds": ""
@@ -1936,7 +2320,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "44",
+     "transaction_index": "52",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -1955,7 +2339,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "45",
+     "transaction_index": "53",
      "unit": "",
      "value": "supergrok",
      "window_seconds": ""
@@ -1974,7 +2358,7 @@
      "source": "config",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "46",
+     "transaction_index": "54",
      "unit": "USD/month",
      "value": "30.0",
      "window_seconds": ""
@@ -2343,7 +2727,7 @@
     {
      "category": "availability",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "binary=/sandbox/bin/agy",
+     "message": "binary=/sandbox/bin/agy; cache=/sandbox/data/cache/antigravity.json; events=/sandbox/data/cache/antigravity-events.jsonl",
      "metric": "detected",
      "period_end": "",
      "period_start": "",
@@ -2360,10 +2744,29 @@
      "window_seconds": ""
     },
     {
-     "category": "collection",
+     "category": "usage",
      "collected_at": "2026-08-21T12:00:00Z",
-     "message": "No latest status-line snapshot is available; agy was not invoked",
-     "metric": "status_line_cache",
+     "message": "",
+     "metric": "input_tokens",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "delta",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line-events",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "20",
+     "unit": "tokens",
+     "value": "50",
+     "window_seconds": ""
+    },
+    {
+     "category": "freshness",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "source_age_seconds",
      "period_end": "",
      "period_start": "",
      "provider": "antigravity",
@@ -2371,11 +2774,125 @@
      "resets_at": "",
      "scope": "",
      "source": "antigravity-status-line",
-     "status": "missing",
+     "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "20",
+     "transaction_index": "21",
+     "unit": "seconds",
+     "value": "0",
+     "window_seconds": ""
+    },
+    {
+     "category": "subscription",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "plan_tier",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "22",
      "unit": "",
-     "value": "",
+     "value": "pro",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "context_window_size",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "23",
+     "unit": "tokens",
+     "value": "1000",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "24",
+     "unit": "percent",
+     "value": "42",
+     "window_seconds": ""
+    },
+    {
+     "category": "context",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percentage",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "",
+     "scope": "eab74c416d01ec36:gemini-pro",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "25",
+     "unit": "percent",
+     "value": "58",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "remaining_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "26",
+     "unit": "percent",
+     "value": "50.0",
+     "window_seconds": ""
+    },
+    {
+     "category": "quota",
+     "collected_at": "2026-08-21T12:00:00Z",
+     "message": "",
+     "metric": "used_percent",
+     "period_end": "",
+     "period_start": "",
+     "provider": "antigravity",
+     "record_kind": "snapshot",
+     "resets_at": "2026-08-24T00:00:00Z",
+     "scope": "weekly",
+     "source": "antigravity-status-line",
+     "status": "ok",
+     "transaction_id": "<normalized>",
+     "transaction_index": "27",
+     "unit": "percent",
+     "value": "50.0",
      "window_seconds": ""
     },
     {
@@ -2392,7 +2909,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "21",
+     "transaction_index": "28",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -2411,7 +2928,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "22",
+     "transaction_index": "29",
      "unit": "tokens",
      "value": "7",
      "window_seconds": ""
@@ -2430,7 +2947,7 @@
      "source": "gemini-telemetry",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "23",
+     "transaction_index": "30",
      "unit": "tokens",
      "value": "3",
      "window_seconds": ""
@@ -2449,7 +2966,7 @@
      "source": "filesystem-discovery",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "24",
+     "transaction_index": "31",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -2468,7 +2985,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "25",
+     "transaction_index": "32",
      "unit": "tokens",
      "value": "50",
      "window_seconds": ""
@@ -2487,7 +3004,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "26",
+     "transaction_index": "33",
      "unit": "tokens",
      "value": "25",
      "window_seconds": ""
@@ -2506,7 +3023,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "27",
+     "transaction_index": "34",
      "unit": "tokens",
      "value": "75",
      "window_seconds": ""
@@ -2525,7 +3042,7 @@
      "source": "grok-session-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "28",
+     "transaction_index": "35",
      "unit": "USD",
      "value": "1.23",
      "window_seconds": ""
@@ -2544,7 +3061,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "29",
+     "transaction_index": "36",
      "unit": "seconds",
      "value": "600",
      "window_seconds": ""
@@ -2563,7 +3080,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "30",
+     "transaction_index": "37",
      "unit": "percent",
      "value": "21.0",
      "window_seconds": ""
@@ -2582,7 +3099,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "31",
+     "transaction_index": "38",
      "unit": "percent",
      "value": "79.0",
      "window_seconds": ""
@@ -2601,7 +3118,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "32",
+     "transaction_index": "39",
      "unit": "USD_cents",
      "value": "4500",
      "window_seconds": ""
@@ -2620,7 +3137,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "33",
+     "transaction_index": "40",
      "unit": "USD_cents",
      "value": "945",
      "window_seconds": ""
@@ -2639,7 +3156,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "34",
+     "transaction_index": "41",
      "unit": "boolean",
      "value": "1",
      "window_seconds": ""
@@ -2658,7 +3175,7 @@
      "source": "grok-unified-log",
      "status": "ok",
      "transaction_id": "<normalized>",
-     "transaction_index": "35",
+     "transaction_index": "42",
      "unit": "",
      "value": "supergrok",
      "window_seconds": ""
@@ -2668,6 +3185,19 @@
    "pending": false,
    "return": 0,
    "state": {
+    "antigravity_offsets": {
+     "/sandbox/data/cache/antigravity-events.jsonl": {
+      "inode": "<normalized>",
+      "offset": 1229,
+      "pending_inodes": []
+     }
+    },
+    "antigravity_session_totals": {
+     "eab74c416d01ec36": {
+      "total_input_tokens": 450,
+      "total_output_tokens": 20
+     }
+    },
     "claude_accounted_usage": {
      "msg_a": {
       "file": "/sandbox/claude-projects/workspace/session-one.jsonl",
@@ -2747,13 +3277,13 @@
     }
    },
    "stderr": "",
-   "stdout": "Appended 36 rows to /sandbox/data/usage.csv; errors=0\n"
+   "stdout": "Appended 43 rows to /sandbox/data/usage.csv; errors=0\n"
   },
   {
    "op": "doctor_json",
    "return": 0,
    "stderr": "",
-   "stdout": "{\n  \"antigravity\": {\n    \"cache_file\": \"/sandbox/data/cache/antigravity.json\",\n    \"cache_file_readable\": false,\n    \"detected\": true,\n    \"enabled\": true,\n    \"events_file\": \"/sandbox/data/cache/antigravity-events.jsonl\",\n    \"events_file_readable\": false,\n    \"executable\": \"/sandbox/bin/agy\"\n  },\n  \"claude\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/claude\",\n    \"projects_dir\": \"/sandbox/claude-projects\",\n    \"session_log_count\": 2,\n    \"stats_file\": \"/sandbox/claude-stats.json\",\n    \"stats_file_readable\": true\n  },\n  \"codex\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/codex\"\n  },\n  \"gemini_cli\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/gemini\",\n    \"telemetry_file\": \"/sandbox/gemini/telemetry.log\",\n    \"telemetry_file_readable\": true\n  },\n  \"grok\": {\n    \"auth_file_present\": true,\n    \"billing_cache_file\": \"/sandbox/grok-home/logs/unified.jsonl\",\n    \"billing_cache_readable\": true,\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/grok\",\n    \"session_log_count\": 1\n  }\n}\n"
+   "stdout": "{\n  \"antigravity\": {\n    \"cache_file\": \"/sandbox/data/cache/antigravity.json\",\n    \"cache_file_readable\": true,\n    \"detected\": true,\n    \"enabled\": true,\n    \"events_file\": \"/sandbox/data/cache/antigravity-events.jsonl\",\n    \"events_file_readable\": true,\n    \"executable\": \"/sandbox/bin/agy\"\n  },\n  \"claude\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/claude\",\n    \"projects_dir\": \"/sandbox/claude-projects\",\n    \"session_log_count\": 2,\n    \"stats_file\": \"/sandbox/claude-stats.json\",\n    \"stats_file_readable\": true\n  },\n  \"codex\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/codex\"\n  },\n  \"gemini_cli\": {\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/gemini\",\n    \"telemetry_file\": \"/sandbox/gemini/telemetry.log\",\n    \"telemetry_file_readable\": true\n  },\n  \"grok\": {\n    \"auth_file_present\": true,\n    \"billing_cache_file\": \"/sandbox/grok-home/logs/unified.jsonl\",\n    \"billing_cache_readable\": true,\n    \"detected\": true,\n    \"enabled\": true,\n    \"executable\": \"/sandbox/bin/grok\",\n    \"session_log_count\": 1\n  }\n}\n"
   },
   {
    "op": "report",
@@ -2764,10 +3294,10 @@
      "last_attempt_result": "success",
      "last_success_at": "2026-08-21T12:00:00Z",
      "summary": {
-      "providers_attempted": 4,
+      "providers_attempted": 5,
       "providers_failed": 0,
       "providers_partly": 0,
-      "providers_updated": 4,
+      "providers_updated": 5,
       "skipped": []
      }
     },
@@ -2779,7 +3309,7 @@
       "settings": true
      },
      "config_path": "/sandbox/config.json",
-     "csv_rows": 83,
+     "csv_rows": 98,
      "installed_version": "2.2.0",
      "interval_seconds": 3600,
      "log_file": "/sandbox/data/collector.log",
@@ -3776,7 +4306,7 @@
        "reported_note": "Antigravity does not report a usage cost.",
        "subscription": null
       },
-      "coverage_start": null,
+      "coverage_start": "2026-08-21",
       "days": [
        {
         "as_of": null,
@@ -4098,30 +4628,68 @@
         "total": null
        },
        {
-        "as_of": null,
+        "as_of": "2026-08-21T12:00:00Z",
         "cache_read": null,
         "cache_write": null,
         "date": "2026-08-21",
         "incomplete_events": 0,
-        "input": null,
-        "output": null,
-        "state": "not_collected",
-        "total": null
+        "input": 450,
+        "output": 20,
+        "state": "partial",
+        "total": 470
        }
       ],
       "enabled": true,
       "id": "antigravity",
-      "models_today": [],
+      "models_today": [
+       {
+        "name": "gemini-pro",
+        "tokens": 470
+       }
+      ],
       "name": "Antigravity",
       "notes": [],
       "product": "Antigravity CLI",
       "quota": {
-       "collected_at": null,
-       "measured_at": null,
+       "collected_at": "2026-08-21T12:00:00Z",
+       "measured_at": "2026-08-21T12:00:00Z",
        "note": "Reported by Antigravity while it runs. Between sessions the last reading is kept; that is normal, not stale.",
        "stale_cause": null,
-       "status": "unavailable",
-       "windows": []
+       "status": "current",
+       "windows": [
+        {
+         "basis": "remaining",
+         "becomes_stale_at": "2026-08-24T00:00:00Z",
+         "becomes_stale_cause": "reset_passed",
+         "collected_at": "2026-08-21T12:00:00Z",
+         "derived": false,
+         "id": "weekly",
+         "label": "Weekly quota",
+         "limit": null,
+         "measured_at": "2026-08-21T12:00:00Z",
+         "omitted": false,
+         "percent": 50,
+         "ranges": [
+          "24h",
+          "7d"
+         ],
+         "readings": [
+          {
+           "percent": 50,
+           "resets_at": "2026-08-24T00:00:00Z",
+           "t": "2026-08-21T12:00:00Z"
+          }
+         ],
+         "reset_passed": false,
+         "resets": [],
+         "resets_at": "2026-08-24T00:00:00Z",
+         "retired": false,
+         "short": "Weekly",
+         "stale_cause": null,
+         "status": "current",
+         "window_seconds": null
+        }
+       ]
       },
       "setup": "ready",
       "setup_note": null,
@@ -4132,23 +4700,32 @@
         "kind": "Sent by Antigravity while it runs (status-line callback)",
         "label": "Status-line updates",
         "last_attempt_at": "2026-08-21T12:00:00Z",
-        "last_read_at": null,
-        "measured_at": null,
+        "last_read_at": "2026-08-21T12:00:00Z",
+        "measured_at": "2026-08-21T12:00:00Z",
         "role": "both",
-        "status": "waiting"
+        "status": "ok"
        }
       ],
-      "today": null,
+      "today": {
+       "as_of": "2026-08-21T12:00:00Z",
+       "cache_read": null,
+       "cache_write": null,
+       "date": "2026-08-21",
+       "input": 450,
+       "output": 20,
+       "partial": true,
+       "total": 470
+      },
       "usage": {
-       "becomes_stale_at": null,
-       "becomes_stale_cause": null,
-       "collected_at": null,
-       "measured_at": null,
+       "becomes_stale_at": "2026-08-21T14:00:00Z",
+       "becomes_stale_cause": "not_collected",
+       "collected_at": "2026-08-21T12:00:00Z",
+       "measured_at": "2026-08-21T12:00:00Z",
        "mode": "event",
        "record_kind": "delta",
        "split": "input_output",
        "stale_cause": null,
-       "status": "none"
+       "status": "current"
       }
      },
      {
