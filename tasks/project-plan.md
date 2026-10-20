@@ -1,7 +1,8 @@
 # Project Plan: Provider Plugins and Multiple Accounts
 
 Status: brief and phases from the owner's decisions 1A–7B (2026-10-19). Phase 1 PRD and acceptance
-criteria approved by the owner on 2026-10-20. Phases 2–4 are not yet PRD'd. Each gets its own PRD and
+criteria approved by the owner on 2026-10-20; phase 1 implemented on `jp/f/provider-plugin-core`
+(2026-10-20), awaiting review and the owner's merge decision. Phases 2–4 are not yet PRD'd. Each gets its own PRD and
 acceptance-criteria gate, and this plan does not widen their scope.
 
 ## Project Brief

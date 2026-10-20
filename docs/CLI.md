@@ -1,7 +1,7 @@
 ---
 status: approved
 owner: Jonathan
-updated: 2026-10-05
+updated: 2026-10-20
 ---
 
 # CLI and reporting contract
@@ -21,7 +21,12 @@ python3 ai_usage_service.py install [--config PATH] [--no-start]
 ~/.ai-usage/collector.py doctor    [--config PATH] [--json]
 ~/.ai-usage/collector.py uninstall [--config PATH]
 ~/.ai-usage/collector.py version
+~/.ai-usage/collector.py antigravity-statusline [--config PATH]   # run by the installed status-line wrapper
 ```
+
+The installed collector is `collector.py` plus its provider package
+`~/.ai-usage/ai_usage_plugins/`; `install` and `uninstall` manage both together
+(`docs/PLUGINS.md`).
 
 `once` exit codes:
 

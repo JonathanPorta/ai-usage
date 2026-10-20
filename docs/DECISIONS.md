@@ -1,7 +1,7 @@
 ---
 status: approved
 owner: Jonathan
-updated: 2026-10-05
+updated: 2026-10-20
 source-template: tools/blessed/scripts/spec-scaffold.sh (desktop-app)
 ---
 
@@ -226,3 +226,16 @@ routine choice made within the approved scope; change it freely with a new entry
 - **Failed install preserves launchd's disabled state:** before starting the agent, `install` records the disable flag. After any failed launch, once files roll back and a previously running service restarts, the flag is restored, so a stopped, disabled collector stays stopped and disabled. If re-disabling fails, the error says so and gives the exact `launchctl disable` command.
   - **Tested:** fake launchctl with an injected `bootstrap` failure (mutation-checked), plus real launchd with a disposable agent (step 8 of the integration check).
   - **Limit:** a real `bootstrap` failure can't be induced safely, so that exact path is proven only with the fake.
+
+## 2026-10-20 — Provider plugin core, phase 1 (approved scope; engineering details)
+**Choice:** the five built-in providers live in `ai_usage_plugins/`, behind one `ProviderPlugin` interface and one registry (`BUNDLED`). Collection, doctor, config defaults, path validation, integrations, install and uninstall iterate the registry; the report takes its catalogue from it. Details: `docs/PLUGINS.md`.
+- **Approved by the owner (2026-10-20):** the package location, one interface and one registry, no canonical-type field yet, and acceptance criteria AC-1–AC-9 (`tasks/phase-1/prd-provider-plugin-core.md`).
+- **Engineering:**
+  - The provider code moved verbatim. The only edit: the collector version reaches Codex and Grok through `CollectContext` instead of a module global.
+  - The report keeps its established provider order (`report_order`) and a short, test-listed set of provider-specific presentation rules.
+  - A module that fails to load becomes one `unexpected_error` row per poll. Install refuses an incomplete module set.
+  - Ownership keys are `plugin_module:<name>`. The status-line command is declared by the plugin's integration (`wrapper_command`), so `antigravity-statusline` keeps its name.
+  - `VERSION` stays 2.2.0: phase 1 changes no behavior, and nothing is released.
+
+**Reason:** adding a provider no longer means editing six parallel lists, and phase 2 can change the identity model in one place.
+

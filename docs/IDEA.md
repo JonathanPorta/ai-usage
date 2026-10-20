@@ -1,7 +1,7 @@
 ---
 status: approved
 owner: Jonathan
-updated: 2026-10-05
+updated: 2026-10-20
 source-template: tools/blessed/scripts/spec-scaffold.sh (desktop-app)
 ---
 
@@ -22,7 +22,7 @@ to `~/.ai-usage/usage.csv`. The data exists, but reading it means `column`,
 
 ## What exists today
 
-- **Collector** (`ai_usage_service.py`, installed as `~/.ai-usage/collector.py`). It runs as the LaunchAgent `codes.porta.ai-usage`, polls hourly, and reloads its config between polls. Commands: `install`, `once`, `daemon`, `status`, `doctor`, `uninstall`, `antigravity-statusline` and `version`.
+- **Collector** (`ai_usage_service.py` with its provider plugins in `ai_usage_plugins/`, installed as `~/.ai-usage/collector.py` and `~/.ai-usage/ai_usage_plugins/`). It runs as the LaunchAgent `codes.porta.ai-usage`, polls hourly, and reloads its config between polls. Commands: `install`, `once`, `daemon`, `status`, `doctor`, `uninstall`, `antigravity-statusline` and `version`.
 - **Storage:** an append-only `usage.csv` with a `record_kind` aggregation contract, plus `state.json` (offsets and dedupe state) and a rotating `collector.log`.
 - **Desktop app:** none. This repo now adds a native macOS menu-bar app (`macos/`) over the collector.
 

@@ -1,7 +1,8 @@
 # PRD: Provider Plugin Core (Phase 1)
 
-Status: **acceptance criteria approved by the owner on 2026-10-20.** Implementation starts once #5
-merges, on `jp/f/provider-plugin-core` cut from that main. Part of the
+Status: **acceptance criteria approved by the owner on 2026-10-20.** #5 merged as `ddb923f`
+(2026-10-20). Implemented on `jp/f/provider-plugin-core`, cut from that main; evidence per AC is in
+the task file and the PR. Part of the
 [project plan](../project-plan.md).
 
 ## Summary

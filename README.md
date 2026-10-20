@@ -62,7 +62,8 @@ python3 ai_usage_service.py install
 The installer:
 
 1. discovers installed providers without executing them;
-2. copies itself to `~/.ai-usage/collector.py`;
+2. copies itself to `~/.ai-usage/collector.py` and its provider plugins to
+   `~/.ai-usage/ai_usage_plugins/` (see [docs/PLUGINS.md](docs/PLUGINS.md));
 3. creates `~/.ai-usage/config.json`, `usage.csv`, `collector.log`, and internal
    state/cache files;
 4. attaches the Antigravity status-line callback only when `agy` exists and no

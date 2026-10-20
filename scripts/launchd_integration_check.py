@@ -38,6 +38,15 @@ class CheckFailed(AssertionError):
     pass
 
 
+def newer_collector(directory: Path, marker: str) -> Path:
+    """A copy of the collector with different bytes, with its plugin package beside it."""
+    shutil.copytree(REPO / "ai_usage_plugins", directory / "ai_usage_plugins",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    script = directory / "ai_usage_service.py"
+    script.write_bytes(SCRIPT.read_bytes() + f"\n# {marker}\n".encode("utf-8"))
+    return script
+
+
 def launchctl(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([LAUNCHCTL, *args], capture_output=True, text=True, check=False)
 
@@ -158,8 +167,7 @@ def main() -> int:
                f"reinstall after stop leaves it running and enabled ({running})")
 
         print("6. upgrade while running: install a newer collector over the running agent")
-        upgrade = home / "ai_usage_service_upgrade.py"
-        upgrade.write_bytes(SCRIPT.read_bytes() + b"\n# integration-check upgrade\n")
+        upgrade = newer_collector(home / "upgrade", "integration-check upgrade")
         prior_pid = status()["pid"]
         run("install", "--config", str(config_path), script=upgrade)
         upgraded = wait_running()
@@ -174,8 +182,7 @@ def main() -> int:
         # A newer collector copy must replace collector.py after the running agent
         # is booted out; making the installed file user-immutable makes that
         # replacement fail, which exercises the installer's real rollback.
-        variant = home / "ai_usage_service_variant.py"
-        variant.write_bytes(SCRIPT.read_bytes() + b"\n# integration-check variant\n")
+        variant = newer_collector(home / "variant", "integration-check variant")
         before_script = (root / "collector.py").read_bytes()
         prior_pid = status()["pid"]
         subprocess.run(["/usr/bin/chflags", "uchg", str(root / "collector.py")], check=True)
