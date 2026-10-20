@@ -178,6 +178,7 @@ How the work differed from the plan above. None of it changes an acceptance crit
   - The rollback test fails every write in turn. It found a leftover empty recovery directory when the very first write failed, fixed in `65ddbfe`.
   - `scripts/launchd_integration_check.py` (explicitly invoked, real launchd) now copies the package with its variant collectors. It was not run: phase 1 uses only the fake launchctl.
 - **6.3:** `make app-build` runs `scripts/check_app_bundle.py`. It compares the bundled reporter's report for the synthetic sandbox at a fixed time with the checkout's, byte for byte.
+- **6.0 renders:** `make app-snapshot-check` (local only, not in CI) fails on this Mac (macOS 27.0.1) against the committed `SHA256SUMS` for **both** the baseline `ddb923f` and this branch: 50 of 50. Rendered on the same machine, this branch's 52 renders are byte-identical to the baseline's, which is the "matching rendering conditions" comparison. The reference mismatch predates phase 1.
 - **CI:** the Linux job fetches full history and sets `AI_USAGE_REQUIRE_PARITY_HISTORY=1`, so the ancestry, carry-forward and verbatim tests run there instead of skipping.
 - **`VERSION`** stays 2.2.0. Phase 1 changes no behavior, and nothing is released.
 
