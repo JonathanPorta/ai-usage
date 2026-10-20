@@ -15,7 +15,7 @@ proofglass-supervisor (`docs/DECISIONS.md`, `docs/RELEASE.md`).
 | Releases | Opted into the `releases.pipeline` and `releases.candidate` **pilots**: candidate-only, publication disabled | Production manifest key; redistributable tooling (below) |
 | Signing | Manifest: `signing.ed25519-detached` **pilot**. App: ad-hoc only | OD-2 settles the executor (ProofGlass). Implementation in progress upstream (proofglass#157, blessed-cicd#361); H-1 is still open; Apple credential creation is on hold |
 | Secrets | None stored | Release-signing domain via the released BWS tooling from a private checkout |
-| Public tooling | 199 copied blessed-cicd files are in this branch's history (not on `main`). Decided 2026-10-15: Apache-2.0 for the 21-file export only (blessed-cicd#378, merged); PR #5 and its history are kept; the tree is replaced by the signed export through an ordinary commit | blessed-cicd release 0.10.0, the export's pin move, owner-approved setup and publication; then `make sync-scripts` |
+| Public tooling | 199 copied blessed-cicd files are in this branch's history (not on `main`). The tree now holds the signed public export `public-consumer-core-v1.0.0` instead, installed and verified by `make sync-scripts` (2026-10-20). Apache-2.0 for the 21-file export only (blessed-cicd#378); PR #5 and its history are kept | — |
 
 ## What is accepted, and what is a pilot or proposal
 
@@ -265,10 +265,26 @@ and a read-only token.
 
 ## Public tooling
 
-Current state, 2026-10-15:
-- **Decisions (owner).** Apache-2.0, unmodified, for the 21 owner-authored files of the `public-consumer-core` export only, granted in blessed-cicd ([#378](https://github.com/JonathanPorta/blessed-cicd/pull/378), merged, which also replaced the product-specific key-ID example). It does not license blessed-cicd as a whole or relicense the historical copies here. PR #5 and its history are kept: no rewrite, force-push or replacement PR. Before merging, an ordinary commit replaces the copied tree with the verified export. That removes the unneeded copies from the tree; it does not remove earlier public copies or recall clones.
-- **Pending upstream.** Release 0.10.0 carries the key-ID fix; the export's pin moves to it, then the owner approves the setup (key, two authority domains, mirror, activation) and, separately, publication.
-- **Installer.** `make sync-scripts` runs `scripts/install-blessed-export.sh`: blessed-cicd's consumer block from `scripts/INSTALL.md`, verbatim, reading its pins from `.blessed/export.env` and the out-of-band-confirmed key from `.blessed/export-trust-store.json`. It verifies the signature, the closed file set, every digest and the signed `SOURCE.json` identity before changing the tree, and refuses while no export is pinned. A scratch export signed with a throwaway key was used only to test it, outside this branch.
+Current state, 2026-10-20:
+- **Installed.** This tree holds the signed public export `public-consumer-core-v1.0.0` from [`JonathanPorta/blessed-cicd-scripts`](https://github.com/JonathanPorta/blessed-cicd-scripts/releases/tag/public-consumer-core-v1.0.0), installed by `make sync-scripts`. It replaces the copied tree:
+  - `scripts/release/` (release-v0.10.0, 9 files);
+  - `scripts/signing/` (signing-v0.4.0, 6 files);
+  - `tools/blessed/` (checkers-v0.1.0, 6 files);
+  - `.blessed/export/` holds `LICENSE` (Apache-2.0), the signed `SOURCE.json`, `MANIFEST.sha256` and its signature.
+
+  `blessed.yml` `tracked_dependencies` records the `SOURCE.json` source pins.
+- **Verification.** Before changing the tree, the installer checks:
+  - the detached signature, with the key pinned in `.blessed/export-trust-store.json`, which was confirmed out of band;
+  - the closed file set, with no links or special files;
+  - every digest;
+  - the signed `SOURCE.json` identity (export, tag, version, mirror, source repository, signing profile and key id).
+
+  CI re-checks the installed files offline (`make verify-scripts`, `tools/blessed/MANIFEST.sha256`). The mirror also attests each published tarball (`gh attestation verify … --signer-workflow JonathanPorta/blessed-cicd-scripts/.github/workflows/attest-export.yml`). That supplements the checks above; it doesn't replace them.
+- **Decisions (owner).**
+  - The license is Apache-2.0, unmodified, for the 21 owner-authored files of the export only. It was granted in blessed-cicd ([#378](https://github.com/JonathanPorta/blessed-cicd/pull/378)). It doesn't license blessed-cicd as a whole or relicense the historical copies here.
+  - The export authority was activated in [blessed-cicd#385](https://github.com/JonathanPorta/blessed-cicd/pull/385), with separate BWS signing and publishing domains. The owner reviewed the draft and approved its publication on 2026-10-20.
+  - PR #5 and its history are kept: no rewrite, force-push or replacement PR. The ordinary commit that installs the export removes the unneeded copies from the current tree only. It doesn't remove earlier public copies or recall clones.
+- **Updates.** A new export version arrives as a signed draft in the mirror. After the owner publishes it, move `TAG` in `.blessed/export.env`, run `make sync-scripts`, review and commit. Published versions are never replaced in place.
 
 Earlier state, 2026-10-12.
 
