@@ -72,7 +72,7 @@
           },
           "install_kind": {
             "type": "string",
-            "enum": ["binary", "tarball", "appimage", "dmg", "msi", "exe", "rpm", "deb", "archive", "image", "other"]
+            "enum": ["binary", "tarball", "appimage", "dmg", "msi", "exe", "rpm", "deb", "archive", "image", "other", "provenance"]
           },
           "signature_profile": {
             "description": "Optional runtime-native artifact signature profile carried into the candidate (releases.candidate@1). v1 recognizes the Tauri native updater adapter only. Must be declared with signature_key_id and a per-artifact signature sidecar.",

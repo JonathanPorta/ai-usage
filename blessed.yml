@@ -17,12 +17,14 @@ tracked_dependencies:
   ai_rules:
     origin: https://github.com/JonathanPorta/ai-rules
     tag: v0.13.1
+  # Installed from the signed public export pinned in .blessed/export.env
+  # (make sync-scripts); the values are its SOURCE.json source pins.
   blessed_checkers:
     origin: https://github.com/JonathanPorta/blessed-cicd
-    commit: 60dc5ed67089e55ff25468ae7626a3bb4d24eed8
+    commit: 9f4ae8098a0326a1634a261171a6b32ccb00c6b6
     vendored_at: tools/blessed
   blessed_scripts:
-    release: 0.8.0
+    release: 0.10.0
     signing: 0.4.0
 # The candidate-manifest signing key will be the one privileged authority domain.
 # Not provisioned yet: it needs the owner's BWS admin token and a GitHub

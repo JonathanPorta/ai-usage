@@ -25,6 +25,19 @@ rel_sha256() {
 
 rel_size() { wc -c <"$1" | tr -d ' '; }
 
+# The ProofGlass build profile of a platform cell (owner decision OD-2: every
+# macOS and Windows build runs in a ProofGlass guest). One table, read by
+# render-workflows.sh (which job requests which profile) and
+# check-conformance.sh (which profile each generated build job must request).
+# $1 = "<platform>/<toolchain>"; prints the profile, or fails for any other pair.
+rel_build_profile() {
+  case "$1" in
+    macos-arm64/xcode) echo macos-xcode-release-build@1 ;;
+    windows-amd64/windows-desktop) echo windows-release-build@1 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Schema validation uses ONE implementation, packaged with the category.
 #
 # This category previously carried its own regex-only validator, so a format
@@ -66,6 +79,11 @@ rel_semantic_checks() {
   jq -r '([.artifacts[].filename] | length) as $n | ([.artifacts[].filename] | unique | length) as $u | select($n != $u) | "duplicate artifact filename"' "$j"
   jq -r '([.files[].name] | length) as $n | ([.files[].name] | unique | length) as $u | select($n != $u) | "duplicate files name"' "$j"
   jq -r '([.artifacts[] | "\(.platform)|\(.install_kind)"]) as $k | ($k | length) as $n | ($k | unique | length) as $u | select($n != $u) | "ambiguous (platform,install_kind)"' "$j"
+  # The candidate's build provenance (release 0.10.0): at most one, exactly the
+  # artifact release-stage.sh adds (signed under RP-10 like every payload).
+  jq -r '[.artifacts[] | select(.install_kind == "provenance")] | if length > 1 then "more than one provenance artifact"
+    else .[] | select(.id != "build-provenance" or .filename != "build-provenance.json" or .platform != "any")
+      | "provenance artifact \(.id) (\(.filename), \(.platform)) is not build-provenance / build-provenance.json / any" end' "$j"
   jq -r '.files as $f | .artifacts[] | . as $a | ([$f[] | select(.name==$a.filename and .role=="artifact" and .size==$a.size and .sha256==$a.sha256)] | length) as $n | select($n != 1) | "unmatched artifact: \($a.filename)"' "$j"
   jq -r '.files as $f | .artifacts[] | select(.signature != null) | .signature as $s | select(([$f[]|select(.name==$s and .role=="signature")]|length) != 1) | "missing signature file: \($s)"' "$j"
   jq -r '

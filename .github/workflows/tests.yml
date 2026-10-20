@@ -194,8 +194,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify vendored checkers
-        run: cd tools/blessed && sha256sum -c VENDOR-SHA256SUMS.txt
+      - name: Verify installed checkers (signed export subset manifest)
+        run: cd tools/blessed && sha256sum -c MANIFEST.sha256
       - name: Spec pack (strict)
         run: make spec-check ARGS=--strict
       - name: Design handoff (strict)

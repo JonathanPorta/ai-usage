@@ -43,9 +43,9 @@ make app-snapshot          # render every screen offscreen (light/dark, 420 pt, 
 make fixture / fixture-check   # regenerate / drift-check the committed fixture report
 ```
 
-The Blessed checkers are vendored under `tools/blessed/` at commit
-`60dc5ed67089e55ff25468ae7626a3bb4d24eed8`. `tools/blessed/VENDOR-SHA256SUMS.txt`
-records their checksums.
+The Blessed checkers in `tools/blessed/` come from blessed-cicd's signed public export
+`public-consumer-core` (pinned in `.blessed/export.env`, installed by `make sync-scripts`).
+`tools/blessed/MANIFEST.sha256` lists their checksums.
 
 ## Tokens and themes
 

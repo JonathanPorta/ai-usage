@@ -1,8 +1,0 @@
-#@ Clear key material from every later step of the job. Args: the variables.
-      # $GITHUB_ENV reaches every later step, so the key is cleared even when
-      # an earlier step failed, and the next step proves it is gone.
-      - name: 🧽 Clear the key from every later step
-        if: ${{ always() }}
-        run: bash scripts/release/key-env.sh clear @@*@@
-      - name: 🔒 The key is gone
-        run: bash scripts/release/key-env.sh assert-clear @@*@@

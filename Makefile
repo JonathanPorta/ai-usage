@@ -119,7 +119,7 @@ app-snapshot-live: app-build ## Render the live report (read-only) offscreen; ou
 launchd-integration-check: ## Real launchd: install/start/stop/reinstall/rollback on a disposable codes.porta.ai-usage.test.* agent
 	$(PYTHON) scripts/launchd_integration_check.py
 
-# ── Blessed scripts (pinned, manifest-verified; scripts/.blessed-scripts-version) ──
+# ── Blessed scripts (signed public export, pinned in .blessed/export.env) ──
 sync-scripts: ## Install the pinned, signed public blessed-cicd export (.blessed/export.env); review, then commit
 	scripts/install-blessed-export.sh
 
