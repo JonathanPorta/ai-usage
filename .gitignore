@@ -5,3 +5,12 @@ htmlcov/
 .DS_Store
 # ai-rules-local-config
 .ai-local/
+.sandbox/
+macos/.build/
+macos/build/
+
+# Personal usage exports and screenshots (never commit)
+usage-report/
+
+# Release candidates (make release / release-check)
+dist/

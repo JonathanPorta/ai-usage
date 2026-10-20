@@ -16,12 +16,13 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional
+from typing import Any, Optional
 import unittest
 from unittest import mock
 
@@ -126,6 +127,10 @@ class IsolatedHome:
             name: {"enabled": name == enabled}
             for name in ("codex", "claude", "antigravity", "gemini_cli", "grok")
         }
+        if enabled == "claude":
+            # Plan limits run `claude /usage` (ClaudeSubscriptionUsageTests); these
+            # tests cover transcripts and stats, whose fake claude must never launch.
+            providers["claude"]["subscription_usage"] = False
         providers[enabled].update(settings)
         return {
             "poll_interval_seconds": 3600,
@@ -518,6 +523,7 @@ for line in sys.stdin:
                         "executable": str(fake),
                         "stats_file": str(stats),
                         "projects_dir": str(projects),
+                        "subscription_usage": False,
                     },
                     "antigravity": {"enabled": False},
                     "gemini_cli": {"enabled": False},
@@ -1876,7 +1882,7 @@ for line in sys.stdin:
 
             failure_sets = {
                 "bootout": {"bootout"},
-                "bootstrap-and-load": {"bootstrap", "load"},
+                "bootstrap": {"bootstrap"},
                 "enable": {"enable"},
                 "kickstart": {"kickstart"},
             }
@@ -1908,15 +1914,11 @@ for line in sys.stdin:
                             SERVICE.install_service(self.case.config, no_start=False)
                     self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
 
-            def bootstrap_fallback(arguments: list[str], check: bool = False):
-                command = arguments[0]
-                returncode = int(command == "bootstrap")
-                result = subprocess.CompletedProcess(
-                    ["launchctl", *arguments], returncode, "", "bootstrap unavailable"
-                )
-                if check and returncode:
-                    raise RuntimeError("bootstrap unavailable")
-                return result
+            calls: list[str] = []
+
+            def recording(arguments: list[str], check: bool = False):
+                calls.append(arguments[0])
+                return subprocess.CompletedProcess(["launchctl", *arguments], 0, "", "")
 
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
@@ -1927,11 +1929,14 @@ for line in sys.stdin:
                 )
                 stack.enter_context(
                     mock.patch.object(
-                        SERVICE, "run_launchctl", side_effect=bootstrap_fallback
+                        SERVICE, "run_launchctl", side_effect=recording
                     )
                 )
                 SERVICE.install_service(self.case.config, no_start=False)
             self.assertEqual({path: path.read_bytes() for path in tracked}, baseline)
+            # Explicit start order, with no legacy `load -w`.
+            self.assertEqual(calls[-3:], ["enable", "bootstrap", "kickstart"])
+            self.assertNotIn("load", calls)
 
     def test_bootout_failure_aborts_uninstall_before_deleting_files(self) -> None:
         config = self.case.provider_config(
@@ -2185,9 +2190,768 @@ for line in sys.stdin:
         references = re.findall(r"(?m)^\s*uses:\s*[^@\s]+@([^\s#]+)", workflow)
         self.assertTrue(references)
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in references))
-        self.assertIn("macos-14", workflow)
         self.assertIn('python: ["3.9", "3.14"]', workflow)
+        # Trust boundary and runner policy: no privileged triggers, a read-only
+        # token, and exactly one GitHub-hosted macOS job: the fallback, which runs
+        # only when ProofGlass answered without displacing the lane (proofglass#170),
+        # so the lane never runs both in a ProofGlass VM and hosted.
+        self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(macos\S*)", workflow), ["macos-26"])
+        fallback = re.search(r"(?ms)^  macos-hosted:\n(.*?)(?=^  \S)", workflow)
+        self.assertIsNotNone(fallback)
+        self.assertIn("if: needs.plan.outputs.macos_hosted == 'true'", fallback.group(1))
+        self.assertIn("runs-on: macos-26", fallback.group(1))
+        self.assertNotIn("id-token", fallback.group(1))
+        for target in ("make check", "make fixture-check", "make app-test", "make app-build"):
+            self.assertIn(f"run: {target}", fallback.group(1))
+        # Hosted only after a valid answer that did not displace the lane.
+        # Capacity answers only (CAPACITY_JQ), on by default, off when the
+        # MACOS_HOSTED_FALLBACK variable is `off`.
+        self.assertIn("HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}", workflow)
+        self.assertRegex(workflow, r'elif \[ -n "\$answer" \] && echo "\$answer" \| jq -e "\$\{CAPACITY_JQ\}" >/dev/null && \[ "\$\{HOSTED_FALLBACK\}" != "off" \]; then\n\s+hosted=true')
+        self.assertEqual(workflow.count("hosted=true"), 1)
+        self.assertIn("needs: [plan, check-linux, spec-and-design, macos-hosted]", workflow)
+        code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("pull_request_target", code)
+        self.assertNotIn("workflow_run", code)
+        self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")
+        self.assertRegex(workflow, r"(?m)^  push:\n    branches: \[main\]$")
+        self.assertIn('select(.profile == "ai-usage-macos@1")', workflow)
+        self.assertIn("name: PR test gate", workflow)
+        # No job may write to the repository; id-token is the only write scope.
+        self.assertNotRegex(code, r"(?m)^\s+(contents|pull-requests|checks|actions|statuses|packages|deployments):\s*write")
+        # Protected main uses the ProofGlass contract itself: the push is routed
+        # and judged by the Worker-owned `proofglass / overall`, never inferred from
+        # pull-request results or by inspecting rules from this workflow.
+        self.assertIn('expected="proofglass / overall"', workflow)
+        self.assertIn('expected="proofglass / pr-gate"', workflow)
+        self.assertNotIn("rules/branches", workflow)
+        self.assertNotIn("check-runs", workflow)
+        self.assertNotRegex(code, r"(?m)^\s+(pull-requests|checks):\s*read")
 
+    def test_proofglass_displacement_decision_rejects_everything_but_an_executed_lane(self) -> None:
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is not installed")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = re.search(r"# BEGIN DISPLACED_JQ\n\s*DISPLACED_JQ: >-\n(.*?)\n\s*# END DISPLACED_JQ", workflow, re.S)
+        self.assertIsNotNone(block)
+        program = " ".join(line.strip() for line in block.group(1).splitlines())
+        lane = {"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": ["ai-usage-macos@1"], "reason": "displaced"}
+
+        def answer(**changes: object) -> dict:
+            body = {"mode": "displace", "admitted": True, "admission_id": "a1", "offloaded": ["ai-usage-macos@1"],
+                    "reason": "ok", "lanes": [dict(lane)], "overall": {"check_run_id": 42, "name": "proofglass / pr-gate"}}
+            body.update(changes)
+            return body
+
+        def displaced(body: dict, expected: str) -> bool:
+            result = subprocess.run([jq, "-e", "--arg", "expected", expected, program],
+                                    input=json.dumps(body), capture_output=True, text=True)
+            self.assertIn(result.returncode, (0, 1), result.stderr)
+            return result.returncode == 0
+
+        overall = {"check_run_id": 7, "name": "proofglass / overall"}
+        self.assertTrue(displaced(answer(), "proofglass / pr-gate"))
+        self.assertTrue(displaced(answer(overall=overall), "proofglass / overall"))
+        rejected = {
+            "PR verdict on a push": (answer(), "proofglass / overall"),
+            "main verdict on a PR": (answer(overall=overall), "proofglass / pr-gate"),
+            "no expected verdict (fork, other event)": (answer(), ""),
+            "not admitted": (answer(admitted=False), "proofglass / pr-gate"),
+            "shadow mode": (answer(mode="shadow", overall=None, offloaded=[], lanes=[dict(lane, mode="shadow", offloaded=[])]), "proofglass / pr-gate"),
+            "spilled or older attempt (nothing offloaded)": (answer(lanes=[dict(lane, offloaded=[])]), "proofglass / pr-gate"),
+            "no verdict check": (answer(overall=None), "proofglass / pr-gate"),
+            "string check run id": (answer(overall={"check_run_id": "42", "name": "proofglass / pr-gate"}), "proofglass / pr-gate"),
+            "zero check run id": (answer(overall={"check_run_id": 0, "name": "proofglass / pr-gate"}), "proofglass / pr-gate"),
+            "another profile version": (answer(lanes=[dict(lane, profile="ai-usage-macos@2")]), "proofglass / pr-gate"),
+            "lane only in shadow": (answer(lanes=[dict(lane, mode="shadow")]), "proofglass / pr-gate"),
+            "run in shadow, lane claims displace": (answer(mode="shadow"), "proofglass / pr-gate"),
+            "duplicate lane": (answer(lanes=[dict(lane), dict(lane)]), "proofglass / pr-gate"),
+            "malformed lanes": (answer(lanes="ai-usage-macos@1"), "proofglass / pr-gate"),
+        }
+        for name, (body, expected) in rejected.items():
+            with self.subTest(name):
+                self.assertFalse(displaced(body, expected))
+
+    def test_hosted_fallback_only_for_missing_proofglass_capacity(self) -> None:
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is not installed")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = re.search(r"# BEGIN CAPACITY_JQ\n\s*CAPACITY_JQ: >-\n(.*?)\n\s*# END CAPACITY_JQ", workflow, re.S)
+        self.assertIsNotNone(block)
+        program = " ".join(line.strip() for line in block.group(1).splitlines())
+        # Shapes of ProofGlass's capacity refusals (worker/src/ci/admission.ts:
+        # noLaneWhy + hostedLanes): the only refusals that carry lanes[].
+        lane = {"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": [],
+                "reason": "hosted: no eligible supervisor online for ai-usage-macos@1"}
+        offline = {"mode": "displace", "admitted": False, "offloaded": [], "lanes": [dict(lane)],
+                   "reason": "no eligible supervisor online (ai-usage-macos@1: supervisor paused); hosted execution retained"}
+        full = dict(offline, reason="no lane can be offloaded now (ai-usage-macos@1: predicted wait 17m exceeds target 10m); hosted execution retained",
+                    lanes=[dict(lane, reason="hosted: predicted wait 17m exceeds target 10m (interactive; 1 job(s) ahead on 1 slot(s))")])
+
+        def capacity(body: dict) -> bool:
+            result = subprocess.run([jq, "-e", program], input=json.dumps(body), capture_output=True, text=True)
+            self.assertIn(result.returncode, (0, 1), result.stderr)
+            return result.returncode == 0
+
+        self.assertTrue(capacity(offline))
+        self.assertTrue(capacity(full))
+        rejected = {
+            "trust denial (ruleset evidence)": {"mode": "off", "admitted": False, "offloaded": [],
+                                                "reason": "ruleset 24873836 bypass evidence unavailable"},
+            "policy denial": {"mode": "off", "admitted": False, "offloaded": [], "reason": "repository is not in the CI policy"},
+            "older attempt": {"mode": "displace", "admitted": False, "offloaded": [],
+                              "reason": "run 1 attempt 1 is older than the current admission"},
+            "capacity words without lanes": {k: v for k, v in offline.items() if k != "lanes"},
+            "admitted (displaced)": dict(offline, admitted=True),
+            "shadow admission": dict(offline, admitted=True, mode="shadow", reason="Pull-request routing is in shadow mode"),
+            "lane offloaded": dict(offline, lanes=[dict(lane, offloaded=[{}])]),
+            "lane not kept hosted": dict(offline, lanes=[dict(lane, reason="displaced")]),
+            "another profile": dict(offline, lanes=[dict(lane, profile="ai-usage-macos@2")]),
+            "duplicate lane": dict(offline, lanes=[dict(lane), dict(lane)]),
+            "malformed lanes": dict(offline, lanes="ai-usage-macos@1"),
+            "non-string reason": dict(offline, reason=None),
+        }
+        for name, body in rejected.items():
+            with self.subTest(name):
+                self.assertFalse(capacity(body))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ScheduleDecisionTests(unittest.TestCase):
+    def test_pause_resume_and_due_decisions(self) -> None:
+        decide = SERVICE.schedule_decision
+        self.assertEqual(decide(paused=True, was_paused=False, next_due=5.0, now=1.0, interval=60), ("pause", 5.0))
+        self.assertEqual(decide(paused=True, was_paused=True, next_due=5.0, now=9.0, interval=60), ("paused", 5.0))
+        # Resume clears the pause and schedules the next check one interval later,
+        # even if the old due time already passed.
+        self.assertEqual(decide(paused=False, was_paused=True, next_due=5.0, now=100.0, interval=60), ("resume", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=160.0, now=120.0, interval=60), ("wait", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=160.0, now=160.0, interval=60), ("collect", 160.0))
+        self.assertEqual(decide(paused=False, was_paused=False, next_due=None, now=0.0, interval=60), ("collect", None))
+
+
+class MenuAppCommandTests(unittest.TestCase):
+    """Collector commands used by the menu app, exercised against isolated homes."""
+
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+        self.uid = os.getuid()
+
+    def wait_for_log(self, text: str, timeout: float = 15.0) -> str:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            content = self.case.log.read_text(encoding="utf-8") if self.case.log.exists() else ""
+            if text in content:
+                return content
+            time.sleep(0.05)
+        self.fail(f"log never contained {text!r}:\n{content}")
+
+    def disabled_config(self, **extra: object) -> dict[str, object]:
+        """Every provider off: a fast, provider-free check."""
+        config = self.case.provider_config("codex", executable_names=["definitely-missing-codex"])
+        config["providers"]["codex"]["enabled"] = False
+        config.update(extra)
+        return config
+
+    def test_configure_changes_only_named_settings_atomically(self) -> None:
+        config = self.disabled_config()
+        config["x_custom"] = {"kept": [1, 2, 3]}
+        config["providers"]["codex"]["executable_names"] = ["my-codex"]
+        self.case.write_config(config)
+        os.chmod(self.case.config, 0o600)
+        result = self.case.run("configure", "--config", str(self.case.config),
+                               "--set", "poll_paused=true",
+                               "--set", "providers.codex.monthly_subscription_usd=25",
+                               "--set", "providers.grok.enabled=false")
+        self.assertEqual(json.loads(result.stdout)["poll_paused"], True)
+        written = json.loads(self.case.config.read_text(encoding="utf-8"))
+        self.assertIs(written["poll_paused"], True)
+        self.assertEqual(written["providers"]["codex"]["monthly_subscription_usd"], 25)
+        self.assertIs(written["providers"]["grok"]["enabled"], False)
+        self.assertEqual(written["x_custom"], {"kept": [1, 2, 3]}, "unrelated keys must survive")
+        self.assertEqual(written["providers"]["codex"]["executable_names"], ["my-codex"])
+        self.assertEqual(written["paths"], config["paths"])
+        self.assertEqual(stat.S_IMODE(self.case.config.stat().st_mode), 0o600)
+
+        before = self.case.config.read_bytes()
+        for bad in ("poll_interval_seconds=10", "providers.codex.enabled=\"yes\"", "paths.usage_csv=\"/tmp/x\"",
+                    "providers.codex.monthly_subscription_usd=-1", "poll_paused=1", "nonsense"):
+            with self.subTest(bad=bad):
+                failed = self.case.run("configure", "--config", str(self.case.config), "--set", bad, check=False)
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertEqual(self.case.config.read_bytes(), before, "a rejected change must not touch the file")
+
+    def test_configure_through_a_symlink_updates_the_target(self) -> None:
+        self.case.write_config(self.disabled_config())
+        target = self.case.config
+        alias = target.with_name("alias-config.json")
+        alias.symlink_to(target)
+        SERVICE.configure(alias, ["poll_paused=true"])  # the function, not the CLI that resolves --config
+        self.assertTrue(alias.is_symlink(), "the alias must stay a link to the target")
+        self.assertEqual(alias.resolve(), target.resolve())
+        self.assertIs(json.loads(target.read_text(encoding="utf-8"))["poll_paused"], True)
+        self.assertTrue(target.with_name(f"{target.name}.lock").exists(), "the lock sits beside the target")
+        self.assertFalse(alias.with_name(f"{alias.name}.lock").exists())
+
+        SERVICE.configure(target, ["poll_paused=false"])
+        self.assertIs(json.loads(target.read_text(encoding="utf-8"))["poll_paused"], False)
+
+        dangling = target.with_name("dangling-config.json")
+        dangling.symlink_to(target.with_name("missing-config.json"))
+        with self.assertRaises(OSError):
+            SERVICE.configure(dangling, ["poll_paused=true"])
+        self.assertTrue(dangling.is_symlink())
+        self.assertFalse(target.with_name("missing-config.json").exists(), "a dangling alias must not create a file")
+
+    def test_once_progress_reports_each_enabled_provider(self) -> None:
+        config = self.disabled_config()
+        for name in ("codex", "grok"):
+            config["providers"][name]["enabled"] = True
+            config["providers"][name]["executable_names"] = [f"definitely-missing-{name}"]
+        config["providers"]["grok"]["collect_billing_via_acp"] = False
+        self.case.write_config(config)
+        result = self.case.run("once", "--config", str(self.case.config), "--progress")
+        events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+        self.assertEqual([(e["provider"], e["index"], e["total"]) for e in events], [("codex", 1, 2), ("grok", 2, 2)])
+        self.assertIn("Appended", result.stdout)
+
+    def test_paused_daemon_skips_scheduled_checks_while_once_still_collects(self) -> None:
+        self.case.write_config(self.disabled_config(poll_paused=True, poll_on_start=True))
+        environment = dict(self.case.environment(), **{SERVICE.SCHEDULE_TICK_ENV: "0.1"})
+        daemon = subprocess.Popen([sys.executable, str(SCRIPT), "daemon", "--config", str(self.case.config)],
+                                  env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self.wait_for_log("scheduled checks paused; collector keeps running")
+            time.sleep(0.6)
+            log = self.case.log.read_text(encoding="utf-8")
+            self.assertNotIn("collection completed", log.replace("one-shot collection completed", ""),
+                             "a paused daemon must not run its start-up or scheduled check")
+            self.assertTrue(daemon.poll() is None, "pause must keep the daemon running")
+
+            once = self.case.run("once", "--config", str(self.case.config))
+            self.assertIn("Appended", once.stdout, "Collect now must stay available while paused")
+
+            self.case.run("configure", "--config", str(self.case.config), "--set", "poll_paused=false")
+            self.wait_for_log("scheduled checks resumed next_poll_seconds=3600")
+            time.sleep(0.6)
+            log = self.case.log.read_text(encoding="utf-8")
+            self.assertNotIn("INFO collection completed", log,
+                             "resume schedules the next check one interval later, not immediately")
+        finally:
+            daemon.terminate()
+            daemon.wait(timeout=15)
+        self.assertIn("collector daemon stopped", self.case.log.read_text(encoding="utf-8"))
+
+    def test_pausing_a_running_daemon_takes_effect_after_its_current_check(self) -> None:
+        self.case.write_config(self.disabled_config(poll_on_start=True))
+        environment = dict(self.case.environment(), **{SERVICE.SCHEDULE_TICK_ENV: "0.1"})
+        daemon = subprocess.Popen([sys.executable, str(SCRIPT), "daemon", "--config", str(self.case.config)],
+                                  env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self.wait_for_log("INFO collection completed")
+            self.case.run("configure", "--config", str(self.case.config), "--set", "poll_paused=true")
+            log = self.wait_for_log("scheduled checks paused")
+            self.assertLess(log.index("INFO collection completed"), log.index("scheduled checks paused"))
+            self.assertIsNone(daemon.poll())
+        finally:
+            daemon.terminate()
+            daemon.wait(timeout=15)
+
+    def stateful_launchctl(self, *, loaded: bool, running: bool, disabled: bool, linger_prints: int = 0,
+                           fail: tuple[str, ...] = ()) -> Path:
+        state = self.case.root / "launchd-state.json"
+        state.write_text(json.dumps({"loaded": loaded, "running": running, "disabled": disabled,
+                                     "linger_prints": linger_prints, "fail": list(fail)}), encoding="utf-8")
+        calls = self.case.root / "launchctl-calls.log"
+        script = self.case.root / "stateful-launchctl"
+        script.write_text(f"""#!{sys.executable}
+import json, sys
+state_path = {str(state)!r}
+s = json.load(open(state_path))
+args = sys.argv[1:]
+open({str(calls)!r}, "a").write(" ".join(args) + "\\n")
+cmd = args[0]
+code = 0
+if cmd in s.get("fail", []):
+    json.dump(s, open(state_path, "w"))
+    sys.stderr.write(cmd + " failed (injected)\\n")
+    sys.exit(37)
+if cmd == "print" and s.get("linger"):
+    s["linger"] -= 1
+    if not s["linger"]:
+        s["loaded"] = False; s["running"] = False
+    print("state = running")
+    print("pid = 4242")
+elif cmd == "print":
+    if not s["loaded"]:
+        code = 113
+    else:
+        print("state = running" if s["running"] else "state = waiting")
+        if s["running"]:
+            print("pid = 4242")
+elif cmd == "print-disabled":
+    print('disabled services = {{\\n\\t"codes.porta.ai-usage" => ' + ("disabled" if s["disabled"] else "enabled") + "\\n}}")
+elif cmd == "disable":
+    s["disabled"] = True
+elif cmd == "enable":
+    s["disabled"] = False
+elif cmd == "bootout":
+    # Like launchd, bootout may return while the job is still exiting.
+    s["linger"] = s.get("linger_prints", 0)
+    if not s["linger"]:
+        s["loaded"] = False; s["running"] = False
+elif cmd == "bootstrap":
+    if s["disabled"]:
+        code = 5
+    else:
+        s["loaded"] = True; s["running"] = True
+elif cmd == "kickstart":
+    if s["loaded"]:
+        s["running"] = True
+    else:
+        code = 3
+elif cmd == "load":
+    # Legacy `load -w` also clears the persistent disable flag.
+    if "-w" in args:
+        s["disabled"] = False
+    if s["disabled"]:
+        code = 5
+    else:
+        s["loaded"] = True; s["running"] = True
+json.dump(s, open(state_path, "w"))
+sys.exit(code)
+""", encoding="utf-8")
+        script.chmod(0o755)
+        return script
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_stop_disables_then_boots_out_and_start_reenables_then_bootstraps(self) -> None:
+        root = self.case.home / ".ai-usage"
+        self.case.run("install", "--config", str(root / "config.json"), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        target = f"gui/{self.uid}/codes.porta.ai-usage"
+
+        def run(command: str) -> dict[str, object]:
+            result = subprocess.run([sys.executable, str(SCRIPT), command], env=environment,
+                                    capture_output=True, text=True, timeout=30, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+
+        files_before = sorted(str(p) for p in root.rglob("*"))
+        stopped = run("stop")
+        self.assertEqual((stopped["state"], stopped["disabled"]), ("stopped", True))
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [c for c in calls if not c.startswith("print")]
+        self.assertEqual(mutations, [f"disable {target}", f"bootout {target}"],
+                         "stop must disable (stays stopped at login) before booting out")
+        self.assertEqual(sorted(str(p) for p in root.rglob("*")), files_before, "stop must keep installation and data")
+
+        (self.case.root / "launchctl-calls.log").unlink()
+        started = run("start")
+        self.assertEqual((started["state"], started["disabled"], started["pid"]), ("running", False, 4242))
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [c for c in calls if not c.startswith("print")]
+        plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
+        self.assertEqual(mutations, [f"enable {target}", f"bootstrap gui/{self.uid} {plist}"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_stop_reports_stopped_only_after_a_slow_job_has_exited(self) -> None:
+        root = self.case.home / ".ai-usage"
+        self.case.run("install", "--config", str(root / "config.json"), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False, linger_prints=3)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        result = subprocess.run([sys.executable, str(SCRIPT), "stop"], env=environment,
+                                capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stopped = json.loads(result.stdout)
+        self.assertEqual((stopped["state"], stopped["pid"], stopped["disabled"]), ("stopped", None, True),
+                         "stop must not report a job that is still exiting as its final state")
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_reinstall_after_stop_clears_the_disable_flag_and_runs(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+
+        def run(*command: str) -> subprocess.CompletedProcess[str]:
+            result = subprocess.run([sys.executable, str(SCRIPT), *command], env=environment,
+                                    capture_output=True, text=True, timeout=60, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+
+        run("stop")
+        run("install", "--config", str(config))
+        status = json.loads(run("service-status").stdout)
+        self.assertEqual((status["state"], status["disabled"]), ("running", False),
+                         "reinstalling after Stop must leave the collector enabled and running")
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_keeps_a_stopped_disabled_agent_stopped_and_disabled(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        plist = self.case.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"
+        tracked = [root / "collector.py", root / "install-ownership.json", plist, config]
+        before = {path: path.read_bytes() for path in tracked}
+        # Stopped with `stop`: not loaded, disabled. The next install's bootstrap fails.
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True, fail=("bootstrap",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0, "the install must fail when bootstrap fails")
+        state = json.loads((self.case.root / "launchd-state.json").read_text(encoding="utf-8"))
+        self.assertFalse(state["loaded"], "a stopped agent must stay stopped")
+        self.assertTrue(state["disabled"], "a disabled agent must stay disabled (stays stopped at login)")
+        self.assertEqual({path: path.read_bytes() for path in tracked}, before, "installed files restored")
+        calls = (self.case.root / "launchctl-calls.log").read_text(encoding="utf-8").splitlines()
+        mutations = [call.split()[0] for call in calls if not call.startswith("print")]
+        self.assertEqual(mutations[-1], "disable", f"the prior disabled state is restored last: {calls}")
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_reports_when_the_disabled_state_cannot_be_restored(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True, fail=("bootstrap",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        # After bootstrap fails, `disable` fails too.
+        state_path = self.case.root / "launchd-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["fail"] = ["bootstrap", "disable"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not restore its disabled state", result.stderr)
+        self.assertIn("launchctl disable gui/", result.stderr)
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_failed_install_still_restarts_a_previously_running_agent(self) -> None:
+        root = self.case.home / ".ai-usage"
+        config = root / "config.json"
+        self.case.run("install", "--config", str(config), "--no-start")
+        launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False, fail=("kickstart",))
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        variant = self.case.root / "ai_usage_service_variant.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        # kickstart fails for the new install; the prior service is brought back with bootstrap.
+        state_path = self.case.root / "launchd-state.json"
+        result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
+                                env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(state["loaded"], f"the previously running agent is loaded again: {result.stderr}")
+        self.assertFalse(state["disabled"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "LaunchAgent control is macOS-only")
+    def test_start_without_installation_changes_nothing(self) -> None:
+        launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True)
+        environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
+        result = subprocess.run([sys.executable, str(SCRIPT), "start"], env=environment,
+                                capture_output=True, text=True, timeout=30, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not installed", result.stderr)
+        self.assertFalse((self.case.root / "launchctl-calls.log").exists())
+
+
+class PausedSchedulerLoopTests(unittest.TestCase):
+    """Drive the real run_daemon loop with a virtual clock; no real waiting."""
+
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+
+    def test_pause_after_an_established_deadline_waits_positively_and_never_collects(self) -> None:
+        config = self.case.provider_config("codex", executable_names=["definitely-missing-codex"])
+        config["providers"]["codex"]["enabled"] = False
+        config.update(poll_on_start=True, poll_interval_seconds=3600)
+        self.case.write_config(config)
+        clock = {"now": 1000.0}
+        waits: list[tuple[float, float]] = []  # (virtual time, requested wait)
+        collections: list[float] = []
+        real_collect = SERVICE.collect_snapshot
+        case = self.case
+
+        def counting_collect(*args, **kwargs):
+            collections.append(clock["now"])
+            return real_collect(*args, **kwargs)
+
+        class VirtualEvent:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def is_set(self) -> bool:
+                return self.stopped
+
+            def set(self) -> None:
+                self.stopped = True
+
+            def wait(self, seconds: float) -> bool:
+                waits.append((clock["now"], seconds))
+                if len(waits) == 1:
+                    # The first collection set a deadline one interval ahead; pause now.
+                    paused = json.loads(case.config.read_text(encoding="utf-8"))
+                    paused["poll_paused"] = True
+                    case.write_config(paused)
+                clock["now"] += max(seconds, 0.0)
+                # Run well past the original deadline (1000 + 3600), then stop.
+                if clock["now"] > 1000.0 + 3 * 3600 or len(waits) > 2000:
+                    self.stopped = True
+                return self.stopped
+
+        with mock.patch.object(SERVICE.threading, "Event", VirtualEvent), \
+                mock.patch.object(SERVICE.time, "monotonic", lambda: clock["now"]), \
+                mock.patch.object(SERVICE, "collect_snapshot", counting_collect), \
+                mock.patch.object(SERVICE.signal, "signal"), \
+                mock.patch.dict(os.environ, {SERVICE.SCHEDULE_TICK_ENV: "15"}):
+            SERVICE.run_daemon(self.case.config)
+
+        self.assertEqual(collections, [1000.0], "only the start-up check; no scheduled check while paused")
+        self.assertLess(len(waits), 2000, "a zero-wait loop would never advance virtual time")
+        past_deadline = [seconds for at, seconds in waits if at > 1000.0 + 3600]
+        self.assertTrue(past_deadline, "the scenario must run beyond the expired deadline")
+        self.assertTrue(all(0 < seconds <= 15 for _, seconds in waits[1:]), waits[:5])
+        self.assertEqual(set(past_deadline), {15.0}, "paused waits use the bounded config-check tick")
+
+    def test_wait_function_bounds(self) -> None:
+        wait = SERVICE.schedule_wait_seconds
+        self.assertEqual(wait("paused", next_due=10.0, now=500.0, tick=15.0), 15.0)
+        self.assertEqual(wait("pause", next_due=10.0, now=500.0, tick=15.0), 15.0)
+        self.assertEqual(wait("wait", next_due=505.0, now=500.0, tick=15.0), 5.0)
+        self.assertEqual(wait("resume", next_due=4100.0, now=500.0, tick=15.0), 15.0)
+        self.assertGreater(wait("wait", next_due=500.0, now=500.0, tick=15.0), 0)
+        self.assertEqual(wait("wait", next_due=None, now=0.0, tick=0.1), 0.1)
+
+
+class InstallerRecoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.case = IsolatedHome()
+        self.addCleanup(self.case.close)
+
+    def test_rollback_leaves_unchanged_files_untouched(self) -> None:
+        target = self.case.root / "kept.txt"
+        target.write_text("original\n", encoding="utf-8")
+        target.chmod(0o600)
+        inode = target.stat().st_ino
+        changed = self.case.root / "changed.txt"
+        changed.write_text("before\n", encoding="utf-8")
+        tx = SERVICE.FilesystemTransaction(self.case.root)
+        tx.snapshot(target)
+        tx.snapshot(changed)
+        changed.write_text("after\n", encoding="utf-8")
+        tx.rollback()
+        self.assertEqual(target.stat().st_ino, inode, "an unchanged file must not be rewritten")
+        self.assertEqual(changed.read_text(encoding="utf-8"), "before\n")
+
+    def test_incomplete_rollback_says_the_collector_was_not_restarted(self) -> None:
+        self.case.write_config(self.case.provider_config("codex", executable_names=["definitely-missing-codex"]))
+        harness = CollectorBlackBoxTests(methodName="test_missing_binaries_are_skipped")
+        harness.case = self.case
+        calls: list[str] = []
+
+        def launchctl(arguments: list[str], check: bool = False):
+            calls.append(arguments[0])
+            failed = arguments[0] == "enable"
+            if check and failed:
+                raise RuntimeError("enable failed")
+            return subprocess.CompletedProcess(["launchctl", *arguments], int(failed), "", "")
+
+        with harness.patched_service_install_paths():
+            SERVICE.install_service(self.case.config, no_start=True)
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(SERVICE.sys, "platform", "darwin"))
+                stack.enter_context(mock.patch.object(SERVICE, "find_launchctl", return_value=Path("/bin/true")))
+                stack.enter_context(mock.patch.object(SERVICE, "run_launchctl", side_effect=launchctl))
+                stack.enter_context(mock.patch.object(
+                    SERVICE.FilesystemTransaction, "rollback",
+                    side_effect=RuntimeError("rollback incomplete; recovery artifacts preserved at /x")))
+                with self.assertRaisesRegex(RuntimeError, "has NOT been restarted"):
+                    SERVICE.install_service(self.case.config, no_start=False)
+        self.assertEqual(calls.count("bootstrap"), 0, "no restart after an incomplete rollback")
+
+    def test_service_label_override_never_names_the_real_agent(self) -> None:
+        for label, ok in (("codes.porta.ai-usage", False), ("other.label", False),
+                          ("codes.porta.ai-usage.test.", False), ("codes.porta.ai-usage.test.ab12cd34", True)):
+            with self.subTest(label=label):
+                environment = dict(self.case.environment(), AI_USAGE_SERVICE_LABEL=label)
+                result = subprocess.run([sys.executable, str(SCRIPT), "version"], env=environment,
+                                        capture_output=True, text=True, timeout=30, check=False)
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+
+
+class ClaudeSubscriptionUsageTests(unittest.TestCase):
+    """Claude plan limits: Claude Code's own cache first, one locked-down /usage run only when stale."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="ai-usage-claude-usage-")
+        self.root = Path(self._tmp.name)
+        self.cache = self.root / "claude.json"
+        self.calls = self.root / "calls.jsonl"
+        self.now_ms = time.time() * 1000
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def write_cache(self, fetched_at_ms: float, *, limits: Any = None, account: str = "acct-1",
+                    cached_account: str = "acct-1") -> None:
+        if limits is None:
+            limits = [
+                {"kind": "session", "percent": 8, "resets_at": "2026-10-17T10:10:00.157608+00:00"},
+                {"kind": "weekly_all", "percent": 85, "resets_at": "2026-10-20T13:00:00+00:00"},
+                {"kind": "weekly_scoped", "percent": 0, "resets_at": "2026-10-20T13:00:00+00:00",
+                 "scope": {"model": {"id": None, "display_name": "Fable"}}},
+                {"kind": "some_future_kind", "percent": 1},
+            ]
+        self.cache.write_text(json.dumps({
+            "oauthAccount": {"accountUuid": account},
+            "unrelated": {"keep": True},
+            "cachedUsageUtilization": {"accountUuid": cached_account, "fetchedAtMs": fetched_at_ms,
+                                       "utilization": {"limits": limits}},
+        }), encoding="utf-8")
+
+    def fake_claude(self, *, refresh: bool) -> Path:
+        """A stand-in `claude` that records how it was run and, if asked, refreshes the cache."""
+        path = self.root / "claude"
+        path.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys, time\n"
+            f"calls, cache, refresh = {str(self.calls)!r}, {str(self.cache)!r}, {refresh!r}\n"
+            "with open(calls, 'a') as h:\n"
+            "    h.write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'cwd_entries': os.listdir('.'),\n"
+            "                        'stdin_tty': sys.stdin.isatty(), 'env': dict(os.environ)}) + '\\n')\n"
+            "if refresh:\n"
+            "    d = json.load(open(cache)); d['cachedUsageUtilization']['fetchedAtMs'] = time.time() * 1000\n"
+            "    json.dump(d, open(cache, 'w'))\n"
+            "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'usage'}))\n",
+            encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def collect(self, executable: Optional[Path], **settings: Any) -> list[dict[str, Any]]:
+        config = {"usage_cache_file": str(self.cache), "usage_cache_max_age_seconds": 900, **settings}
+        return SERVICE.collect_claude_subscription_usage("2026-10-17T09:00:00Z", config, executable)
+
+    def runs(self) -> list[dict[str, Any]]:
+        if not self.calls.exists():
+            return []
+        return [json.loads(line) for line in self.calls.read_text(encoding="utf-8").splitlines()]
+
+    def test_fresh_cache_is_read_without_running_claude(self) -> None:
+        self.write_cache(self.now_ms - 60_000)
+        rows = self.collect(self.fake_claude(refresh=True))
+        self.assertEqual(self.runs(), [])
+        self.assertEqual(
+            [(r["metric"], r["scope"], r["value"], r["window_seconds"], r["resets_at"], r["source"], r["status"])
+             for r in rows],
+            [("used_percent", "session", 8, 18000, "2026-10-17T10:10:00.157608Z", "claude-usage-cache", "ok"),
+             ("used_percent", "weekly", 85, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok"),
+             ("used_percent", "weekly:Fable", 0, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok")])
+
+    def test_stale_cache_runs_usage_once_locked_down_and_reports_the_refresh(self) -> None:
+        self.write_cache(self.now_ms - 3_600_000)
+        polluted = {"ANTHROPIC_API_KEY": "x", "ANTHROPIC_BASE_URL": "http://elsewhere", "CLAUDECODE": "1",
+                    "CLAUDE_CODE_SIMPLE": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+        with mock.patch.dict(os.environ, polluted):
+            rows = self.collect(self.fake_claude(refresh=True))
+        runs = self.runs()
+        self.assertEqual(len(runs), 1)
+        run = runs[0]
+        self.assertEqual(tuple(run["argv"]), SERVICE.CLAUDE_USAGE_ARGUMENTS)
+        for flag in ("--safe-mode", "--restricted", "--strict-mcp-config", "--no-session-persistence"):
+            self.assertIn(flag, run["argv"])
+        self.assertEqual(run["argv"][run["argv"].index("--tools") + 1], "")
+        self.assertEqual(run["argv"][run["argv"].index("--setting-sources") + 1], "")
+        self.assertNotIn("--bare", run["argv"])
+        self.assertNotIn("--disable-slash-commands", run["argv"])
+        self.assertEqual(run["cwd_entries"], [], "runs in an empty working directory")
+        self.assertFalse(Path(run["cwd"]).exists(), "the working directory is removed afterwards")
+        self.assertFalse(run["stdin_tty"])
+        for key, value in SERVICE.CLAUDE_USAGE_ENVIRONMENT.items():
+            self.assertEqual(run["env"].get(key), value)
+        self.assertFalse([k for k in run["env"] if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))])
+        self.assertEqual({(r["source"], r["status"]) for r in rows}, {("claude-usage-command", "ok")})
+        self.assertEqual(len(rows), 3)
+        document = json.loads(self.cache.read_text(encoding="utf-8"))
+        self.assertEqual(document["unrelated"], {"keep": True}, "the collector never writes Claude Code's config")
+
+    def test_a_run_that_does_not_refresh_the_cache_is_never_ok(self) -> None:
+        # Claude Code answers from its cache when it cannot fetch (offline, signed out, blocked).
+        self.write_cache(self.now_ms - 3_600_000)
+        rows = self.collect(self.fake_claude(refresh=False))
+        self.assertEqual(len(self.runs()), 1)
+        self.assertEqual(rows[0]["metric"], "subscription_usage_query")
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertEqual({r["status"] for r in rows[1:]}, {"stale"})
+        self.assertNotIn("ok", {r["status"] for r in rows})
+
+    def test_unrecognized_cache_shape_is_an_error_not_a_guess(self) -> None:
+        for name, limits in {"no limits": "x", "non-numeric percent": [{"kind": "session", "percent": "8"}],
+                             "only unknown kinds": [{"kind": "new", "percent": 1}]}.items():
+            with self.subTest(name):
+                self.write_cache(self.now_ms, limits=limits)
+                rows = self.collect(None)
+                self.assertEqual([(r["metric"], r["status"]) for r in rows], [("subscription_usage_query", "error")])
+
+    def test_cache_for_another_account_is_not_shown(self) -> None:
+        self.write_cache(self.now_ms, cached_account="someone-else")
+        rows = self.collect(self.fake_claude(refresh=False))
+        self.assertNotIn("used_percent", {r["metric"] for r in rows})
+        self.assertIn("error", {r["status"] for r in rows})
+
+    def test_disabled_reads_nothing_and_runs_nothing(self) -> None:
+        self.write_cache(self.now_ms - 3_600_000)
+        self.cache.chmod(0)
+        try:
+            rows = self.collect(self.fake_claude(refresh=True), subscription_usage=False)
+        finally:
+            self.cache.chmod(0o600)
+        self.assertEqual(self.runs(), [])
+        self.assertEqual([(r["metric"], r["status"]) for r in rows], [("personal_subscription_quota", "disabled")])
+
+
+class StablePythonExecutableTests(unittest.TestCase):
+    """The LaunchAgent must survive Homebrew patch upgrades of Python."""
+
+    def test_cellar_path_is_recorded_as_homebrew_opt_link(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            interpreter = root / "Cellar" / "python@3.14" / "3.14.7" / "bin" / "python3.14"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.write_text("", encoding="utf-8")
+            (root / "opt").mkdir()
+            (root / "opt" / "python@3.14").symlink_to(root / "Cellar" / "python@3.14" / "3.14.7")
+            self.assertEqual(SERVICE.stable_python_executable(str(interpreter)),
+                             root / "opt" / "python@3.14" / "bin" / "python3.14")
+
+    def test_opt_path_is_kept_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "Cellar" / "python@3.14" / "3.14.8" / "bin").mkdir(parents=True)
+            (root / "Cellar" / "python@3.14" / "3.14.8" / "bin" / "python3.14").write_text("", encoding="utf-8")
+            (root / "opt").mkdir()
+            (root / "opt" / "python@3.14").symlink_to(root / "Cellar" / "python@3.14" / "3.14.8")
+            invoked = root / "opt" / "python@3.14" / "bin" / "python3.14"
+            self.assertEqual(SERVICE.stable_python_executable(str(invoked)), invoked)
+
+    def test_cellar_path_without_a_matching_opt_link_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            interpreter = Path(tmp).resolve() / "Cellar" / "python@3.14" / "3.14.7" / "bin" / "python3.14"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.write_text("", encoding="utf-8")
+            self.assertEqual(SERVICE.stable_python_executable(str(interpreter)), interpreter)
+
+    def test_system_python_is_unchanged(self) -> None:
+        self.assertEqual(SERVICE.stable_python_executable("/usr/bin/python3"), Path("/usr/bin/python3"))
+

@@ -1,0 +1,10 @@
+{
+  "schema": "blessed/signing-trust-store/v1",
+  "keys": {
+    "blessed-cicd-script-export-2026-10": {
+      "profile": "ed25519-detached-v1",
+      "public_key_base64": "mDE53Qh1ncne7aiTT9ewSH8e/9Q9z5D8GCjNZV99W40=",
+      "status": "active"
+    }
+  }
+}

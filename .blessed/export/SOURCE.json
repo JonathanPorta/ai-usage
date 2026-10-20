@@ -1,0 +1,85 @@
+{
+  "schema": "blessed/script-export-source/v1",
+  "export": "public-consumer-core",
+  "version": "1.0.0",
+  "tag": "public-consumer-core-v1.0.0",
+  "source_repo": "JonathanPorta/blessed-cicd",
+  "catalog_commit": "6eedeefef331cf1320ea25cdc2b8011a4de937f8",
+  "license": {
+    "spdx": "Apache-2.0",
+    "file": "LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "scope": "Plan validation, candidate assembly, ed25519-detached-v1 signing/keygen/verification, candidate validation with signature verification, and the spec-pack and design-handoff checkers.",
+  "requires": {
+    "tools": [
+      "bash",
+      "jq",
+      "openssl>=3",
+      "yq (mikefarah v4, checkers only)"
+    ]
+  },
+  "signing": {
+    "profile": "ed25519-detached-v1",
+    "key_id": "blessed-cicd-script-export-2026-10",
+    "signed_file": "MANIFEST.sha256",
+    "signature_file": "MANIFEST.sha256.sig"
+  },
+  "mirror_repo": "JonathanPorta/blessed-cicd-scripts",
+  "categories": [
+    {
+      "name": "release",
+      "version": "0.10.0",
+      "api": 1,
+      "tag": "release-v0.10.0",
+      "commit": "7ec9910157b24b6b0b1bacac4ad5c60a9237f90b",
+      "set_hash": "0c9b30d727cdc94ed1fd24d8bb8963986731bcc3400f52c6a97b2d3e36e93714",
+      "subset_manifest_sha256": "ffbd7142490ee02f80312b949fc3a4bee20b9afff8f8162f3d4c43be982152f6",
+      "files": [
+        "API_VERSION",
+        "VERSION",
+        "build-candidate.sh",
+        "lib/lib-json-schema.sh",
+        "lib/release-lib.sh",
+        "references/candidate-plan.schema.json",
+        "references/release-candidate.schema.json",
+        "validate-candidate.sh",
+        "validate-plan.sh"
+      ]
+    },
+    {
+      "name": "signing",
+      "version": "0.4.0",
+      "api": 1,
+      "tag": "signing-v0.4.0",
+      "commit": "974f746bcdc90322c60d1ba9d47d51869212b830",
+      "set_hash": "67fb14c46ce02918bff0729e690a242fdecc3d9abfb4571b6ef1f712e46ee10a",
+      "subset_manifest_sha256": "1bebd4158d9382cf9e8e7dc2963d2d75bc3cc53998bcca08c06703e0003a905e",
+      "files": [
+        "API_VERSION",
+        "VERSION",
+        "keygen.sh",
+        "lib/signing-lib.sh",
+        "sign.sh",
+        "verify.sh"
+      ]
+    },
+    {
+      "name": "checkers",
+      "version": "0.1.0",
+      "api": 1,
+      "tag": "checkers-v0.1.0",
+      "commit": "9f4ae8098a0326a1634a261171a6b32ccb00c6b6",
+      "set_hash": "956a2c0ea91848bb321de91c7db984af25ba1fab715571107e32ac28149762e8",
+      "subset_manifest_sha256": "ffd330b3e86a3d762f0a675e8c1fc92531a363c27fb67b121f604a71bb9cb8fd",
+      "files": [
+        "API_VERSION",
+        "VERSION",
+        "scripts/design-check.sh",
+        "scripts/lib-json-schema.sh",
+        "scripts/spec-check.sh",
+        "standards/design-system/references/design-handoff.schema.json"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ai-usage - Design — review checkpoint launcher</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  body { background: var(--au-review-bg); }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); }
+  .hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-4); margin-bottom: var(--sp-4); }
+  .hero .t { flex: 1 1 420px; }
+  .hero h1 { font: 600 30px/1.2 var(--font-display); letter-spacing: -.02em; margin: 0 0 var(--sp-2); }
+  .hero p { margin: 0; color: var(--au-muted); font-size: 15px; max-width: 68ch; }
+  .banner { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-3) var(--sp-4); border-radius: 10px; background: var(--au-amber-bg); color: var(--au-amber); font-size: 14px; margin-bottom: var(--sp-5); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--sp-5); align-items: start; }
+  .preview { border: 1px solid var(--au-line); border-radius: 14px; overflow: hidden; background: var(--au-desk); }
+  .preview-bar { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; padding: var(--sp-3) var(--sp-4); border-bottom: 1px dashed var(--au-line-strong); background: var(--au-review-bg); font-size: var(--fs-caption); color: var(--au-muted); }
+  .preview-bar label { display: inline-flex; gap: var(--sp-2); align-items: center; }
+  .preview-bar select { min-height: 32px; padding: 4px 8px; border: 1px solid var(--au-line-strong); border-radius: var(--r-sm); background: var(--au-panel); font-size: var(--fs-caption); }
+  .preview-bar .seg button { min-height: 32px; padding: 4px 8px; border: 1px solid var(--au-line-strong); background: var(--au-panel); font-size: var(--fs-caption); }
+  .preview iframe { display: block; width: 100%; height: 980px; border: 0; }
+  .scn-note { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-caption); color: var(--au-muted); background: var(--au-review-bg); border-bottom: 1px solid var(--au-line); }
+  .targets { display: grid; gap: var(--sp-2); }
+  .targets h2 { font: 600 17px/1.3 var(--font-display); margin: 0 0 var(--sp-1); }
+  .target { position: relative; display: grid; gap: 2px; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--au-line); border-radius: 10px; background: var(--au-panel); color: var(--au-text); }
+  @media (hover: hover) { .target:hover { border-color: var(--au-line-strong); } }
+  .target a { font-size: 15px; font-weight: 600; color: var(--au-text); text-decoration: none; }
+  .target a::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+  .target a:focus-visible { outline: none; }
+  .target:has(a:focus-visible) { outline: 2px solid var(--au-focus); outline-offset: 2px; }
+  .target .kind { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--au-muted); }
+  .target.primary { border-color: var(--au-blue); }
+  .target.primary .kind { color: var(--au-blue); }
+  .target span.d { font-size: var(--fs-caption); color: var(--au-muted); }
+  .keys { margin-top: var(--sp-4); font-size: var(--fs-caption); color: var(--au-muted); }
+  .keys kbd { font: 11px var(--font-ui); padding: 1px 5px; border: 1px solid var(--au-line-strong); border-radius: 4px; background: var(--au-panel); color: var(--au-text); }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .preview iframe { height: 900px; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="t">
+        <h1>ai-usage — menu-bar app design</h1>
+        <p>Final design handoff of the accepted 0.1.3 checkpoint. The primary target is the macOS popover overview, shown live below. Each card has a 7-day usage chart and every quota window that can limit usage. Other targets cover provider details, the history window, every review state, and the menu-bar icons.</p>
+      </div>
+      <span class="seg" role="group" aria-label="Appearance for this page and the preview">
+        <button type="button" data-theme-btn="light">Light</button>
+        <button type="button" data-theme-btn="dark">Dark</button>
+        <button type="button" data-theme-btn="system">System</button>
+      </span>
+    </header>
+
+    <div class="banner" role="note"><span aria-hidden="true">⚠︎</span><span><strong>Illustrative sample data.</strong> Every number, time, model name, and price in these screens comes from <code>app/fixtures.js</code>. None of it is real usage. The reference clock is fixed at Tue 29 Sep 2026, 10:40.</span></div>
+
+    <div class="layout">
+      <section class="preview" aria-label="Primary target preview">
+        <div class="preview-bar" role="region" aria-label="Review controls (not part of the app)">
+          <span class="review-tag">Review</span>
+          <label>Scenario <select id="scenario"></select></label>
+          <label>Collect now result
+            <select id="outcome">
+              <option value="">Scenario default</option>
+              <option value="success">Success</option>
+              <option value="partial">Partial — Codex fails entirely</option>
+              <option value="partial-quota">Partial — Codex quota only fails</option>
+              <option value="failure">Failure</option>
+            </select>
+          </label>
+          <a href="popover.html" id="open-full" style="color:var(--au-blue)">Open full page</a>
+        </div>
+        <p class="scn-note" id="scn-note" aria-live="polite"></p>
+        <iframe id="frame" title="AI Usage popover prototype" src="popover.html?embed=1"></iframe>
+      </section>
+
+      <aside class="targets" aria-labelledby="targets-h">
+        <h2 id="targets-h">Checkpoint targets</h2>
+        <div class="target primary"><span class="kind">Primary</span><a href="popover.html">Approved macOS popover overview</a><span class="d">Interactive popover. Cards show a 7-day chart and every quota window. The height is capped with a scrolling provider list. Includes provider detail, monitoring, settings, Collect now and Back.</span></div>
+        <div class="target"><span class="kind">Detail exploration</span><a href="provider-details.html">Provider detail views — every provider, light and dark</a><span class="d">Charts first, every quota window, collapsible accounting and source sections.</span></div>
+        <div class="target"><span class="kind">Secondary window</span><a href="history-window.html">Resizable history window</a><span class="d">Shows the popover’s live state when one has been opened. Opened from “Open history”. The Tokens or Quota choice drives the whole view, with quota-window selection, reset markers and explicit coverage gaps.</span></div>
+        <div class="target"><span class="kind">State exploration</span><a href="state-gallery.html">State gallery — all review scenarios, light and dark</a><span class="d">Static previews of all ten scenarios, plus key detail views.</span></div>
+        <div class="target"><span class="kind">Asset exploration</span><a href="menu-bar-icons.html">Menu-bar icon states</a><span class="d">Normal, collecting, paused, stopped, and attention required.</span></div>
+        <div class="target"><span class="kind">Implementation</span><a href="IMPLEMENTATION.md">Implementation guide — native macOS app over the Python collector</a><span class="d">Architecture, shared state, freshness, caching, charts, existing vs proposed capabilities, and how to preview locally.</span></div>
+        <div class="target"><span class="kind">Notes</span><a href="design-notes.md">Design notes — behavior, data semantics, open questions</a><span class="d">Markdown document.</span></div>
+        <div class="target"><span class="kind">Input reference</span><a href="ai-usage-popover-reference.html">Approved popover concept (original reference, unchanged)</a><span class="d">The attached concept this design develops. Loads icons from a CDN.</span></div>
+        <p class="keys">In the popover: <kbd>Tab</kbd> moves focus, <kbd>↑</kbd> <kbd>↓</kbd> move between status and cards, <kbd>←</kbd> <kbd>→</kbd> read chart values when a chart is focused, <kbd>Esc</kbd> goes back, then closes. <kbd>⌘R</kbd> collects now and <kbd>⌘,</kbd> opens Settings.</p>
+      </aside>
+    </div>
+  </div>
+
+  <script src="app/icons.js"></script>
+  <script src="app/fixtures.js"></script>
+  <script>
+  (function () {
+    const frame = document.getElementById('frame');
+    const sel = document.getElementById('scenario');
+    const out = document.getElementById('outcome');
+    const note = document.getElementById('scn-note');
+    const openFull = document.getElementById('open-full');
+    let theme = 'system';
+    AIU_FIXTURES.scenarios.forEach((s) => { const o = document.createElement('option'); o.value = s.id; o.textContent = s.label; sel.appendChild(o); });
+
+    function load() {
+      const s = AIU_FIXTURES.scenarios.find((x) => x.id === sel.value);
+      note.textContent = s.summary;
+      const params = new URLSearchParams({ embed: '1', scenario: sel.value });
+      if (out.value) params.set('outcome', out.value);
+      if (theme !== 'system') params.set('theme', theme);
+      frame.src = `popover.html?${params}`;
+      params.delete('embed');
+      openFull.href = `popover.html?${params}`;
+    }
+    function setTheme(t) {
+      theme = t;
+      if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+      document.querySelectorAll('[data-theme-btn]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeBtn === t)));
+      load();
+    }
+    document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themeBtn)));
+    sel.addEventListener('change', load);
+    out.addEventListener('change', load);
+    setTheme('system');
+  })();
+  </script>
+</body>
+</html>

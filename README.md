@@ -12,10 +12,33 @@ reloads its JSON config between polls.
 | Provider | Source | Provider process started? | Capacity / cost caveats |
 | --- | --- | --- | --- |
 | OpenAI Codex | `account/usage/read` and `account/rateLimits/read` through `codex app-server` | Yes, only when `codex` exists | Quota is a weighted percentage, not an unused-token count. Subscription price is configured manually. |
-| Claude Code | Read-only `~/.claude/stats-cache.json` plus local `~/.claude/projects/**/*.jsonl` transcripts | No | The stats cache is an undocumented local format and may be stale; session JSONL is the live token source. Claude Max subscription capacity is not available through a supported public API, so the collector does not scrape the TUI or call a private endpoint. Transcript events are append-only (`source=claude-session-log`) and do not rewrite other providers' rows. |
+| Claude Code | Read-only `~/.claude/stats-cache.json` and `~/.claude/projects/**/*.jsonl` transcripts; plan limits from the `cachedUsageUtilization` entry Claude Code keeps in `~/.claude.json` (what its `/usage` shows) | Only when that cached reading is older than `usage_cache_max_age_seconds` (15 min), and only when `claude` exists: one `claude -p /usage` run, locked down (below) | The stats cache and the usage cache are undocumented local formats. A run that does not refresh the cache is reported stale, never current. Turn plan limits off with `"subscription_usage": false`. Transcript events are append-only (`source=claude-session-log`) and do not rewrite other providers' rows. |
 | Antigravity CLI | Official status-line callback | No polling command | The callback writes sanitized token deltas and quota snapshots as Antigravity runs. Raw conversation IDs are hashed; email, paths, prompts, and transcripts are not retained. |
 | Grok Build | Local session JSONL and fresh local billing log; billing-only `x.ai/billing` fallback | Only for a stale/missing billing snapshot, and only when `grok` and its auth cache exist | The fallback fetches billing metadata and never samples a model. Consumer credit percentages and cent values are not the recurring SuperGrok price. |
 | Gemini CLI | Existing local OpenTelemetry file | No | Automatic telemetry setup is **off by default** because raw Gemini telemetry includes account identifiers. See [Optional Gemini telemetry](#optional-gemini-telemetry). |
+
+### What the Claude `/usage` run does
+
+When Claude Code's cached limits are stale, the collector runs one command,
+measured on Claude Code 2.1.302:
+
+```
+claude --safe-mode --restricted --setting-sources "" --strict-mcp-config --tools "" \
+  --no-session-persistence --permission-mode dontAsk --permission-prompts none \
+  --max-budget-usd 0.01 --print /usage --output-format json
+```
+
+It runs in a new empty temporary directory, with no stdin, with
+`DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER` and
+`DISABLE_BUG_COMMAND` set, and with every inherited `ANTHROPIC_*` and
+`CLAUDE_CODE_*` variable removed. `/usage` makes no model request (cost 0).
+
+- **Network:** only `api.anthropic.com`, for Claude Code's account bootstrap and the usage endpoint. Without the telemetry switches it also contacts Datadog's log intake; with them it does not.
+- **Writes:** only the `cachedUsageUtilization` entry in `~/.claude.json` (the rest of the file is byte-identical), plus Claude Code's transient process lock. No transcript is saved.
+- **Reads (unavoidable):** the signed-in subscription login (Keychain) and Claude Code's own configuration, plugin list and settings files; two built-in Claude Code plugins still load, with project memory off in the empty directory. Your hooks, MCP servers, skills, CLAUDE.md files and installed plugins do not load.
+- **Not used, and why:** `--bare` and `CLAUDE_CODE_SIMPLE` never read the subscription login, so `/usage` has nothing to show; `--disable-slash-commands` disables `/usage` itself; `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` treats the usage fetch as non-essential and silently replays the old cache.
+
+The collector itself only reads `~/.claude.json`; it never writes it.
 
 Missing or disabled providers are skipped. `doctor` performs filesystem-only
 discovery and never executes a provider binary.
@@ -131,6 +154,13 @@ The four configured paths and their derived lock/journal paths must resolve to
 distinct filesystem objects. Collisions—including symlink aliases—fail during
 config loading before logs, CSV, or state are mutated.
 
+`poll_paused: true` pauses scheduled checks (collector 2.2.0 or newer). The
+daemon keeps running, `once` still works, and clearing it schedules the next
+check one interval later. The menu app changes these settings with
+`collector.py configure --set KEY=JSON`, which writes atomically and preserves
+everything else. `collector.py stop` / `start` disable or re-enable the
+LaunchAgent; a stopped collector stays stopped across login.
+
 `monthly_subscription_usd` is intentionally manual: consumer billing metadata
 generally does not expose the price on your receipt. It is recorded once per
 calendar month, and again only if you change the configured value.
@@ -212,12 +242,37 @@ and remain untouched. Config, CSV data, logs, and raw caches are preserved. If
 ownership or provider settings cannot be inspected safely, uninstall fails
 closed before deleting dependent files.
 
+## macOS menu-bar app
+
+`macos/` contains a native SwiftUI menu-bar app (macOS 14 or later) over this
+collector. It shows today's usage, 7-day charts, every quota window with its
+own freshness, provider details and a History window. It reads data through
+the read-only reporting command (`ai_usage_report.py`, schema
+`ai-usage/report/v1`, see [docs/CLI.md](docs/CLI.md)). **Collect now** runs the
+installed collector's existing `once` command. Quitting the app never stops
+the collector.
+
+```bash
+make app-build          # macos/build/AI Usage.app (ad-hoc signed, local use)
+make app-run            # launch against the installed collector
+make app-run-sandbox    # launch against an isolated synthetic sandbox
+make report             # print the JSON report for ~/.ai-usage (read-only)
+```
+
+Design and specs:
+
+- [DESIGN.md](DESIGN.md) and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md);
+- the accepted handoff in [docs/design/app/](docs/design/app/);
+- [docs/APP.md](docs/APP.md).
+
 ## Tests
 
 ```bash
 make help
-make test
+make test        # collector and reporting tests
 make check
+make app-test    # Swift tests, including an isolated sandbox end-to-end run
+make spec-check ARGS=--strict && make design-check ARGS=--strict
 ```
 
 The fixture suite uses fake provider binaries and asserts that only the Codex

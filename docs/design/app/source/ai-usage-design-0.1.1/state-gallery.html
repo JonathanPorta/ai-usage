@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Usage — State gallery (all scenarios, light and dark)</title>
+<link rel="stylesheet" href="app/styles.css">
+<style>
+  body { background: var(--au-review-bg); }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); }
+  .intro h1 { font: 600 28px/1.2 var(--font-display); letter-spacing: -.02em; margin: 0 0 var(--sp-2); }
+  .intro p { margin: 0 0 var(--sp-2); max-width: 70ch; color: var(--au-muted); font-size: 15px; }
+  .toc { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-6); padding: 0; list-style: none; }
+  .toc a { display: inline-block; padding: 4px 10px; border: 1px solid var(--au-line-strong); border-radius: 999px; font-size: var(--fs-caption); color: var(--au-text); text-decoration: none; }
+  @media (hover: hover) { .toc a:hover { background: var(--au-hover); } }
+  .group-title { font: 600 20px/1.3 var(--font-display); margin: var(--sp-8) 0 var(--sp-3); padding-top: var(--sp-4); border-top: 1px solid var(--au-line); }
+  .scenario { margin-bottom: var(--sp-8); }
+  .scenario h3 { font: 600 17px/1.3 var(--font-display); margin: 0 0 4px; }
+  .scenario .what { margin: 0 0 var(--sp-3); color: var(--au-muted); font-size: var(--fs-body); max-width: 80ch; }
+  .scenario .open { font-size: var(--fs-caption); color: var(--au-blue); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--sp-5); align-items: flex-start; }
+  .board { display: grid; gap: var(--sp-2); }
+  .board .tag { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--au-muted); }
+  .canvas { padding: var(--sp-5); border-radius: 14px; background: var(--au-desk); color: var(--au-text); }
+  .canvas .popover { margin: 0; }
+  .canvas .menubar { width: 422px; margin-bottom: 10px; }
+  body.only-light .theme-dark-board, body.only-dark .theme-light-board { display: none; }
+</style>
+</head>
+<body>
+  <div class="review-bar" role="region" aria-label="Review controls (not part of the app)">
+    <span class="review-tag">Review</span>
+    <span class="illustrative">All values are illustrative sample data</span>
+    <span class="seg" role="group" aria-label="Show appearances">
+      <button type="button" data-show="both" aria-pressed="true">Light + dark</button>
+      <button type="button" data-show="light" aria-pressed="false">Light only</button>
+      <button type="button" data-show="dark" aria-pressed="false">Dark only</button>
+    </span>
+    <a href="index.html" style="color:var(--au-blue)">All targets</a>
+  </div>
+
+  <div class="wrap">
+    <header class="intro">
+      <h1>State gallery</h1>
+      <p>Static previews of every review scenario, drawn from the same components and fixtures as the interactive popover. Each board shows the full overview as it looks when the popover opens with cached values. The live popover caps its height and scrolls the provider list; these boards show everything. Boards are not interactive — use “Open interactive” to try a scenario. For every provider’s detail view, see <a href="provider-details.html" style="color:var(--au-blue)">Provider detail views</a>.</p>
+      <ul class="toc" id="toc"></ul>
+    </header>
+    <div id="overviews"></div>
+    <h2 class="group-title" id="details">Detail views</h2>
+    <div id="detail-boards"></div>
+  </div>
+
+  <script src="app/icons.js"></script>
+  <script src="app/fixtures.js"></script>
+  <script src="app/components.js"></script>
+  <script>
+  (function () {
+    const F = AIU_FIXTURES;
+    const esc = AIU.esc;
+    const board = (theme, inner, tag) => `<div class="board theme-${theme}-board"><span class="tag">${tag || (theme === 'light' ? 'Light' : 'Dark')}</span><div class="canvas theme-${theme}" inert>${inner}</div></div>`;
+
+    document.getElementById('toc').innerHTML = F.scenarios.map((s) => `<li><a href="#s-${s.id}">${esc(s.label)}</a></li>`).join('') + '<li><a href="#details">Detail views</a></li>';
+
+    document.getElementById('overviews').innerHTML = F.scenarios.map((s) => {
+      const snap = F.getSnapshot(s.id);
+      const st = AIU.overallStatus(snap);
+      const inner = (t) => `${AIU.menubar(st.menu, true)}${AIU.staticPopover(snap, 'overview')}`;
+      return `<section class="scenario" id="s-${s.id}" aria-labelledby="h-${s.id}">
+        <h3 id="h-${s.id}">${esc(s.label)}</h3>
+        <p class="what">${esc(s.summary)} <a class="open" href="popover.html?scenario=${s.id}">Open interactive →</a></p>
+        <div class="pair">${board('light', inner('light'))}${board('dark', inner('dark'))}</div>
+      </section>`;
+    }).join('');
+
+    const details = [
+      { sc: 'stale-quota', view: 'provider', p: 'grok', title: 'Grok Build — quota stale, usage current', note: 'Quota value is dimmed and hatched with its measurement time; usage stays current.' },
+      { sc: 'stale-quota', view: 'provider', p: 'claude', title: 'Claude Code — daily stats cache stopped updating', note: 'Today’s totals come from recent sessions; missing days are drawn as “No data”, not zero. Quota is not available.' },
+      { sc: 'limit-reached', view: 'provider', p: 'codex', title: 'Codex — weekly limit reached, 5-hour window still open', note: 'Both windows are evaluated. The weekly window is used up and flagged in amber with a gauge symbol, while the 5-hour window shows 41% remaining. Monitoring stays healthy.' },
+      { sc: 'partial', view: 'monitor', title: 'Monitoring — partial failure', note: 'Service, schedule, collection result, and each provider source are reported separately, with an action for the failure.' },
+      { sc: 'stopped', view: 'monitor', title: 'Monitoring — collector stopped', note: 'Start is the primary action. Collect now still runs a one-time check without starting the service.' },
+      { sc: 'auth-required', view: 'provider', p: 'grok', title: 'Grok Build — sign-in required', note: 'Service trouble in red with a lock symbol; usage from local sessions is still current.' },
+      { sc: 'weekly-stale', view: 'provider', p: 'codex', title: 'Codex — 5-hour current, weekly reading stale', note: 'Each window carries its own freshness. The weekly cell and row are dimmed with their own reading time and reason; the 5-hour window stays current.' },
+      { sc: 'five-stale-weekly-limit', view: 'provider', p: 'codex', title: 'Codex — weekly limit reached (current), 5-hour stale', note: 'The weekly limit warning stays visible because that window is current. The stale 5-hour reading is marked separately.' },
+      { sc: 'healthy', view: 'provider', p: 'gemini', title: 'Gemini CLI — not set up', note: 'Explains the opt-in and what would be collected, without implying zero usage.' },
+      { sc: 'healthy', view: 'settings', title: 'Settings', note: 'Collector settings and this app’s login preference are labelled separately.' }
+    ];
+    document.getElementById('detail-boards').innerHTML = details.map((d, i) => {
+      const snap = F.getSnapshot(d.sc);
+      const inner = AIU.staticPopover(snap, d.view, d.p);
+      const q = `popover.html?scenario=${d.sc}&view=${d.view === 'provider' ? d.p : d.view}`;
+      return `<section class="scenario" aria-labelledby="d-${i}"><h3 id="d-${i}">${esc(d.title)}</h3><p class="what">${esc(d.note)} <a class="open" href="${q}">Open interactive →</a></p><div class="pair">${board('light', inner)}${board('dark', inner)}</div></section>`;
+    }).join('');
+
+    document.querySelectorAll('[data-show]').forEach((b) => b.addEventListener('click', () => {
+      document.body.classList.remove('only-light', 'only-dark');
+      if (b.dataset.show !== 'both') document.body.classList.add(`only-${b.dataset.show}`);
+      document.querySelectorAll('[data-show]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+  })();
+  </script>
+</body>
+</html>

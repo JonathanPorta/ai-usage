@@ -1,0 +1,30 @@
+# blessed/release/v1 — ai-usage's producer release declaration
+# (releases.pipeline@1 and releases.candidate@1 pilots, opted in 2026-10-10).
+# Describes the release PIPELINE, not product truth.
+#
+# Candidate-only and NOT published: this repository is public, so even a
+# prerelease would be public. `make publish` refuses until the owner approves
+# publication and a production manifest key exists (docs/CI-AND-RELEASE.md).
+# The app is ad-hoc signed; Developer ID signing and notarization wait on an
+# upstream Apple finalizer.
+
+schema: blessed/release/v1
+
+project: ai-usage
+component: menu-bar-app
+versioning: semver
+
+distribution: candidate-only
+
+candidate:
+  store: github-release
+  trigger: release-branch
+  manifest_schema: blessed/release-candidate/v1
+  public_notes: release-notes-public.md
+  signing:
+    manifest: required
+    artifacts: optional
+    profile: ed25519-detached-v1
+    key_id: ai-usage-release-2026-10
+
+surfaces: []
