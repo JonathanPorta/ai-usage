@@ -35,6 +35,7 @@ assert SPEC and SPEC.loader
 SERVICE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = SERVICE
 SPEC.loader.exec_module(SERVICE)
+CLAUDE = importlib.import_module("ai_usage_plugins.claude")
 
 
 _GUARD_DIR: Optional[tempfile.TemporaryDirectory] = None
@@ -197,6 +198,15 @@ class IsolatedHome:
                 f"{error_details}"
             )
         return result
+
+    def newer_collector(self) -> Path:
+        """A copy of the collector with different bytes, with its plugin package beside it."""
+        directory = self.root / "newer-collector"
+        shutil.copytree(SCRIPT.parent / "ai_usage_plugins", directory / "ai_usage_plugins",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        variant = directory / "ai_usage_service.py"
+        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        return variant
 
     def rows(self) -> list[dict[str, str]]:
         if not self.csv.is_file():
@@ -2604,8 +2614,7 @@ sys.exit(code)
         # Stopped with `stop`: not loaded, disabled. The next install's bootstrap fails.
         launcher = self.stateful_launchctl(loaded=False, running=False, disabled=True, fail=("bootstrap",))
         environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
-        variant = self.case.root / "ai_usage_service_variant.py"
-        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        variant = self.case.newer_collector()
         result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
                                 env=environment, capture_output=True, text=True, timeout=60, check=False)
         self.assertNotEqual(result.returncode, 0, "the install must fail when bootstrap fails")
@@ -2629,8 +2638,7 @@ sys.exit(code)
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["fail"] = ["bootstrap", "disable"]
         state_path.write_text(json.dumps(state), encoding="utf-8")
-        variant = self.case.root / "ai_usage_service_variant.py"
-        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        variant = self.case.newer_collector()
         result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
                                 env=environment, capture_output=True, text=True, timeout=60, check=False)
         self.assertNotEqual(result.returncode, 0)
@@ -2644,8 +2652,7 @@ sys.exit(code)
         self.case.run("install", "--config", str(config), "--no-start")
         launcher = self.stateful_launchctl(loaded=True, running=True, disabled=False, fail=("kickstart",))
         environment = dict(self.case.environment(), **{SERVICE.LAUNCHCTL_OVERRIDE_ENV: str(launcher)})
-        variant = self.case.root / "ai_usage_service_variant.py"
-        variant.write_bytes(SCRIPT.read_bytes() + b"\n# newer collector\n")
+        variant = self.case.newer_collector()
         # kickstart fails for the new install; the prior service is brought back with bootstrap.
         state_path = self.case.root / "launchd-state.json"
         result = subprocess.run([sys.executable, str(variant), "install", "--config", str(config)],
@@ -2841,7 +2848,7 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
 
     def collect(self, executable: Optional[Path], **settings: Any) -> list[dict[str, Any]]:
         config = {"usage_cache_file": str(self.cache), "usage_cache_max_age_seconds": 900, **settings}
-        return SERVICE.collect_claude_subscription_usage("2026-10-17T09:00:00Z", config, executable)
+        return CLAUDE.collect_claude_subscription_usage("2026-10-17T09:00:00Z", config, executable)
 
     def runs(self) -> list[dict[str, Any]]:
         if not self.calls.exists():
@@ -2868,7 +2875,7 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
         runs = self.runs()
         self.assertEqual(len(runs), 1)
         run = runs[0]
-        self.assertEqual(tuple(run["argv"]), SERVICE.CLAUDE_USAGE_ARGUMENTS)
+        self.assertEqual(tuple(run["argv"]), CLAUDE.CLAUDE_USAGE_ARGUMENTS)
         for flag in ("--safe-mode", "--restricted", "--strict-mcp-config", "--no-session-persistence"):
             self.assertIn(flag, run["argv"])
         self.assertEqual(run["argv"][run["argv"].index("--tools") + 1], "")
@@ -2878,7 +2885,7 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
         self.assertEqual(run["cwd_entries"], [], "runs in an empty working directory")
         self.assertFalse(Path(run["cwd"]).exists(), "the working directory is removed afterwards")
         self.assertFalse(run["stdin_tty"])
-        for key, value in SERVICE.CLAUDE_USAGE_ENVIRONMENT.items():
+        for key, value in CLAUDE.CLAUDE_USAGE_ENVIRONMENT.items():
             self.assertEqual(run["env"].get(key), value)
         self.assertFalse([k for k in run["env"] if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))])
         self.assertEqual({(r["source"], r["status"]) for r in rows}, {("claude-usage-command", "ok")})

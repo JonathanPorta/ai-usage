@@ -36,6 +36,50 @@ import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional, Union
 import uuid
 
+# The provider plugins are installed beside this file (~/.ai-usage/ai_usage_plugins,
+# or the app bundle's collector/). Find them there even under `python -I`, and never
+# leave an unowned __pycache__ next to the installed collector.
+sys.dont_write_bytecode = True
+_COLLECTOR_DIR = os.path.dirname(os.path.realpath(__file__))
+if _COLLECTOR_DIR not in sys.path:
+    sys.path.insert(0, _COLLECTOR_DIR)
+
+import ai_usage_plugins  # noqa: E402
+from ai_usage_plugins.base import CollectContext, ProviderPlugin  # noqa: E402
+from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fixtures use them)
+    COMMON_EXECUTABLE_DIRS,
+    atomic_write_bytes,
+    availability_row,
+    decode_jsonl_partial,
+    discovery_path,
+    encode_jsonl_partial,
+    exclusive_file_lock,
+    expand_path,
+    find_executable,
+    find_file_by_inode,
+    fsync_directory,
+    is_executable_file,
+    iso_utc,
+    metric_row,
+    next_json_message,
+    parse_iso_timestamp,
+    pids_in_process_group,
+    read_json_lines_at,
+    read_new_json_lines,
+    record_timestamp,
+    response_error,
+    rotation_loss_row,
+    scalar_leaves,
+    signal_pids,
+    snake_case,
+    stable_scope,
+    start_json_line_reader,
+    state_value_changed,
+    terminate_provider_process,
+    timestamp_to_iso,
+    utc_now,
+)
+
 
 VERSION = "2.2.0"
 PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
@@ -84,21 +128,12 @@ CSV_FIELDS = [
     "message",
 ]
 
-COMMON_EXECUTABLE_DIRS = [
-    "~/.local/bin",
-    "~/.claude/local",
-    "~/.grok/bin",
-    "~/.npm-global/bin",
-    "~/.bun/bin",
-    "~/.volta/bin",
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-]
 
+# The bundled providers, in collection order (ai_usage_plugins.BUNDLED). A provider
+# whose module fails to load is left out here and reported per provider.
+PLUGINS: dict[str, ProviderPlugin]
+PLUGIN_LOAD_ERRORS: dict[str, str]
+PLUGINS, PLUGIN_LOAD_ERRORS = ai_usage_plugins.load_plugins()
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "format_version": 1,
@@ -112,97 +147,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cache_dir": "~/.ai-usage/cache",
     },
     "providers": {
-        "codex": {
-            "enabled": True,
-            "executable": None,
-            "executable_names": ["codex"],
-            "timeout_seconds": 30,
-            "monthly_subscription_usd": None,
-        },
-        "claude": {
-            "enabled": True,
-            "executable": None,
-            "executable_names": ["claude"],
-            "stats_file": "~/.claude/stats-cache.json",
-            "projects_dir": "~/.claude/projects",
-            "stale_after_seconds": 172800,
-            "max_session_bytes_per_poll": 26214400,
-            # Subscription limits (/usage), read from Claude Code's own cache in
-            # ~/.claude.json and refreshed by one locked-down headless `/usage`
-            # run only when that cache is older than the max age.
-            "subscription_usage": True,
-            "usage_cache_file": "~/.claude.json",
-            "usage_cache_max_age_seconds": 900,
-            "timeout_seconds": 30,
-            "monthly_subscription_usd": None,
-        },
-        "antigravity": {
-            "enabled": True,
-            "executable": None,
-            "executable_names": ["agy"],
-            "cache_file": "~/.ai-usage/cache/antigravity.json",
-            "events_file": "~/.ai-usage/cache/antigravity-events.jsonl",
-            "settings_file": "~/.gemini/antigravity-cli/settings.json",
-            "configure_status_line": True,
-            "stale_after_seconds": 7200,
-            "monthly_subscription_usd": None,
-        },
-        "gemini_cli": {
-            "enabled": True,
-            "executable": None,
-            "executable_names": ["gemini"],
-            "telemetry_file": "~/.ai-usage/cache/gemini-telemetry.log",
-            "settings_file": "~/.gemini/settings.json",
-            "configure_telemetry": False,
-            "monthly_subscription_usd": None,
-        },
-        "grok": {
-            "enabled": True,
-            "executable": None,
-            "executable_names": ["grok"],
-            "grok_home": "~/.grok",
-            "auth_file": "~/.grok/auth.json",
-            "billing_cache_file": "~/.grok/logs/unified.jsonl",
-            "billing_cache_max_age_seconds": 7200,
-            "billing_cache_tail_bytes": 2097152,
-            "max_session_bytes_per_poll": 26214400,
-            "collect_billing_via_acp": True,
-            "timeout_seconds": 30,
-            "monthly_subscription_usd": None,
-        },
+        name: copy.deepcopy(dict(plugin.default_settings)) for name, plugin in PLUGINS.items()
     },
 }
 
 
 LOGGER = logging.getLogger("ai_usage")
-
-
-def utc_now() -> datetime_module.datetime:
-    return datetime_module.datetime.now(datetime_module.timezone.utc)
-
-
-def iso_utc(value: datetime_module.datetime) -> str:
-    return value.astimezone(datetime_module.timezone.utc).isoformat().replace(
-        "+00:00", "Z"
-    )
-
-
-def timestamp_to_iso(value: Any) -> str:
-    try:
-        timestamp = float(value)
-    except (TypeError, ValueError):
-        return ""
-    try:
-        converted = datetime_module.datetime.fromtimestamp(
-            timestamp, tz=datetime_module.timezone.utc
-        )
-    except (OverflowError, OSError, ValueError):
-        return ""
-    return iso_utc(converted)
-
-
-def expand_path(value: Union[str, Path]) -> Path:
-    return Path(os.path.expandvars(os.path.expanduser(str(value)))).resolve()
 
 
 def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
@@ -285,46 +235,18 @@ def configured_path_roles(
         ),
         ("pending state journal", pending_state_path(state_path), "file"),
     ]
-    provider_paths = (
-        ("providers.claude.stats_file", "claude", "stats_file", "file"),
-        ("providers.claude.projects_dir", "claude", "projects_dir", "directory"),
-        ("providers.antigravity.cache_file", "antigravity", "cache_file", "file"),
-        ("providers.antigravity.events_file", "antigravity", "events_file", "file"),
-        (
-            "providers.antigravity.settings_file",
-            "antigravity",
-            "settings_file",
-            "file",
-        ),
-        (
-            "providers.gemini_cli.telemetry_file",
-            "gemini_cli",
-            "telemetry_file",
-            "file",
-        ),
-        (
-            "providers.gemini_cli.settings_file",
-            "gemini_cli",
-            "settings_file",
-            "file",
-        ),
-        ("providers.grok.grok_home", "grok", "grok_home", "directory"),
-        ("providers.grok.auth_file", "grok", "auth_file", "file"),
-        (
-            "providers.grok.billing_cache_file",
-            "grok",
-            "billing_cache_file",
-            "file",
-        ),
-    )
-    for role, provider_name, setting_name, expected_type in provider_paths:
+    for provider_name, plugin in PLUGINS.items():
+        if not plugin.path_roles:
+            continue
         provider = providers.get(provider_name)
         if not isinstance(provider, Mapping):
             raise ValueError(f"providers.{provider_name} must be an object")
-        value = provider.get(setting_name)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{role} must be a non-empty string")
-        roles.append((role, expand_path(value), expected_type))
+        for setting_name, expected_type in plugin.path_roles:
+            role = f"providers.{provider_name}.{setting_name}"
+            value = provider.get(setting_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{role} must be a non-empty string")
+            roles.append((role, expand_path(value), expected_type))
     return roles
 
 
@@ -350,34 +272,6 @@ def validate_configured_paths(config: Mapping[str, Any]) -> None:
                 raise ValueError(f"{role} must be a directory when it exists: {path}")
         if path.parent.exists() and not path.parent.is_dir():
             raise ValueError(f"parent of {role} must be a directory: {path.parent}")
-
-
-def atomic_write_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=str(path.parent)
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary_path, mode)
-        os.replace(temporary_path, path)
-        fsync_directory(path.parent)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
-
-
-def fsync_directory(path: Path) -> None:
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def write_default_config(path: Path) -> None:
@@ -418,18 +312,6 @@ def save_state(path: Path, state: Mapping[str, Any]) -> None:
     atomic_write_bytes(path, content.encode("utf-8"), mode=0o600)
 
 
-@contextmanager
-def exclusive_file_lock(lock_path: Path) -> Iterator[None]:
-    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with lock_path.open("a", encoding="utf-8") as handle:
-        os.chmod(lock_path, 0o600)
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
 def state_transaction_lock(state_path: Path) -> Any:
     return exclusive_file_lock(state_path.with_name(f"{state_path.name}.lock"))
 
@@ -455,114 +337,6 @@ def configure_logging(log_path: Path) -> None:
     LOGGER.addHandler(handler)
     LOGGER.setLevel(logging.INFO)
     LOGGER.propagate = False
-
-
-def discovery_path() -> str:
-    candidates = list(filter(None, os.environ.get("PATH", "").split(os.pathsep)))
-    for raw_path in COMMON_EXECUTABLE_DIRS:
-        candidates.append(str(expand_path(raw_path)))
-    for pattern in (
-        "~/.nvm/versions/node/*/bin",
-        "~/Library/pnpm",
-    ):
-        candidates.extend(glob.glob(os.path.expanduser(pattern)))
-
-    unique: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        if candidate and candidate not in seen:
-            seen.add(candidate)
-            unique.append(candidate)
-    return os.pathsep.join(unique)
-
-
-def is_executable_file(path: Path) -> bool:
-    return path.is_file() and os.access(path, os.X_OK)
-
-
-def find_executable(
-    provider_config: Mapping[str, Any], default_names: Iterable[str]
-) -> Optional[Path]:
-    override = provider_config.get("executable")
-    if isinstance(override, str) and override.strip():
-        candidate = expand_path(override)
-        return candidate if is_executable_file(candidate) else None
-
-    configured_names = provider_config.get("executable_names", list(default_names))
-    if not isinstance(configured_names, list):
-        configured_names = list(default_names)
-
-    search_path = discovery_path()
-    for name in configured_names:
-        if not isinstance(name, str) or not name:
-            continue
-        discovered = shutil.which(name, path=search_path)
-        if discovered:
-            candidate = Path(discovered).resolve()
-            if is_executable_file(candidate):
-                return candidate
-    return None
-
-
-def metric_row(
-    collected_at: str,
-    provider: str,
-    category: str,
-    metric: str,
-    *,
-    record_kind: str = "snapshot",
-    scope: str = "",
-    period_start: str = "",
-    period_end: str = "",
-    value: Any = "",
-    unit: str = "",
-    window_seconds: Any = "",
-    resets_at: str = "",
-    source: str = "",
-    status: str = "ok",
-    message: str = "",
-) -> dict[str, Any]:
-    if isinstance(value, bool):
-        value = 1 if value else 0
-    elif isinstance(value, (dict, list)):
-        value = json.dumps(value, separators=(",", ":"), sort_keys=True)
-    return {
-        "collected_at": collected_at,
-        "provider": provider,
-        "category": category,
-        "metric": metric,
-        "record_kind": record_kind,
-        "scope": scope,
-        "period_start": period_start,
-        "period_end": period_end,
-        "value": value,
-        "unit": unit,
-        "window_seconds": window_seconds,
-        "resets_at": resets_at,
-        "source": source,
-        "status": status,
-        "message": message,
-    }
-
-
-def availability_row(
-    collected_at: str,
-    provider: str,
-    detected: bool,
-    source: str,
-    message: str,
-) -> dict[str, Any]:
-    return metric_row(
-        collected_at,
-        provider,
-        "availability",
-        "detected",
-        value=detected,
-        unit="boolean",
-        source=source,
-        status="ok" if detected else "missing",
-        message=message,
-    )
 
 
 def add_subscription_cost(
@@ -865,2029 +639,7 @@ def commit_collection_transaction(
     remove_pending_transaction(state_path)
 
 
-def snake_case(value: str) -> str:
-    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
-    value = re.sub(r"[^A-Za-z0-9]+", "_", value)
-    return value.strip("_").lower()
-
-
-def stable_scope(value: Any) -> str:
-    encoded = str(value).encode("utf-8", errors="replace")
-    return hashlib.sha256(encoded).hexdigest()[:16]
-
-
-def scalar_leaves(value: Any, prefix: str = "") -> Iterable[tuple[str, Any]]:
-    if isinstance(value, Mapping):
-        for key, child in value.items():
-            child_prefix = f"{prefix}.{key}" if prefix else str(key)
-            yield from scalar_leaves(child, child_prefix)
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            child_prefix = f"{prefix}.{index}" if prefix else str(index)
-            yield from scalar_leaves(child, child_prefix)
-    elif isinstance(value, (str, int, float, bool)) or value is None:
-        yield prefix, value
-
-
-def read_new_json_lines(
-    path: Path,
-    offset_state: MutableMapping[str, Any],
-    *,
-    max_bytes: int = 50 * 1024 * 1024,
-) -> tuple[list[dict[str, Any]], int, int, list[str]]:
-    """Read JSONL increments while draining renamed inodes before replacements."""
-
-    key = str(path)
-    try:
-        file_stat = path.stat()
-    except OSError:
-        return [], 0, 0, []
-    raw_state = offset_state.get(key, 0)
-    pending_inodes: list[dict[str, Any]] = []
-    current_partial = b""
-    if isinstance(raw_state, Mapping):
-        raw_offset = raw_state.get("offset", 0)
-        previous_inode = raw_state.get("inode")
-        current_partial = decode_jsonl_partial(raw_state.get("partial_line"))
-        raw_pending = raw_state.get("pending_inodes", [])
-        if isinstance(raw_pending, list):
-            for item in raw_pending:
-                if not isinstance(item, Mapping):
-                    continue
-                try:
-                    pending_inode = int(item.get("inode"))
-                    pending_offset = max(0, int(item.get("offset", 0)))
-                except (TypeError, ValueError):
-                    continue
-                pending_entry: dict[str, Any] = {
-                    "inode": pending_inode,
-                    "offset": pending_offset,
-                }
-                pending_partial = decode_jsonl_partial(item.get("partial_line"))
-                if pending_partial:
-                    pending_entry["partial_line"] = encode_jsonl_partial(pending_partial)
-                pending_inodes.append(pending_entry)
-        if previous_inode is not None and previous_inode != file_stat.st_ino:
-            try:
-                previous_inode_value = int(previous_inode)
-                previous_offset_value = max(0, int(raw_offset))
-            except (TypeError, ValueError):
-                previous_inode_value = 0
-                previous_offset_value = 0
-            if previous_inode_value and not any(
-                item["inode"] == previous_inode_value for item in pending_inodes
-            ):
-                rotated: dict[str, Any] = {
-                    "inode": previous_inode_value,
-                    "offset": previous_offset_value,
-                }
-                if current_partial:
-                    rotated["partial_line"] = encode_jsonl_partial(current_partial)
-                pending_inodes.append(rotated)
-            raw_offset = 0
-            current_partial = b""
-    else:
-        raw_offset = raw_state
-    try:
-        offset = int(raw_offset)
-    except (TypeError, ValueError):
-        offset = 0
-    losses: list[str] = []
-    if offset < 0 or offset > file_stat.st_size:
-        if offset > file_stat.st_size:
-            losses.append(
-                f"inode {file_stat.st_ino} was truncated before offset {offset} could be read"
-            )
-        offset = 0
-        current_partial = b""
-
-    records: list[dict[str, Any]] = []
-    parse_errors = 0
-    bytes_read = 0
-    remaining = max(0, max_bytes)
-    still_pending: list[dict[str, Any]] = []
-    for pending_index, pending in enumerate(pending_inodes):
-        old_path = find_file_by_inode(path.parent, pending["inode"])
-        if old_path is None:
-            losses.append(
-                f"rotated inode {pending['inode']} disappeared before unread offset "
-                f"{pending['offset']} was drained"
-            )
-            continue
-        budget_before = remaining
-        (
-            old_records,
-            old_errors,
-            new_old_offset,
-            consumed,
-            old_size,
-            old_leftover,
-        ) = read_json_lines_at(
-            old_path,
-            pending["offset"],
-            remaining,
-            partial=decode_jsonl_partial(pending.get("partial_line")),
-        )
-        records.extend(old_records)
-        parse_errors += old_errors
-        bytes_read += consumed
-        remaining = max(0, remaining - consumed)
-        if old_leftover and new_old_offset >= old_size:
-            losses.append(
-                f"rotated inode {pending['inode']} ended with an incomplete JSONL record"
-            )
-            continue
-        if new_old_offset < old_size:
-            if consumed < budget_before and not old_leftover:
-                losses.append(
-                    f"rotated inode {pending['inode']} ended with an incomplete JSONL record"
-                )
-                continue
-            pending_entry: dict[str, Any] = {
-                "inode": pending["inode"],
-                "offset": new_old_offset,
-            }
-            if old_leftover:
-                pending_entry["partial_line"] = encode_jsonl_partial(old_leftover)
-            still_pending.append(pending_entry)
-            still_pending.extend(pending_inodes[pending_index + 1 :])
-            break
-        if remaining <= 0:
-            still_pending.extend(pending_inodes[pending_index + 1 :])
-            break
-
-    new_offset = offset
-    leftover = b""
-    if not still_pending and remaining > 0:
-        (
-            current_records,
-            current_errors,
-            new_offset,
-            consumed,
-            _current_size,
-            leftover,
-        ) = read_json_lines_at(
-            path,
-            offset,
-            remaining,
-            partial=current_partial,
-        )
-        records.extend(current_records)
-        parse_errors += current_errors
-        bytes_read += consumed
-    elif not still_pending:
-        leftover = current_partial
-    stored_cursor: dict[str, Any] = {
-        "offset": new_offset,
-        "inode": file_stat.st_ino,
-        "pending_inodes": still_pending,
-    }
-    if leftover:
-        stored_cursor["partial_line"] = encode_jsonl_partial(leftover)
-    offset_state[key] = stored_cursor
-    return records, parse_errors, bytes_read, losses
-
-
-def find_file_by_inode(directory: Path, inode: int) -> Optional[Path]:
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return None
-    for entry in entries:
-        try:
-            entry_stat = entry.stat(follow_symlinks=False)
-        except OSError:
-            continue
-        if stat.S_ISREG(entry_stat.st_mode) and entry_stat.st_ino == inode:
-            return Path(entry.path)
-    return None
-
-
-def encode_jsonl_partial(data: bytes) -> str:
-    return data.decode("latin-1")
-
-
-def decode_jsonl_partial(value: Any) -> bytes:
-    if not isinstance(value, str) or not value:
-        return b""
-    return value.encode("latin-1")
-
-
-def read_json_lines_at(
-    path: Path, offset: int, max_bytes: int, partial: bytes = b""
-) -> tuple[list[dict[str, Any]], int, int, int, int, bytes]:
-    records: list[dict[str, Any]] = []
-    parse_errors = 0
-    leftover = partial
-    incoming_partial = bool(partial)
-    with path.open("rb") as handle:
-        file_size = os.fstat(handle.fileno()).st_size
-        safe_offset = offset if 0 <= offset <= file_size else 0
-        handle.seek(safe_offset)
-        consumed = 0
-        while consumed < max_bytes:
-            remaining = max_bytes - consumed
-            line_start = handle.tell()
-            chunk = handle.readline(remaining)
-            if not chunk:
-                break
-            consumed += len(chunk)
-            leftover += chunk
-            if leftover.endswith(b"\n"):
-                try:
-                    decoded = json.loads(leftover.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    parse_errors += 1
-                else:
-                    if isinstance(decoded, dict):
-                        records.append(decoded)
-                leftover = b""
-                continue
-            at_eof = handle.tell() >= file_size
-            if at_eof and not incoming_partial and leftover == chunk:
-                handle.seek(line_start)
-                leftover = b""
-                consumed -= len(chunk)
-            break
-        new_offset = handle.tell()
-    return records, parse_errors, new_offset, consumed, file_size, leftover
-
-
-def rotation_loss_row(
-    collected_at: str, provider: str, source: str, losses: list[str]
-) -> Optional[dict[str, Any]]:
-    if not losses:
-        return None
-    return metric_row(
-        collected_at,
-        provider,
-        "collection",
-        "rotation_data_loss",
-        record_kind="interval_total",
-        value=len(losses),
-        unit="files",
-        source=source,
-        status="error",
-        message="; ".join(losses),
-    )
-
-
-def record_timestamp(record: Mapping[str, Any], fallback: str) -> str:
-    timestamp_names = {
-        "timestamp",
-        "time",
-        "event_time",
-        "created_at",
-        "time_unix_nano",
-        "observed_time_unix_nano",
-        "timestamp_ms",
-        "time_unix_ms",
-    }
-    for path, value in scalar_leaves(record):
-        leaf = snake_case(path.rsplit(".", 1)[-1])
-        if leaf not in timestamp_names:
-            continue
-        if isinstance(value, str) and value:
-            if value.endswith("Z") or "T" in value:
-                return value
-            try:
-                numeric = float(value)
-            except ValueError:
-                continue
-        elif isinstance(value, (int, float)) and not isinstance(value, bool):
-            numeric = float(value)
-        else:
-            continue
-        magnitude = abs(numeric)
-        if magnitude >= 1e17:
-            numeric /= 1e9
-        elif magnitude >= 1e14:
-            numeric /= 1e6
-        elif magnitude >= 1e11:
-            numeric /= 1e3
-        converted = timestamp_to_iso(numeric)
-        if converted:
-            return converted
-    return fallback
-
-
-def state_value_changed(
-    state: MutableMapping[str, Any],
-    state_key: str,
-    scope: str,
-    value: Any,
-    *,
-    max_entries: int = 1000,
-) -> bool:
-    raw_values = state.setdefault(state_key, {})
-    if not isinstance(raw_values, MutableMapping):
-        raw_values = {}
-        state[state_key] = raw_values
-    changed = raw_values.get(scope) != value
-    raw_values[scope] = value
-    while len(raw_values) > max_entries:
-        first_key = next(iter(raw_values))
-        del raw_values[first_key]
-    return changed
-
-
-def response_error(envelope: Any, fallback: str) -> str:
-    if isinstance(envelope, Mapping):
-        error = envelope.get("error")
-        if isinstance(error, Mapping):
-            code = error.get("code")
-            message = error.get("message")
-            if message:
-                return f"{code}: {message}" if code is not None else str(message)
-    return fallback
-
-
-def start_json_line_reader(
-    stream: Any,
-) -> "queue.Queue[tuple[bool, Optional[dict[str, Any]]]]":
-    messages: "queue.Queue[tuple[bool, Optional[dict[str, Any]]]]" = queue.Queue()
-
-    def read_lines() -> None:
-        try:
-            for line in stream:
-                try:
-                    message = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(message, dict):
-                    messages.put((True, message))
-        finally:
-            messages.put((False, None))
-
-    threading.Thread(target=read_lines, daemon=True).start()
-    return messages
-
-
-def next_json_message(
-    messages: "queue.Queue[tuple[bool, Optional[dict[str, Any]]]]",
-    deadline: float,
-) -> Optional[dict[str, Any]]:
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        return None
-    try:
-        has_message, message = messages.get(timeout=min(0.5, remaining))
-    except queue.Empty:
-        return {}
-    return message if has_message else None
-
-
-def pids_in_process_group(process_group: int) -> list[int]:
-    """Best-effort PIDs currently in a process group (macOS + Linux)."""
-
-    try:
-        completed = subprocess.run(
-            ["ps", "-axo", "pid=,pgid="],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-
-    pids: list[int] = []
-    for line in completed.stdout.splitlines():
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        try:
-            pid = int(parts[0])
-            pgid = int(parts[1])
-        except ValueError:
-            continue
-        if pgid == process_group:
-            pids.append(pid)
-    return pids
-
-
-def signal_pids(pids: Iterable[int], provider_signal: int) -> None:
-    """Signal each PID independently, ignoring processes that already exited."""
-
-    for pid in pids:
-        try:
-            os.kill(pid, provider_signal)
-        except (ProcessLookupError, PermissionError):
-            continue
-
-
-def terminate_provider_process(
-    process: "subprocess.Popen[str]", process_group: Optional[int]
-) -> None:
-    """Bound cleanup and terminate descendants that inherited provider pipes.
-
-    Best-effort and never raises. Darwin intermittently returns EPERM from
-    killpg for a live session-leader group (and for an unreaped zombie leader);
-    that must not convert a successful provider response into a collection
-    failure, and descendants that inherited stdio still need to be stopped.
-    """
-
-    if process_group is not None and os.name == "posix":
-        def list_targets() -> list[int]:
-            pids = pids_in_process_group(process_group)
-            if process.poll() is None and process.pid not in pids:
-                pids.append(process.pid)
-            return pids
-
-        def send_signal(provider_signal: int) -> None:
-            try:
-                os.killpg(process_group, provider_signal)
-                return
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                pass
-            # killpg unavailable (empty group) or Darwin EPERM: hit each member.
-            signal_pids(list_targets(), provider_signal)
-
-        def group_still_alive() -> bool:
-            try:
-                os.killpg(process_group, 0)
-                return True
-            except ProcessLookupError:
-                return bool(list_targets())
-            except PermissionError:
-                return bool(list_targets())
-
-        # Snapshot before the first signal so members that later drop out of the
-        # process-group table can still be escalated.
-        known_members = list_targets()
-        send_signal(signal.SIGTERM)
-        # Always target the direct child as well — covers killpg EPERM while the
-        # leader is still alive (a case that previously raised and failed the query).
-        if process.poll() is None:
-            try:
-                os.kill(process.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-
-        try:
-            process.wait(timeout=0.5)
-        except subprocess.TimeoutExpired:
-            pass
-
-        # After the leader is reaped, killpg often starts working again on Darwin.
-        # If not, the per-PID fallback inside send_signal covers remaining members.
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            if not group_still_alive() and process.poll() is not None:
-                break
-            time.sleep(0.02)
-        else:
-            send_signal(signal.SIGKILL)
-            signal_pids(known_members, signal.SIGKILL)
-            if process.poll() is None:
-                try:
-                    process.kill()
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
-
-        if process.poll() is None:
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                send_signal(signal.SIGKILL)
-                try:
-                    process.kill()
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
-                try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    pass
-        return
-
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                pass
-
-
-def query_codex_app_server(
-    executable: Path, timeout_seconds: int
-) -> tuple[Any, Any]:
-    """Fetch Codex usage and rate limits without creating a model turn."""
-
-    if not is_executable_file(executable):
-        raise FileNotFoundError(f"Codex executable is unavailable: {executable}")
-
-    timeout_seconds = max(5, min(int(timeout_seconds), 120))
-    environment = os.environ.copy()
-    environment["PATH"] = discovery_path()
-
-    stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
-    process: Optional[subprocess.Popen[str]] = None
-    process_group: Optional[int] = None
-    try:
-        process = subprocess.Popen(
-            [str(executable), "app-server"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=stderr_file,
-            text=True,
-            bufsize=1,
-            env=environment,
-            start_new_session=os.name == "posix",
-        )
-        if os.name == "posix":
-            # start_new_session makes the child a session leader, so its PID is
-            # also its process-group ID.  macOS rejects getpgid() across that
-            # new session with EPERM even though this is our direct child.
-            process_group = process.pid
-        if process.stdin is None or process.stdout is None:
-            raise RuntimeError("failed to open Codex app-server pipes")
-
-        def send(payload: Mapping[str, Any]) -> None:
-            if process is None or process.stdin is None:
-                raise RuntimeError("Codex app-server stdin is unavailable")
-            process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
-            process.stdin.flush()
-
-        send(
-            {
-                "method": "initialize",
-                "id": 100,
-                "params": {
-                    "clientInfo": {
-                        "name": "ai_usage_collector",
-                        "title": "AI Usage Collector",
-                        "version": VERSION,
-                    }
-                },
-            }
-        )
-
-        responses: dict[int, Any] = {}
-        initialized = False
-        deadline = time.monotonic() + timeout_seconds
-        message_queue = start_json_line_reader(process.stdout)
-
-        while time.monotonic() < deadline:
-            if 101 in responses and 102 in responses:
-                break
-            message = next_json_message(message_queue, deadline)
-            if message == {}:
-                if process.poll() is not None:
-                    break
-                continue
-            if message is None:
-                break
-            response_id = message.get("id")
-            if isinstance(response_id, int):
-                responses[response_id] = message
-
-            if response_id == 100 and not initialized:
-                if message.get("error") is not None:
-                    break
-                send({"method": "initialized", "params": {}})
-                send({"method": "account/usage/read", "id": 101})
-                send({"method": "account/rateLimits/read", "id": 102})
-                initialized = True
-
-        if 100 not in responses:
-            raise RuntimeError("Codex app-server did not initialize before timeout")
-        if responses[100].get("error") is not None:
-            raise RuntimeError(response_error(responses[100], "Codex initialization failed"))
-        return responses.get(101), responses.get(102)
-    finally:
-        if process is not None:
-            terminate_provider_process(process, process_group)
-            if process.stdin is not None:
-                try:
-                    process.stdin.close()
-                except OSError:
-                    pass
-            if process.stdout is not None:
-                process.stdout.close()
-        stderr_file.close()
-
-
-def collect_codex(
-    collected_at: str,
-    provider_config: Mapping[str, Any],
-    include_history: bool,
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    del include_history
-    rows: list[dict[str, Any]] = []
-    executable = find_executable(provider_config, ["codex"])
-    if executable is None:
-        # No binary and no alternate local source — do not emit noise rows.
-        return rows
-
-    rows.append(
-        availability_row(
-            collected_at,
-            "codex",
-            True,
-            "filesystem-discovery",
-            str(executable),
-        )
-    )
-
-    timeout = provider_config.get("timeout_seconds", 30)
-    try:
-        timeout = int(timeout)
-    except (TypeError, ValueError):
-        timeout = 30
-
-    try:
-        usage_envelope, limits_envelope = query_codex_app_server(executable, timeout)
-    except Exception as error:  # Provider failures must not stop other collectors.
-        rows.append(
-            metric_row(
-                collected_at,
-                "codex",
-                "collection",
-                "metadata_query",
-                source="codex-app-server",
-                status="error",
-                message=str(error),
-            )
-        )
-        return rows
-
-    usage_result = (
-        usage_envelope.get("result")
-        if isinstance(usage_envelope, Mapping)
-        else None
-    )
-    if isinstance(usage_result, Mapping):
-        summary = usage_result.get("summary")
-        if isinstance(summary, Mapping):
-            summary_metrics = {
-                "lifetime_tokens": ("lifetimeTokens", "tokens"),
-                "peak_daily_tokens": ("peakDailyTokens", "tokens"),
-                "longest_running_turn_seconds": (
-                    "longestRunningTurnSec",
-                    "seconds",
-                ),
-                "current_streak_days": ("currentStreakDays", "days"),
-                "longest_streak_days": ("longestStreakDays", "days"),
-            }
-            for metric, (source_key, unit) in summary_metrics.items():
-                value = summary.get(source_key)
-                if value is not None:
-                    rows.append(
-                        metric_row(
-                            collected_at,
-                            "codex",
-                            "usage",
-                            metric,
-                            value=value,
-                            unit=unit,
-                            source="codex-account-usage",
-                        )
-                    )
-
-        buckets = usage_result.get("dailyUsageBuckets")
-        if isinstance(buckets, list):
-            for bucket in buckets:
-                if not isinstance(bucket, Mapping):
-                    continue
-                date = bucket.get("startDate")
-                tokens = bucket.get("tokens")
-                if date is None or tokens is None:
-                    continue
-                if not state_value_changed(
-                    state,
-                    "codex_daily_tokens",
-                    str(date),
-                    tokens,
-                    max_entries=800,
-                ):
-                    continue
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "codex",
-                            "usage",
-                            "daily_tokens",
-                            record_kind="period_total",
-                            scope=str(date),
-                            period_start=str(date),
-                        value=tokens,
-                        unit="tokens",
-                        source="codex-account-usage",
-                    )
-                )
-    else:
-        rows.append(
-            metric_row(
-                collected_at,
-                "codex",
-                "collection",
-                "account_usage_query",
-                source="codex-app-server",
-                status="error",
-                message=response_error(
-                    usage_envelope, "account/usage/read returned no result"
-                ),
-            )
-        )
-
-    limits_result = (
-        limits_envelope.get("result")
-        if isinstance(limits_envelope, Mapping)
-        else None
-    )
-    if isinstance(limits_result, Mapping):
-        limits_by_id = limits_result.get("rateLimitsByLimitId")
-        if isinstance(limits_by_id, Mapping) and limits_by_id:
-            rate_limit_groups = list(limits_by_id.items())
-        else:
-            single_group = limits_result.get("rateLimits")
-            limit_id = (
-                single_group.get("limitId", "default")
-                if isinstance(single_group, Mapping)
-                else "default"
-            )
-            rate_limit_groups = [(str(limit_id), single_group)]
-
-        for limit_id, group in rate_limit_groups:
-            if not isinstance(group, Mapping):
-                continue
-            for window_name in ("primary", "secondary"):
-                window = group.get(window_name)
-                if not isinstance(window, Mapping):
-                    continue
-                used_percent = window.get("usedPercent")
-                minutes = window.get("windowDurationMins")
-                window_seconds: Any = ""
-                if isinstance(minutes, (int, float)):
-                    window_seconds = int(minutes * 60)
-                if used_percent is not None:
-                    rows.append(
-                        metric_row(
-                            collected_at,
-                            "codex",
-                            "quota",
-                            "used_percent",
-                            scope=f"{limit_id}:{window_name}",
-                            value=used_percent,
-                            unit="percent",
-                            window_seconds=window_seconds,
-                            resets_at=timestamp_to_iso(window.get("resetsAt")),
-                            source="codex-rate-limits",
-                        )
-                    )
-
-            plan_type = group.get("planType")
-            if plan_type:
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "codex",
-                        "subscription",
-                        "plan_type",
-                        scope=str(limit_id),
-                        value=str(plan_type),
-                        source="codex-rate-limits",
-                    )
-                )
-            reached_type = group.get("rateLimitReachedType")
-            if reached_type:
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "codex",
-                        "quota",
-                        "reached_type",
-                        scope=str(limit_id),
-                        value=str(reached_type),
-                        source="codex-rate-limits",
-                    )
-                )
-
-        reset_credits = limits_result.get("rateLimitResetCredits")
-        if isinstance(reset_credits, Mapping):
-            available_count = reset_credits.get("availableCount")
-            if available_count is not None:
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "codex",
-                        "quota",
-                        "rate_limit_reset_credits",
-                        value=available_count,
-                        unit="credits",
-                        source="codex-rate-limits",
-                    )
-                )
-    else:
-        rows.append(
-            metric_row(
-                collected_at,
-                "codex",
-                "collection",
-                "rate_limits_query",
-                source="codex-app-server",
-                status="error",
-                message=response_error(
-                    limits_envelope, "account/rateLimits/read returned no result"
-                ),
-            )
-        )
-    return rows
-
-
-def claude_session_files(projects_dir: Path) -> list[Path]:
-    if not projects_dir.is_dir():
-        return []
-    files = [
-        path
-        for path in projects_dir.rglob("*.jsonl")
-        if path.is_file() and not path.is_symlink()
-    ]
-    # String paths so `session.jsonl` precedes `session/subagents/...`
-    # (Path part-tuples would put the directory first).
-    return sorted(files, key=lambda path: str(path))
-
-
-CLAUDE_USAGE_METRIC_KEYS = (
-    ("input_tokens", "input_tokens"),
-    ("output_tokens", "output_tokens"),
-    ("cache_read_input_tokens", "cache_read_input_tokens"),
-    ("cache_creation_input_tokens", "cache_creation_input_tokens"),
-)
-CLAUDE_RECENT_MESSAGE_ID_CAP = 20000
-
-
-def claude_message_id(record: Mapping[str, Any]) -> str:
-    message = record.get("message")
-    if isinstance(message, Mapping) and message.get("id"):
-        return str(message["id"])
-    if record.get("uuid"):
-        return str(record["uuid"])
-    return ""
-
-
-def claude_numeric_usage_value(value: Any) -> Optional[Union[int, float]]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        if math.isnan(value) or math.isinf(value):
-            return None
-        return value
-    return None
-
-
-def claude_usage_metrics(record: Mapping[str, Any]) -> dict[str, Union[int, float]]:
-    if record.get("type") != "assistant":
-        return {}
-    message = record.get("message")
-    if not isinstance(message, Mapping):
-        return {}
-    usage = message.get("usage")
-    if not isinstance(usage, Mapping):
-        return {}
-    model = str(message.get("model") or "")
-    if not model or model == "<synthetic>":
-        return {}
-    metrics: dict[str, Union[int, float]] = {}
-    for source_key, metric in CLAUDE_USAGE_METRIC_KEYS:
-        numeric = claude_numeric_usage_value(usage.get(source_key))
-        if numeric is None:
-            continue
-        metrics[metric] = numeric
-    return metrics
-
-
-def merge_claude_metrics(
-    left: Mapping[str, Union[int, float]],
-    right: Mapping[str, Union[int, float]],
-) -> dict[str, Union[int, float]]:
-    merged = dict(left)
-    for key, value in right.items():
-        previous = merged.get(key)
-        if previous is None or value > previous:
-            merged[key] = value
-    return merged
-
-
-def claude_metric_deltas(
-    previous: Mapping[str, Union[int, float]],
-    current: Mapping[str, Union[int, float]],
-) -> dict[str, Union[int, float]]:
-    deltas: dict[str, Union[int, float]] = {}
-    for key, value in current.items():
-        prior = previous.get(key, 0)
-        delta = value - prior
-        if delta > 0:
-            deltas[key] = delta
-    return deltas
-
-
-def claude_accounted_metrics(
-    raw: Mapping[str, Any],
-) -> dict[str, Union[int, float]]:
-    metrics: dict[str, Union[int, float]] = {}
-    for key, value in raw.items():
-        numeric = claude_numeric_usage_value(value)
-        if numeric is None:
-            continue
-        metrics[str(key)] = numeric
-    return metrics
-
-
-def claude_usage_rows_from_metrics(
-    record: Mapping[str, Any],
-    fallback_collected_at: str,
-    metrics: Mapping[str, Union[int, float]],
-) -> list[dict[str, Any]]:
-    message = record.get("message")
-    if not isinstance(message, Mapping):
-        return []
-    model = str(message.get("model") or "")
-    if not model or model == "<synthetic>":
-        return []
-    session_id = record.get("sessionId") or record.get("session_id") or ""
-    event_time = record_timestamp(record, fallback_collected_at)
-    period_start = ""
-    if isinstance(event_time, str) and len(event_time) >= 10 and event_time[4] == "-":
-        period_start = event_time[:10]
-    scope = f"{stable_scope(session_id or claude_message_id(record))}:{model}"
-    rows: list[dict[str, Any]] = []
-    for _source_key, metric in CLAUDE_USAGE_METRIC_KEYS:
-        if metric not in metrics:
-            continue
-        rows.append(
-            metric_row(
-                event_time,
-                "claude",
-                "usage",
-                metric,
-                record_kind="event_total",
-                scope=scope,
-                period_start=period_start,
-                value=metrics[metric],
-                unit="tokens",
-                source="claude-session-log",
-            )
-        )
-    return rows
-
-
-def claude_usage_rows(record: Mapping[str, Any], fallback_collected_at: str) -> list[dict[str, Any]]:
-    metrics = claude_usage_metrics(record)
-    if not metrics:
-        return []
-    return claude_usage_rows_from_metrics(record, fallback_collected_at, metrics)
-
-
-def claude_stored_offset(offsets: Mapping[str, Any], path: Path) -> int:
-    return int(claude_offset_record(offsets, path)["offset"])
-
-
-def claude_offset_record(offsets: Mapping[str, Any], path: Path) -> dict[str, Any]:
-    raw = offsets.get(str(path), 0)
-    offset = 0
-    inode: Optional[int] = None
-    pending: list[dict[str, int]] = []
-    if isinstance(raw, Mapping):
-        try:
-            offset = max(0, int(raw.get("offset", 0)))
-        except (TypeError, ValueError):
-            offset = 0
-        if raw.get("inode") is not None:
-            try:
-                inode = int(raw.get("inode"))
-            except (TypeError, ValueError):
-                inode = None
-        raw_pending = raw.get("pending_inodes", [])
-        if isinstance(raw_pending, list):
-            for item in raw_pending:
-                if isinstance(item, Mapping):
-                    pending.append(dict(item))
-    else:
-        try:
-            offset = max(0, int(raw))
-        except (TypeError, ValueError):
-            offset = 0
-    return {"offset": offset, "inode": inode, "pending_inodes": pending}
-
-
-def claude_prefix_replay_path(
-    session_file: Path, stored: Mapping[str, Any]
-) -> Optional[Path]:
-    stored_inode = stored.get("inode")
-    try:
-        current_inode = session_file.stat().st_ino
-    except OSError:
-        current_inode = None
-    if stored_inode is None:
-        return session_file if session_file.is_file() else None
-    try:
-        stored_inode_value = int(stored_inode)
-    except (TypeError, ValueError):
-        return session_file if session_file.is_file() else None
-    if current_inode == stored_inode_value:
-        return session_file
-    return find_file_by_inode(session_file.parent, stored_inode_value)
-
-
-def fold_claude_usage_snapshot(
-    snapshots: dict[str, dict[str, Any]],
-    order: list[str],
-    record: Mapping[str, Any],
-    metrics: Mapping[str, Union[int, float]],
-    message_id: str,
-) -> None:
-    previous = snapshots.get(message_id)
-    if previous is None:
-        snapshots[message_id] = {
-            "first_record": record,
-            "first_metrics": dict(metrics),
-            "best_record": record,
-            "best_metrics": dict(metrics),
-        }
-        order.append(message_id)
-        return
-    best_metrics = merge_claude_metrics(previous["best_metrics"], metrics)
-    if (metrics.get("output_tokens") or 0) >= (
-        previous["best_metrics"].get("output_tokens") or 0
-    ):
-        best_record = record
-    else:
-        best_record = previous["best_record"]
-    snapshots[message_id] = {
-        "first_record": previous["first_record"],
-        "first_metrics": previous["first_metrics"],
-        "best_record": best_record,
-        "best_metrics": best_metrics,
-    }
-
-
-def claude_snapshots_from_records(
-    records: Iterable[Mapping[str, Any]],
-) -> tuple[
-    dict[str, dict[str, Any]],
-    list[str],
-    list[tuple[Mapping[str, Any], dict[str, Union[int, float]]]],
-]:
-    snapshots: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    anonymous: list[tuple[Mapping[str, Any], dict[str, Union[int, float]]]] = []
-    for record in records:
-        message_id = claude_message_id(record)
-        metrics = claude_usage_metrics(record)
-        if not message_id:
-            if metrics:
-                anonymous.append((record, metrics))
-            continue
-        if not metrics:
-            continue
-        fold_claude_usage_snapshot(snapshots, order, record, metrics, message_id)
-    return snapshots, order, anonymous
-
-
-def merge_claude_snapshots(
-    prefix: Mapping[str, dict[str, Any]],
-    incoming: Mapping[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    merged = {key: dict(value) for key, value in prefix.items()}
-    for message_id, snap in incoming.items():
-        previous = merged.get(message_id)
-        if previous is None:
-            merged[message_id] = dict(snap)
-            continue
-        best_metrics = merge_claude_metrics(
-            previous["best_metrics"], snap["best_metrics"]
-        )
-        if (snap["best_metrics"].get("output_tokens") or 0) >= (
-            previous["best_metrics"].get("output_tokens") or 0
-        ):
-            best_record = snap["best_record"]
-        else:
-            best_record = previous["best_record"]
-        merged[message_id] = {
-            "first_record": previous["first_record"],
-            "first_metrics": previous["first_metrics"],
-            "best_record": best_record,
-            "best_metrics": best_metrics,
-        }
-    return merged
-
-
-def claude_snapshots_in_byte_range(
-    path: Path,
-    start_offset: int,
-    end_offset: int,
-    max_bytes: int,
-    partial: bytes = b"",
-) -> tuple[dict[str, dict[str, Any]], list[str], int, int, int, bytes]:
-    if end_offset <= start_offset or max_bytes <= 0:
-        return {}, [], 0, start_offset, 0, partial
-    try:
-        file_size = path.stat().st_size
-    except OSError:
-        return {}, [], 0, start_offset, 0, b""
-    if start_offset < 0 or start_offset > file_size:
-        return {}, [], 0, start_offset, 0, b""
-    limit = min(max_bytes, end_offset - start_offset, file_size - start_offset)
-    if limit <= 0:
-        return {}, [], 0, start_offset, 0, partial
-    records, errors, new_offset, consumed, _size, leftover = read_json_lines_at(
-        path, start_offset, limit, partial=partial
-    )
-    if new_offset > end_offset and not leftover:
-        new_offset = end_offset
-    snapshots, order, _anonymous = claude_snapshots_from_records(records)
-    return snapshots, order, errors, new_offset, consumed, leftover
-
-
-def collect_claude_session_logs(
-    collected_at: str,
-    projects_dir: Path,
-    provider_config: Mapping[str, Any],
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    session_files = claude_session_files(projects_dir)
-    if not session_files:
-        return []
-    rows: list[dict[str, Any]] = []
-    offsets = state.setdefault("claude_offsets", {})
-    if not isinstance(offsets, MutableMapping):
-        offsets = {}
-        state["claude_offsets"] = offsets
-    recent_ids_raw = state.get("claude_recent_message_ids", [])
-    recent_ids_list = recent_ids_raw if isinstance(recent_ids_raw, list) else []
-    recent_ids = set(recent_ids_list)
-    new_ids: list[str] = []
-    accounted_raw = state.get("claude_accounted_usage")
-    if isinstance(accounted_raw, MutableMapping):
-        accounted = accounted_raw
-    else:
-        accounted = {}
-    state["claude_accounted_usage"] = accounted
-    legacy_ids = {
-        message_id
-        for message_id in recent_ids
-        if not isinstance(accounted.get(message_id), Mapping)
-        or accounted.get(message_id, {}).get("awaiting_baseline")
-    }
-    scan_raw = state.get("claude_legacy_scan")
-    if isinstance(scan_raw, MutableMapping):
-        legacy_scan = scan_raw
-    else:
-        legacy_scan = {}
-    state["claude_legacy_scan"] = legacy_scan
-    parse_errors = 0
-    rotation_losses: list[str] = []
-    raw_session_budget = provider_config.get(
-        "max_session_bytes_per_poll", 25 * 1024 * 1024
-    )
-    try:
-        remaining_session_bytes = max(1024 * 1024, int(raw_session_budget))
-    except (TypeError, ValueError):
-        remaining_session_bytes = 25 * 1024 * 1024
-    deferred_files = 0
-    incomplete_legacy_scans = False
-    for index, session_file in enumerate(session_files):
-        if remaining_session_bytes <= 0:
-            deferred_files = len(session_files) - index
-            incomplete_legacy_scans = True
-            break
-        stored = claude_offset_record(offsets, session_file)
-        stored_offset = int(stored["offset"])
-        stored_inode = stored.get("inode")
-        records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
-            session_file,
-            offsets,
-            max_bytes=remaining_session_bytes,
-        )
-        remaining_session_bytes -= bytes_read
-        parse_errors += errors
-        rotation_losses.extend(file_rotation_losses)
-        file_key = str(session_file)
-        new_snapshots, new_order, anonymous = claude_snapshots_from_records(records)
-        for record, metrics in anonymous:
-            rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
-        prefix_snapshots: dict[str, dict[str, Any]] = {}
-        prefix_order: list[str] = []
-        prefix_source = claude_prefix_replay_path(session_file, stored)
-        target_inode = stored_inode
-        if target_inode is None and prefix_source is not None:
-            try:
-                target_inode = prefix_source.stat().st_ino
-            except OSError:
-                target_inode = None
-        scan_entry = legacy_scan.get(file_key)
-        scan_partial = b""
-        if (
-            isinstance(scan_entry, Mapping)
-            and scan_entry.get("inode") == target_inode
-        ):
-            try:
-                scan_at = max(0, int(scan_entry.get("offset", 0)))
-            except (TypeError, ValueError):
-                scan_at = 0
-            scan_partial = decode_jsonl_partial(scan_entry.get("partial_line"))
-        else:
-            scan_at = 0
-        scan_in_progress = (
-            isinstance(scan_entry, Mapping)
-            and scan_entry.get("inode") == target_inode
-            and (scan_at < stored_offset or bool(scan_partial))
-        )
-        needs_prefix = (
-            prefix_source is not None
-            and stored_offset > 0
-            and (scan_at < stored_offset or bool(scan_partial))
-            and (legacy_ids or scan_in_progress)
-        )
-        if needs_prefix and remaining_session_bytes <= 0:
-            incomplete_legacy_scans = True
-        elif needs_prefix:
-            (
-                prefix_snapshots,
-                prefix_order,
-                prefix_errors,
-                scan_at,
-                prefix_consumed,
-                scan_partial,
-            ) = claude_snapshots_in_byte_range(
-                prefix_source,
-                scan_at,
-                stored_offset,
-                remaining_session_bytes,
-                partial=scan_partial,
-            )
-            parse_errors += prefix_errors
-            remaining_session_bytes -= prefix_consumed
-            if target_inode is not None:
-                scan_record: dict[str, Any] = {
-                    "inode": target_inode,
-                    "offset": scan_at,
-                }
-                if scan_partial:
-                    scan_record["partial_line"] = encode_jsonl_partial(scan_partial)
-                legacy_scan[file_key] = scan_record
-            if scan_at < stored_offset or scan_partial:
-                incomplete_legacy_scans = True
-        combined = merge_claude_snapshots(prefix_snapshots, new_snapshots)
-        visit_order: list[str] = []
-        visited = set()
-        for message_id in new_order + prefix_order:
-            if message_id in visited:
-                continue
-            visit_order.append(message_id)
-            visited.add(message_id)
-        new_id_set = set(new_order)
-        for message_id in visit_order:
-            snap = combined[message_id]
-            record = snap["best_record"]
-            metrics = snap["best_metrics"]
-            prior = accounted.get(message_id)
-            if isinstance(prior, Mapping):
-                if prior.get("unrecoverable"):
-                    continue
-                prior_file = str(prior.get("file") or "")
-                if prior_file and prior_file != file_key:
-                    continue
-                prior_metrics_raw = prior.get("metrics")
-                prior_metrics = (
-                    claude_accounted_metrics(prior_metrics_raw)
-                    if isinstance(prior_metrics_raw, Mapping)
-                    else {}
-                )
-                if prior.get("awaiting_baseline"):
-                    prefix_snap = prefix_snapshots.get(message_id)
-                    if prefix_snap is None:
-                        accounted[message_id] = {
-                            "file": prior_file or file_key,
-                            "inode": prior.get("inode", target_inode),
-                            "metrics": merge_claude_metrics(prior_metrics, metrics),
-                            "awaiting_baseline": True,
-                        }
-                        continue
-                    baseline = prefix_snap["first_metrics"]
-                    best_metrics = merge_claude_metrics(prior_metrics, metrics)
-                    deltas = claude_metric_deltas(baseline, best_metrics)
-                    if deltas:
-                        rows.extend(
-                            claude_usage_rows_from_metrics(
-                                record, collected_at, deltas
-                            )
-                        )
-                    accounted[message_id] = {
-                        "file": prior_file or file_key,
-                        "inode": prior.get("inode", target_inode),
-                        "metrics": best_metrics,
-                    }
-                    legacy_ids.discard(message_id)
-                    continue
-                deltas = claude_metric_deltas(prior_metrics, metrics)
-                if deltas:
-                    rows.extend(
-                        claude_usage_rows_from_metrics(record, collected_at, deltas)
-                    )
-                    accounted[message_id] = {
-                        "file": prior_file or file_key,
-                        "inode": prior.get("inode", target_inode),
-                        "metrics": merge_claude_metrics(prior_metrics, metrics),
-                    }
-                continue
-            if message_id in recent_ids:
-                prefix_snap = prefix_snapshots.get(message_id)
-                if prefix_snap is None:
-                    if message_id in new_id_set:
-                        accounted[message_id] = {
-                            "file": file_key,
-                            "inode": target_inode,
-                            "metrics": dict(metrics),
-                            "awaiting_baseline": True,
-                        }
-                    continue
-                baseline = prefix_snap["first_metrics"]
-                deltas = claude_metric_deltas(baseline, metrics)
-                if deltas:
-                    rows.extend(
-                        claude_usage_rows_from_metrics(record, collected_at, deltas)
-                    )
-                accounted[message_id] = {
-                    "file": file_key,
-                    "inode": target_inode,
-                    "metrics": dict(metrics),
-                }
-                legacy_ids.discard(message_id)
-                continue
-            if message_id not in new_id_set:
-                continue
-            rows.extend(claude_usage_rows_from_metrics(record, collected_at, metrics))
-            accounted[message_id] = {
-                "file": file_key,
-                "inode": target_inode,
-                "metrics": dict(metrics),
-            }
-            recent_ids.add(message_id)
-            new_ids.append(message_id)
-    if not deferred_files and not incomplete_legacy_scans:
-        leftover_legacy = [
-            message_id
-            for message_id in recent_ids_list
-            if message_id in legacy_ids
-            and (
-                not isinstance(accounted.get(message_id), Mapping)
-                or accounted.get(message_id, {}).get("awaiting_baseline")
-            )
-        ]
-        if leftover_legacy:
-            for message_id in leftover_legacy:
-                accounted[message_id] = {
-                    "file": "",
-                    "metrics": {},
-                    "unrecoverable": True,
-                }
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "claude",
-                    "collection",
-                    "legacy_message_baselines_unrecovered",
-                    record_kind="interval_total",
-                    value=len(leftover_legacy),
-                    unit="messages",
-                    source="claude-session-log",
-                    status="partial",
-                    message=(
-                        "Message ids marked seen before usage baselines existed "
-                        "could not be recovered from retained transcripts"
-                    ),
-                )
-            )
-    kept_ids = (recent_ids_list + new_ids)[-CLAUDE_RECENT_MESSAGE_ID_CAP:]
-    state["claude_recent_message_ids"] = kept_ids
-    kept_id_set = set(kept_ids)
-    for message_id in list(accounted.keys()):
-        if message_id not in kept_id_set:
-            accounted.pop(message_id, None)
-    loss_row = rotation_loss_row(
-        collected_at,
-        "claude",
-        "claude-session-log",
-        rotation_losses,
-    )
-    if loss_row is not None:
-        rows.append(loss_row)
-    if parse_errors:
-        rows.append(
-            metric_row(
-                collected_at,
-                "claude",
-                "collection",
-                "session_log_parse_errors",
-                record_kind="interval_total",
-                value=parse_errors,
-                unit="records",
-                source="claude-session-log",
-                status="error",
-                message="Malformed records were skipped",
-            )
-        )
-    if deferred_files:
-        rows.append(
-            metric_row(
-                collected_at,
-                "claude",
-                "collection",
-                "session_files_deferred",
-                record_kind="interval_total",
-                value=deferred_files,
-                unit="files",
-                source="claude-session-log",
-                status="partial",
-                message="Per-poll local scan budget reached; remaining files will be read later",
-            )
-        )
-    return rows
-
-
-def collect_claude(
-    collected_at: str,
-    provider_config: Mapping[str, Any],
-    include_history: bool,
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    del include_history
-    rows: list[dict[str, Any]] = []
-    executable = find_executable(provider_config, ["claude"])
-    stats_setting = provider_config.get("stats_file", "~/.claude/stats-cache.json")
-    stats_path = expand_path(str(stats_setting))
-    stats_available = stats_path.is_file() and os.access(stats_path, os.R_OK)
-    projects_setting = provider_config.get("projects_dir", "~/.claude/projects")
-    projects_dir = expand_path(str(projects_setting))
-    session_files = claude_session_files(projects_dir)
-    detected = executable is not None or stats_available or bool(session_files)
-
-    details = []
-    if executable is not None:
-        details.append(f"binary={executable}")
-    if stats_available:
-        details.append(f"stats={stats_path}")
-    if session_files:
-        details.append(f"session_logs={len(session_files)}")
-    if not detected:
-        # No binary, stats cache, or session transcripts — skip rather than writing missing spam.
-        return rows
-
-    rows.append(
-        availability_row(
-            collected_at,
-            "claude",
-            True,
-            "filesystem-discovery",
-            "; ".join(details),
-        )
-    )
-
-    if not stats_available:
-        rows.append(
-            metric_row(
-                collected_at,
-                "claude",
-                "collection",
-                "stats_cache",
-                source="local-file",
-                status="missing",
-                message=f"stats cache not found: {stats_path}; Claude was not executed",
-            )
-        )
-    else:
-        raw_stale_after = provider_config.get("stale_after_seconds", 172800)
-        try:
-            stale_after = max(60, int(raw_stale_after))
-        except (TypeError, ValueError):
-            stale_after = 172800
-        try:
-            age_seconds = max(0, int(time.time() - stats_path.stat().st_mtime))
-        except OSError:
-            age_seconds = 0
-        rows.append(
-            metric_row(
-                collected_at,
-                "claude",
-                "freshness",
-                "source_age_seconds",
-                value=age_seconds,
-                unit="seconds",
-                source="claude-stats-cache",
-                status="stale" if age_seconds > stale_after else "ok",
-                message=(
-                    "Stats cache has not been rewritten; session transcripts are the live source"
-                    if age_seconds > stale_after
-                    else ""
-                ),
-            )
-        )
-        try:
-            with stats_path.open("r", encoding="utf-8") as handle:
-                stats = json.load(handle)
-        except (OSError, json.JSONDecodeError) as error:
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "claude",
-                    "collection",
-                    "stats_cache",
-                    source="claude-stats-cache",
-                    status="error",
-                    message=str(error),
-                )
-            )
-            stats = None
-        if stats is not None and not isinstance(stats, Mapping):
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "claude",
-                    "collection",
-                    "stats_cache",
-                    source="claude-stats-cache",
-                    status="error",
-                    message="stats cache root is not an object",
-                )
-            )
-            stats = None
-        if isinstance(stats, Mapping):
-            activity_metrics = {
-                "total_sessions": ("totalSessions", "sessions"),
-                "total_messages": ("totalMessages", "messages"),
-            }
-            for metric, (source_key, unit) in activity_metrics.items():
-                value = stats.get(source_key)
-                if value is not None:
-                    rows.append(
-                        metric_row(
-                            collected_at,
-                            "claude",
-                            "activity",
-                            metric,
-                            value=value,
-                            unit=unit,
-                            source="claude-stats-cache",
-                        )
-                    )
-
-            model_usage = stats.get("modelUsage")
-            if isinstance(model_usage, Mapping):
-                model_metric_map = {
-                    "inputTokens": "input_tokens",
-                    "outputTokens": "output_tokens",
-                    "cacheReadInputTokens": "cache_read_input_tokens",
-                    "cacheCreationInputTokens": "cache_creation_input_tokens",
-                }
-                for model, metrics in model_usage.items():
-                    if not isinstance(metrics, Mapping):
-                        continue
-                    for source_key, metric in model_metric_map.items():
-                        value = metrics.get(source_key)
-                        if value is None:
-                            continue
-                        rows.append(
-                            metric_row(
-                                collected_at,
-                                "claude",
-                                "usage",
-                                metric,
-                                scope=str(model),
-                                value=value,
-                                unit="tokens",
-                                source="claude-stats-cache",
-                            )
-                        )
-                    for cost_key in ("costUSD", "costUsd"):
-                        if metrics.get(cost_key) is not None:
-                            rows.append(
-                                metric_row(
-                                    collected_at,
-                                    "claude",
-                                    "cost",
-                                    "estimated_api_cost",
-                                    scope=str(model),
-                                    value=metrics[cost_key],
-                                    unit="USD",
-                                    source="claude-stats-cache",
-                                )
-                            )
-                            break
-
-            daily_model_tokens = stats.get("dailyModelTokens")
-            if isinstance(daily_model_tokens, list):
-                for day in daily_model_tokens:
-                    if not isinstance(day, Mapping):
-                        continue
-                    date = day.get("date")
-                    by_model = day.get("tokensByModel")
-                    if not date or not isinstance(by_model, Mapping):
-                        continue
-                    for model, tokens in by_model.items():
-                        scope = f"{date}:{model}"
-                        if not state_value_changed(
-                            state,
-                            "claude_daily_model_tokens",
-                            scope,
-                            tokens,
-                            max_entries=2500,
-                        ):
-                            continue
-                        rows.append(
-                            metric_row(
-                                collected_at,
-                                "claude",
-                                "usage",
-                                "daily_model_tokens",
-                                record_kind="period_total",
-                                scope=scope,
-                                period_start=str(date),
-                                value=tokens,
-                                unit="tokens",
-                                source="claude-stats-cache",
-                            )
-                        )
-
-    rows.extend(
-        collect_claude_session_logs(
-            collected_at,
-            projects_dir,
-            provider_config,
-            state,
-        )
-    )
-
-    rows.extend(collect_claude_subscription_usage(collected_at, provider_config, executable))
-    return rows
-
-
-# --- Claude subscription usage (/usage) -------------------------------------
-# Claude Code keeps the limits its `/usage` command shows in ~/.claude.json
-# (`cachedUsageUtilization`, with `fetchedAtMs`). The collector reads that
-# cache; only when it is older than `usage_cache_max_age_seconds` does it run
-# `claude -p /usage` once, locked down as far as Claude Code allows while still
-# using the subscription login:
-# - no customizations, settings files, MCP servers, tools, permission prompts
-#   or saved session (`--safe-mode --restricted --setting-sources ""
-#   --strict-mcp-config --tools "" --no-session-persistence ...`);
-# - an empty temporary working directory and no stdin;
-# - telemetry, error reporting, the auto-updater and the bug command off.
-# Measured on Claude Code 2.1.302: only api.anthropic.com is contacted
-# (account bootstrap and the usage endpoint), and the only file it changes is
-# that cache entry. It is not `--bare` or CLAUDE_CODE_SIMPLE (both drop the
-# subscription login), not --disable-slash-commands (it disables /usage), and
-# not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC (it classifies the usage fetch
-# as non-essential and silently replays the cache). Because Claude Code
-# answers from its cache when it cannot fetch, the exit status proves nothing:
-# freshness is decided by `fetchedAtMs` alone.
-CLAUDE_USAGE_ARGUMENTS = (
-    "--safe-mode",
-    "--restricted",
-    "--setting-sources",
-    "",
-    "--strict-mcp-config",
-    "--tools",
-    "",
-    "--no-session-persistence",
-    "--permission-mode",
-    "dontAsk",
-    "--permission-prompts",
-    "none",
-    "--max-budget-usd",
-    "0.01",
-    "--print",
-    "/usage",
-    "--output-format",
-    "json",
-)
-CLAUDE_USAGE_ENVIRONMENT = {
-    "DISABLE_TELEMETRY": "1",
-    "DISABLE_ERROR_REPORTING": "1",
-    "DISABLE_AUTOUPDATER": "1",
-    "DISABLE_BUG_COMMAND": "1",
-}
-CLAUDE_USAGE_REFRESH_GRACE_MS = 120_000
-CLAUDE_USAGE_WINDOWS = {"session": ("session", 18000), "weekly_all": ("weekly", 604800)}
-
-
-def claude_usage_environment() -> dict[str, str]:
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        # Nothing inherited may redirect, re-authenticate or reconfigure the
-        # run (a base URL, an API key, simple/non-essential-traffic modes).
-        if not key.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))
-    }
-    environment["PATH"] = discovery_path()
-    environment.update(CLAUDE_USAGE_ENVIRONMENT)
-    return environment
-
-
-def read_claude_usage_cache(path: Path) -> Optional[dict[str, Any]]:
-    """The cached limits, or None when Claude Code has not cached any.
-
-    Raises ValueError when the entry exists but has an unrecognized shape.
-    """
-
-    if not path.is_file():
-        return None
-    with path.open(encoding="utf-8") as handle:
-        document = json.load(handle)
-    if not isinstance(document, Mapping):
-        raise ValueError("Claude Code's config is not a JSON object")
-    cached = document.get("cachedUsageUtilization")
-    if cached is None:
-        return None
-    if not isinstance(cached, Mapping):
-        raise ValueError("cachedUsageUtilization is not an object")
-    fetched_at_ms = cached.get("fetchedAtMs")
-    utilization = cached.get("utilization")
-    limits = utilization.get("limits") if isinstance(utilization, Mapping) else None
-    if isinstance(fetched_at_ms, bool) or not isinstance(fetched_at_ms, (int, float)):
-        raise ValueError("cachedUsageUtilization.fetchedAtMs is missing")
-    if not isinstance(limits, list):
-        raise ValueError("cachedUsageUtilization.utilization.limits is missing")
-    windows: list[dict[str, Any]] = []
-    for limit in limits:
-        if not isinstance(limit, Mapping):
-            raise ValueError("a usage limit is not an object")
-        kind, percent = limit.get("kind"), limit.get("percent")
-        if kind in CLAUDE_USAGE_WINDOWS:
-            scope, seconds = CLAUDE_USAGE_WINDOWS[kind]
-        elif kind == "weekly_scoped":
-            model = (limit.get("scope") or {}).get("model") if isinstance(limit.get("scope"), Mapping) else None
-            name = model.get("display_name") if isinstance(model, Mapping) else None
-            if not isinstance(name, str) or not name.strip():
-                continue
-            scope, seconds = f"weekly:{name.strip()}", 604800
-        else:
-            continue  # A limit kind this collector does not know yet.
-        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
-            raise ValueError(f"usage limit {kind} has no numeric percent")
-        resets_at = parse_iso_timestamp(limit.get("resets_at"))
-        windows.append(
-            {
-                "scope": scope,
-                "window_seconds": seconds,
-                "used_percent": percent,
-                "resets_at": timestamp_to_iso(resets_at) if resets_at is not None else "",
-            }
-        )
-    if not windows:
-        raise ValueError("no recognized usage limit in cachedUsageUtilization")
-    cached_account = cached.get("accountUuid")
-    account = document.get("oauthAccount")
-    signed_in = account.get("accountUuid") if isinstance(account, Mapping) else None
-    return {
-        "fetched_at_ms": float(fetched_at_ms),
-        "windows": windows,
-        "same_account": not (cached_account and signed_in and cached_account != signed_in),
-    }
-
-
-def run_claude_usage(executable: Path, timeout_seconds: int) -> None:
-    """Run the locked-down `/usage` once; it refreshes the cache as a side effect."""
-
-    timeout_seconds = max(5, min(int(timeout_seconds), 120))
-    with tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
-        process = subprocess.Popen(
-            [str(executable), *CLAUDE_USAGE_ARGUMENTS],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=workdir,
-            env=claude_usage_environment(),
-            start_new_session=os.name == "posix",
-        )
-        process_group = process.pid if os.name == "posix" else None
-        try:
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            terminate_provider_process(process, process_group)
-            raise RuntimeError(f"claude /usage did not finish within {timeout_seconds}s")
-        finally:
-            terminate_provider_process(process, process_group)
-    if process.returncode != 0:
-        detail = (stderr or "").strip().splitlines()[-1:] or [f"exit {process.returncode}"]
-        raise RuntimeError(f"claude /usage failed: {detail[0][:200]}")
-    try:
-        answer = json.loads(stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError("claude /usage did not answer with JSON") from None
-    if not isinstance(answer, Mapping) or answer.get("is_error") or answer.get("subtype") != "success":
-        raise RuntimeError("claude /usage reported an error")
-
-
-def claude_usage_rows(
-    collected_at: str, cache: Mapping[str, Any], source: str, status: str, message: str = ""
-) -> list[dict[str, Any]]:
-    return [
-        metric_row(
-            collected_at,
-            "claude",
-            "quota",
-            "used_percent",
-            scope=window["scope"],
-            value=window["used_percent"],
-            unit="percent",
-            window_seconds=window["window_seconds"],
-            resets_at=window["resets_at"],
-            source=source,
-            status=status,
-            message=message,
-        )
-        for window in cache["windows"]
-    ]
-
-
-def collect_claude_subscription_usage(
-    collected_at: str, provider_config: Mapping[str, Any], executable: Optional[Path]
-) -> list[dict[str, Any]]:
-    if provider_config.get("subscription_usage", True) is not True:
-        return [
-            metric_row(
-                collected_at,
-                "claude",
-                "quota",
-                "personal_subscription_quota",
-                source="config",
-                status="disabled",
-                message="subscription usage disabled in config; nothing was read or run",
-            )
-        ]
-    cache_path = expand_path(str(provider_config.get("usage_cache_file", "~/.claude.json")))
-    max_age_ms = 1000 * max(60, int(provider_config.get("usage_cache_max_age_seconds", 900)))
-
-    def error_row(message: str) -> dict[str, Any]:
-        return metric_row(
-            collected_at,
-            "claude",
-            "collection",
-            "subscription_usage_query",
-            source="claude-usage-command",
-            status="error",
-            message=message,
-        )
-
-    try:
-        cache = read_claude_usage_cache(cache_path)
-    except (OSError, ValueError) as error:
-        return [error_row(f"Claude Code's usage cache is unreadable: {error}")]
-    now_ms = time.time() * 1000
-    if cache is not None and cache["same_account"] and now_ms - cache["fetched_at_ms"] <= max_age_ms:
-        return claude_usage_rows(collected_at, cache, "claude-usage-cache", "ok")
-    if executable is None:
-        rows = [error_row("claude is not installed, so its usage could not be refreshed")]
-        if cache is not None and cache["same_account"]:
-            rows += claude_usage_rows(collected_at, cache, "claude-usage-cache", "stale",
-                                      "last reading Claude Code cached; not refreshed")
-        return rows
-
-    started_ms = time.time() * 1000
-    try:
-        run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)))
-        refreshed = read_claude_usage_cache(cache_path)
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        rows = [error_row(str(error))]
-        if cache is not None and cache["same_account"]:
-            rows += claude_usage_rows(collected_at, cache, "claude-usage-cache", "stale",
-                                      "last reading Claude Code cached; the refresh failed")
-        return rows
-    if refreshed is None:
-        return [error_row("claude /usage ran but cached no usage (is it signed in to a subscription?)")]
-    if not refreshed["same_account"]:
-        return [error_row("Claude Code's cached usage belongs to another account than the one signed in")]
-    if refreshed["fetched_at_ms"] < started_ms - CLAUDE_USAGE_REFRESH_GRACE_MS:
-        # Claude Code answered from its cache: offline, signed out, or blocked.
-        return [error_row("claude /usage did not fetch fresh usage; showing its older cached reading")] + \
-            claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "stale",
-                              "Claude Code did not refresh its usage")
-    return claude_usage_rows(collected_at, refreshed, "claude-usage-command", "ok")
-
-
-def sanitized_antigravity_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    conversation_identifier = (
-        payload.get("conversation_id")
-        or payload.get("session_id")
-        or payload.get("transcript_path")
-    )
-    sanitized: dict[str, Any] = {
-        "captured_at": iso_utc(utc_now()),
-        "session_scope": (
-            stable_scope(conversation_identifier) if conversation_identifier else ""
-        ),
-        "product": payload.get("product"),
-        "version": payload.get("version"),
-        "plan_tier": payload.get("plan_tier"),
-        "agent_state": payload.get("agent_state"),
-        "execution_mode": payload.get("execution_mode"),
-        "exceeds_200k_tokens": payload.get("exceeds_200k_tokens"),
-    }
-    model = payload.get("model")
-    if isinstance(model, Mapping):
-        sanitized["model"] = {
-            "id": model.get("id"),
-            "display_name": model.get("display_name"),
-        }
-
-    context = payload.get("context_window")
-    if isinstance(context, Mapping):
-        sanitized_context = {
-            key: context.get(key)
-            for key in (
-                "total_input_tokens",
-                "total_output_tokens",
-                "context_window_size",
-                "used_percentage",
-                "remaining_percentage",
-            )
-        }
-        current_usage = context.get("current_usage")
-        if isinstance(current_usage, Mapping):
-            sanitized_context["current_usage"] = {
-                key: current_usage.get(key)
-                for key in (
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_creation_input_tokens",
-                    "cache_read_input_tokens",
-                )
-            }
-        sanitized["context_window"] = sanitized_context
-
-    quota = payload.get("quota")
-    if isinstance(quota, Mapping):
-        sanitized_quota: dict[str, Any] = {}
-        for bucket, details in quota.items():
-            if not isinstance(details, Mapping):
-                continue
-            sanitized_quota[str(bucket)] = {
-                "remaining_fraction": details.get("remaining_fraction"),
-                "reset_time": details.get("reset_time"),
-                "reset_in_seconds": details.get("reset_in_seconds"),
-            }
-        sanitized["quota"] = sanitized_quota
-    return sanitized
-
-
-def format_antigravity_status(payload: Mapping[str, Any]) -> str:
-    parts: list[str] = []
-    model = payload.get("model")
-    if isinstance(model, Mapping):
-        display_name = model.get("display_name") or model.get("id")
-        if display_name:
-            parts.append(str(display_name))
-    context = payload.get("context_window")
-    if isinstance(context, Mapping):
-        remaining = context.get("remaining_percentage")
-        if isinstance(remaining, (int, float)):
-            parts.append(f"context {remaining:.0f}% left")
-    quota = payload.get("quota")
-    if isinstance(quota, Mapping):
-        for bucket, details in list(quota.items())[:2]:
-            if not isinstance(details, Mapping):
-                continue
-            fraction = details.get("remaining_fraction")
-            if isinstance(fraction, (int, float)):
-                parts.append(f"{bucket} {fraction * 100:.0f}% left")
-    return " | ".join(parts) if parts else "Antigravity"
-
-
-def antigravity_event_signature(snapshot: Mapping[str, Any]) -> tuple[Any, ...]:
-    context = snapshot.get("context_window")
-    if not isinstance(context, Mapping):
-        context = {}
-    current_usage = context.get("current_usage")
-    if not isinstance(current_usage, Mapping):
-        current_usage = {}
-    model = snapshot.get("model")
-    if not isinstance(model, Mapping):
-        model = {}
-    return (
-        snapshot.get("session_scope"),
-        model.get("id"),
-        context.get("total_input_tokens"),
-        context.get("total_output_tokens"),
-        current_usage.get("input_tokens"),
-        current_usage.get("output_tokens"),
-        current_usage.get("cache_creation_input_tokens"),
-        current_usage.get("cache_read_input_tokens"),
-    )
-
-
-def log_antigravity_statusline_error(config_path: Path, error: Exception) -> None:
+def log_status_line_error(config_path: Path, error: Exception, display_name: str) -> None:
     try:
         log_path = DEFAULT_ROOT / "collector.log"
         try:
@@ -2897,18 +649,28 @@ def log_antigravity_statusline_error(config_path: Path, error: Exception) -> Non
             pass
         configure_logging(log_path)
         LOGGER.error(
-            "Antigravity status-line capture failed error_type=%s message=%s",
+            "%s status-line capture failed error_type=%s message=%s",
+            display_name,
             type(error).__name__,
             str(error)[:500],
         )
     except Exception:
         print(
-            f"ai-usage Antigravity capture failed: {type(error).__name__}",
+            f"ai-usage {display_name} capture failed: {type(error).__name__}",
             file=sys.stderr,
         )
 
 
-def run_antigravity_statusline(config_path: Path) -> int:
+def status_line_plugin(command: str) -> Optional[ProviderPlugin]:
+    """The provider whose installed wrapper runs `collector.py <command>`."""
+    for plugin in PLUGINS.values():
+        if plugin.integration is not None and plugin.integration.wrapper_command == command:
+            return plugin
+    return None
+
+
+def run_status_line(plugin: ProviderPlugin, config_path: Path) -> int:
+    assert plugin.integration is not None and plugin.status_line is not None
     try:
         raw = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
         if len(raw) > 2 * 1024 * 1024:
@@ -2918,1208 +680,27 @@ def run_antigravity_statusline(config_path: Path) -> int:
             raise ValueError("status payload was not an object")
         try:
             config = load_config(config_path)
-            settings = provider_config(config, "antigravity")
-            cache_setting = settings.get(
-                "cache_file", "~/.ai-usage/cache/antigravity.json"
-            )
-            events_setting = settings.get(
-                "events_file", "~/.ai-usage/cache/antigravity-events.jsonl"
-            )
+            settings = provider_config(config, plugin.id)
         except (OSError, ValueError, json.JSONDecodeError):
-            cache_setting = "~/.ai-usage/cache/antigravity.json"
-            events_setting = "~/.ai-usage/cache/antigravity-events.jsonl"
-        cache_path = expand_path(str(cache_setting))
-        events_path = expand_path(str(events_setting))
-        sanitized = sanitized_antigravity_payload(payload)
-        content = json.dumps(sanitized, separators=(",", ":")) + "\n"
-        lock_path = cache_path.with_name(f"{cache_path.name}.lock")
-        with exclusive_file_lock(lock_path):
-            previous: Any = None
-            if cache_path.is_file():
-                try:
-                    with cache_path.open("r", encoding="utf-8") as handle:
-                        previous = json.load(handle)
-                except (OSError, json.JSONDecodeError):
-                    previous = None
-            if (
-                not isinstance(previous, Mapping)
-                or antigravity_event_signature(previous)
-                != antigravity_event_signature(sanitized)
-            ):
-                events_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                with events_path.open("a", encoding="utf-8") as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.chmod(events_path, 0o600)
-            atomic_write_bytes(cache_path, content.encode("utf-8"), mode=0o600)
-        print(format_antigravity_status(payload))
+            settings = {}
+        print(plugin.status_line(settings, payload))
         return 0
     except Exception as error:
-        # Stdout is Antigravity's UI channel. Never print diagnostics there.
-        log_antigravity_statusline_error(config_path, error)
-        print("Antigravity")
+        # Stdout is the provider's UI channel. Never print diagnostics there.
+        log_status_line_error(config_path, error, plugin.integration.display_name)
+        print(plugin.integration.display_name)
         return 0
-
-
-def collect_antigravity(
-    collected_at: str,
-    provider_config_value: Mapping[str, Any],
-    include_history: bool,
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    del include_history
-    rows: list[dict[str, Any]] = []
-    executable = find_executable(provider_config_value, ["agy"])
-    cache_setting = provider_config_value.get(
-        "cache_file", "~/.ai-usage/cache/antigravity.json"
-    )
-    events_setting = provider_config_value.get(
-        "events_file", "~/.ai-usage/cache/antigravity-events.jsonl"
-    )
-    cache_path = expand_path(str(cache_setting))
-    events_path = expand_path(str(events_setting))
-    cache_available = cache_path.is_file() and os.access(cache_path, os.R_OK)
-    events_available = events_path.is_file() and os.access(events_path, os.R_OK)
-    detected = executable is not None or cache_available or events_available
-    details = []
-    if executable is not None:
-        details.append(f"binary={executable}")
-    if cache_available:
-        details.append(f"cache={cache_path}")
-    if events_available:
-        details.append(f"events={events_path}")
-    if not detected:
-        # No binary and no status-line cache/events — skip entirely.
-        return rows
-
-    rows.append(
-        availability_row(
-            collected_at,
-            "antigravity",
-            True,
-            "filesystem-discovery",
-            "; ".join(details),
-        )
-    )
-
-    if events_available:
-        offsets = state.setdefault("antigravity_offsets", {})
-        if not isinstance(offsets, MutableMapping):
-            offsets = {}
-            state["antigravity_offsets"] = offsets
-        event_records, parse_errors, _, rotation_losses = read_new_json_lines(
-            events_path, offsets
-        )
-        loss_row = rotation_loss_row(
-            collected_at,
-            "antigravity",
-            "antigravity-status-line-events",
-            rotation_losses,
-        )
-        if loss_row is not None:
-            rows.append(loss_row)
-        baselines = state.setdefault("antigravity_session_totals", {})
-        if not isinstance(baselines, MutableMapping):
-            baselines = {}
-            state["antigravity_session_totals"] = baselines
-        for event in event_records:
-            context = event.get("context_window")
-            if not isinstance(context, Mapping):
-                continue
-            session_scope = str(event.get("session_scope") or "unknown-session")
-            model = event.get("model")
-            model_name = (
-                str(model.get("id") or model.get("display_name") or "")
-                if isinstance(model, Mapping)
-                else ""
-            )
-            row_scope = f"{session_scope}:{model_name}" if model_name else session_scope
-            raw_baseline = baselines.get(session_scope, {})
-            baseline = dict(raw_baseline) if isinstance(raw_baseline, Mapping) else {}
-            event_time = str(event.get("captured_at") or collected_at)
-            for source_key, metric in (
-                ("total_input_tokens", "input_tokens"),
-                ("total_output_tokens", "output_tokens"),
-            ):
-                current = context.get(source_key)
-                if not isinstance(current, (int, float)) or isinstance(current, bool):
-                    continue
-                previous = baseline.get(source_key)
-                if isinstance(previous, (int, float)) and not isinstance(previous, bool):
-                    delta = current - previous if current >= previous else current
-                else:
-                    delta = current
-                baseline[source_key] = current
-                if delta > 0:
-                    rows.append(
-                        metric_row(
-                            event_time,
-                            "antigravity",
-                            "usage",
-                            metric,
-                            record_kind="delta",
-                            scope=row_scope,
-                            value=delta,
-                            unit="tokens",
-                            source="antigravity-status-line-events",
-                        )
-                    )
-            current_usage = context.get("current_usage")
-            if isinstance(current_usage, Mapping):
-                for source_key in (
-                    "cache_creation_input_tokens",
-                    "cache_read_input_tokens",
-                ):
-                    value = current_usage.get(source_key)
-                    if isinstance(value, (int, float)) and not isinstance(value, bool):
-                        rows.append(
-                            metric_row(
-                                event_time,
-                                "antigravity",
-                                "usage",
-                                source_key,
-                                record_kind="event_total",
-                                scope=row_scope,
-                                value=value,
-                                unit="tokens",
-                                source="antigravity-status-line-events",
-                            )
-                        )
-            baselines[session_scope] = baseline
-        while len(baselines) > 5000:
-            del baselines[next(iter(baselines))]
-        if parse_errors:
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "antigravity",
-                    "collection",
-                    "event_parse_errors",
-                    record_kind="interval_total",
-                    value=parse_errors,
-                    unit="records",
-                    source="antigravity-status-line-events",
-                    status="error",
-                    message="Malformed sanitized status events were skipped",
-                )
-            )
-
-    if not cache_available:
-        rows.append(
-            metric_row(
-                collected_at,
-                "antigravity",
-                "collection",
-                "status_line_cache",
-                source="antigravity-status-line",
-                status="missing",
-                message="No latest status-line snapshot is available; agy was not invoked",
-            )
-        )
-        return rows
-
-    try:
-        with cache_path.open("r", encoding="utf-8") as handle:
-            snapshot = json.load(handle)
-    except (OSError, json.JSONDecodeError) as error:
-        rows.append(
-            metric_row(
-                collected_at,
-                "antigravity",
-                "collection",
-                "status_line_cache",
-                source="antigravity-status-line",
-                status="error",
-                message=str(error),
-            )
-        )
-        return rows
-    if not isinstance(snapshot, Mapping):
-        return rows
-
-    try:
-        age_seconds = max(0, int(time.time() - cache_path.stat().st_mtime))
-    except OSError:
-        age_seconds = -1
-    stale_after = provider_config_value.get("stale_after_seconds", 7200)
-    try:
-        stale_after = max(60, int(stale_after))
-    except (TypeError, ValueError):
-        stale_after = 7200
-    source_status = "stale" if age_seconds < 0 or age_seconds > stale_after else "ok"
-    rows.append(
-        metric_row(
-            collected_at,
-            "antigravity",
-            "freshness",
-            "source_age_seconds",
-            value=age_seconds,
-            unit="seconds",
-            source="antigravity-status-line",
-            status=source_status,
-            message=(
-                "Snapshot is stale; values were not refreshed"
-                if source_status == "stale"
-                else ""
-            ),
-        )
-    )
-
-    plan_tier = snapshot.get("plan_tier")
-    if plan_tier:
-        rows.append(
-            metric_row(
-                collected_at,
-                "antigravity",
-                "subscription",
-                "plan_tier",
-                value=plan_tier,
-                source="antigravity-status-line",
-                status=source_status,
-            )
-        )
-    model = snapshot.get("model")
-    model_scope = ""
-    if isinstance(model, Mapping):
-        model_scope = str(model.get("id") or model.get("display_name") or "")
-    session_scope = str(snapshot.get("session_scope") or "")
-    context_scope = (
-        f"{session_scope}:{model_scope}"
-        if session_scope and model_scope
-        else session_scope or model_scope
-    )
-
-    context = snapshot.get("context_window")
-    if isinstance(context, Mapping):
-        context_metrics = {
-            "context_window_size": "tokens",
-            "used_percentage": "percent",
-            "remaining_percentage": "percent",
-        }
-        for key, unit in context_metrics.items():
-            if context.get(key) is not None:
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "antigravity",
-                        "context",
-                        key,
-                        scope=context_scope,
-                        value=context[key],
-                        unit=unit,
-                        source="antigravity-status-line",
-                        status=source_status,
-                    )
-                )
-    quota = snapshot.get("quota")
-    if isinstance(quota, Mapping):
-        for bucket, details in quota.items():
-            if not isinstance(details, Mapping):
-                continue
-            fraction = details.get("remaining_fraction")
-            if isinstance(fraction, (int, float)):
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "antigravity",
-                        "quota",
-                        "remaining_percent",
-                        scope=str(bucket),
-                        value=fraction * 100,
-                        unit="percent",
-                        resets_at=str(details.get("reset_time") or ""),
-                        source="antigravity-status-line",
-                        status=source_status,
-                    )
-                )
-                rows.append(
-                    metric_row(
-                        collected_at,
-                        "antigravity",
-                        "quota",
-                        "used_percent",
-                        scope=str(bucket),
-                        value=(1 - fraction) * 100,
-                        unit="percent",
-                        resets_at=str(details.get("reset_time") or ""),
-                        source="antigravity-status-line",
-                        status=source_status,
-                    )
-                )
-    return rows
-
-
-def find_scalar_by_leaf(record: Mapping[str, Any], leaf_names: set[str]) -> Any:
-    for path, value in scalar_leaves(record):
-        leaf = snake_case(path.rsplit(".", 1)[-1])
-        if leaf in leaf_names:
-            return value
-    return None
-
-
-def gemini_event_name(record: Mapping[str, Any]) -> Optional[str]:
-    recognized = {"gemini_cli.api_response"}
-    for path, value in scalar_leaves(record):
-        if isinstance(value, str) and value in recognized:
-            return value
-        leaf = snake_case(path.rsplit(".", 1)[-1])
-        if leaf in {"event_name", "event", "name", "metric_name"}:
-            if isinstance(value, str) and value in recognized:
-                return value
-    return None
-
-
-def collect_gemini_cli(
-    collected_at: str,
-    provider_config_value: Mapping[str, Any],
-    include_history: bool,
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    del include_history
-    executable = find_executable(provider_config_value, ["gemini"])
-    telemetry_setting = provider_config_value.get(
-        "telemetry_file", "~/.ai-usage/cache/gemini-telemetry.log"
-    )
-    telemetry_path = expand_path(str(telemetry_setting))
-    telemetry_available = telemetry_path.is_file() and os.access(
-        telemetry_path, os.R_OK
-    )
-    detected = executable is not None or telemetry_available
-    details = []
-    if executable is not None:
-        details.append(f"binary={executable}")
-    if telemetry_available:
-        details.append(f"telemetry={telemetry_path}")
-    if not detected:
-        # No binary and no telemetry file — skip rather than writing missing spam.
-        return []
-
-    rows = [
-        availability_row(
-            collected_at,
-            "gemini_cli",
-            True,
-            "filesystem-discovery",
-            "; ".join(details),
-        )
-    ]
-    if not telemetry_available:
-        rows.append(
-            metric_row(
-                collected_at,
-                "gemini_cli",
-                "collection",
-                "telemetry_file",
-                source="gemini-telemetry",
-                status="missing",
-                message="No telemetry file is available; Gemini CLI was not invoked",
-            )
-        )
-        return rows
-
-    offsets = state.setdefault("gemini_offsets", {})
-    if not isinstance(offsets, MutableMapping):
-        offsets = {}
-        state["gemini_offsets"] = offsets
-    records, parse_errors, bytes_read, rotation_losses = read_new_json_lines(
-        telemetry_path, offsets
-    )
-    loss_row = rotation_loss_row(
-        collected_at,
-        "gemini_cli",
-        "gemini-telemetry",
-        rotation_losses,
-    )
-    if loss_row is not None:
-        rows.append(loss_row)
-    recognized_records = 0
-    for record in records:
-        event_name = gemini_event_name(record)
-        if event_name is None:
-            continue
-        recognized_records += 1
-        timestamp = record_timestamp(record, collected_at)
-        model = find_scalar_by_leaf(record, {"model", "model_name", "model_id"})
-        model_scope = str(model or "")
-
-        token_fields = {
-            "input_tokens": {"input_token_count"},
-            "output_tokens": {"output_token_count"},
-            "cached_content_tokens": {"cached_content_token_count"},
-            "thought_tokens": {"thoughts_token_count"},
-            "tool_tokens": {"tool_token_count"},
-            "total_tokens": {"total_token_count"},
-        }
-        for metric_name, source_names in token_fields.items():
-            value = find_scalar_by_leaf(record, source_names)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                continue
-            rows.append(
-                metric_row(
-                    timestamp,
-                    "gemini_cli",
-                    "usage",
-                    metric_name,
-                    record_kind="event_total",
-                    scope=model_scope,
-                    value=value,
-                    unit="tokens",
-                    source="gemini-telemetry",
-                )
-            )
-
-    if parse_errors:
-        rows.append(
-            metric_row(
-                collected_at,
-                "gemini_cli",
-                "collection",
-                "telemetry_parse_errors",
-                record_kind="interval_total",
-                value=parse_errors,
-                unit="records",
-                source="gemini-telemetry",
-                status="unsupported_format",
-                message=(
-                    "Unparseable telemetry records were skipped; Gemini was "
-                    "not run as a fallback"
-                ),
-            )
-        )
-    if bytes_read and records and recognized_records == 0:
-        rows.append(
-            metric_row(
-                collected_at,
-                "gemini_cli",
-                "collection",
-                "telemetry_schema",
-                source="gemini-telemetry",
-                status="unsupported_format",
-                message="New JSON telemetry did not match documented event names",
-            )
-        )
-    return rows
-
-
-def query_grok_billing(executable: Path, timeout_seconds: int) -> Any:
-    if not is_executable_file(executable):
-        raise FileNotFoundError(f"Grok executable is unavailable: {executable}")
-    timeout_seconds = max(5, min(int(timeout_seconds), 120))
-    environment = os.environ.copy()
-    environment["PATH"] = discovery_path()
-    environment["GROK_DISABLE_AUTOUPDATER"] = "1"
-    stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
-    process: Optional[subprocess.Popen[str]] = None
-    process_group: Optional[int] = None
-    try:
-        process = subprocess.Popen(
-            [str(executable), "agent", "--no-leader", "stdio"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=stderr_file,
-            text=True,
-            bufsize=1,
-            cwd=str(Path.home()),
-            env=environment,
-            start_new_session=os.name == "posix",
-        )
-        if os.name == "posix":
-            # start_new_session guarantees this without a cross-session
-            # getpgid() call, which macOS rejects with EPERM.
-            process_group = process.pid
-        if process.stdin is None or process.stdout is None:
-            raise RuntimeError("failed to open Grok ACP pipes")
-
-        def send(payload: Mapping[str, Any]) -> None:
-            if process is None or process.stdin is None:
-                raise RuntimeError("Grok ACP stdin is unavailable")
-            process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
-            process.stdin.flush()
-
-        send(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": 1,
-                    "clientCapabilities": {
-                        "fs": {"readTextFile": False, "writeTextFile": False},
-                        "terminal": False,
-                    },
-                    "_meta": {
-                        "startupHints": {
-                            "nonInteractive": True,
-                            "skipGitStatus": True,
-                            "skipProjectLayout": True,
-                        },
-                        "clientType": "ai-usage-collector",
-                        "clientVersion": VERSION,
-                    },
-                },
-            }
-        )
-        responses: dict[int, Any] = {}
-        billing_sent = False
-        deadline = time.monotonic() + timeout_seconds
-        message_queue = start_json_line_reader(process.stdout)
-        while time.monotonic() < deadline:
-            if 2 in responses:
-                break
-            message = next_json_message(message_queue, deadline)
-            if message == {}:
-                if process.poll() is not None:
-                    break
-                continue
-            if message is None:
-                break
-            response_id = message.get("id")
-            if isinstance(response_id, int):
-                responses[response_id] = message
-            if response_id == 1 and not billing_sent:
-                if message.get("error") is not None:
-                    break
-                send(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 2,
-                        # ACP custom methods are wire-named with a leading underscore.
-                        # The agent extension handler matches "x.ai/billing" after that.
-                        "method": "_x.ai/billing",
-                        "params": {},
-                    }
-                )
-                billing_sent = True
-        if 1 not in responses:
-            raise RuntimeError("Grok ACP did not initialize before timeout")
-        if responses[1].get("error") is not None:
-            raise RuntimeError(response_error(responses[1], "Grok ACP initialization failed"))
-        billing = responses.get(2)
-        if not isinstance(billing, Mapping) or billing.get("result") is None:
-            raise RuntimeError(response_error(billing, "Grok billing returned no result"))
-        return billing["result"]
-    finally:
-        if process is not None:
-            terminate_provider_process(process, process_group)
-            if process.stdin is not None:
-                try:
-                    process.stdin.close()
-                except OSError:
-                    pass
-            if process.stdout is not None:
-                process.stdout.close()
-        stderr_file.close()
-
-
-def grok_usage_rows(
-    collected_at: str,
-    record: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    params = record.get("params")
-    if not isinstance(params, Mapping):
-        return []
-    update = params.get("update")
-    if not isinstance(update, Mapping) or update.get("sessionUpdate") != "turn_completed":
-        return []
-    usage = update.get("usage")
-    if not isinstance(usage, Mapping):
-        return []
-
-    meta = params.get("_meta")
-    event_id = meta.get("eventId") if isinstance(meta, Mapping) else None
-    prompt_id = update.get("prompt_id") or update.get("promptId")
-    scope = stable_scope(event_id or f"{params.get('sessionId')}:{prompt_id}")
-    event_time = record_timestamp(record, collected_at)
-    metric_map = {
-        "inputTokens": ("input_tokens", "tokens"),
-        "outputTokens": ("output_tokens", "tokens"),
-        "totalTokens": ("total_tokens", "tokens"),
-        "cachedReadTokens": ("cached_read_tokens", "tokens"),
-        "cacheCreationTokens": ("cache_creation_tokens", "tokens"),
-        "reasoningTokens": ("reasoning_tokens", "tokens"),
-        "modelCalls": ("model_calls", "calls"),
-        "apiDurationMs": ("api_duration", "milliseconds"),
-        "numTurns": ("turns", "turns"),
-    }
-    rows: list[dict[str, Any]] = []
-    incomplete = usage.get("usageIsIncomplete") is True
-    partial_cost = usage.get("costIsPartial") is True
-    usage_status = "incomplete" if incomplete else "ok"
-    for source_key, (metric, unit) in metric_map.items():
-        if usage.get(source_key) is not None:
-            rows.append(
-                metric_row(
-                    event_time,
-                    "grok",
-                    "usage",
-                    metric,
-                    record_kind="event_total",
-                    scope=scope,
-                    value=usage[source_key],
-                    unit=unit,
-                    source="grok-session-log",
-                    status=usage_status,
-                )
-            )
-    cost_ticks = usage.get("costUsdTicks")
-    if isinstance(cost_ticks, (int, float)) and not incomplete and not partial_cost:
-        rows.append(
-            metric_row(
-                event_time,
-                "grok",
-                "cost",
-                "api_cost",
-                record_kind="event_total",
-                scope=scope,
-                value=cost_ticks / 10_000_000_000,
-                unit="USD",
-                source="grok-session-log",
-            )
-        )
-    elif cost_ticks is not None:
-        rows.append(
-            metric_row(
-                event_time,
-                "grok",
-                "cost",
-                "api_cost",
-                record_kind="event_total",
-                scope=scope,
-                source="grok-session-log",
-                status="incomplete",
-                message="Cost was partial or usage was incomplete; value was not recorded as zero",
-            )
-        )
-    model_usage = usage.get("modelUsage")
-    if isinstance(model_usage, Mapping):
-        rows.append(
-            metric_row(
-                event_time,
-                "grok",
-                "usage",
-                "model_usage",
-                record_kind="event_total",
-                scope=scope,
-                value=dict(model_usage),
-                unit="json",
-                source="grok-session-log",
-                status=usage_status,
-            )
-        )
-    return rows
-
-
-def grok_billing_rows(
-    collected_at: str,
-    billing: Any,
-    *,
-    source: str = "grok-x.ai-billing-acp",
-    status: str = "experimental",
-) -> list[dict[str, Any]]:
-    if not isinstance(billing, Mapping):
-        return []
-    config = billing.get("config")
-    if not isinstance(config, Mapping):
-        return [
-            metric_row(
-                collected_at,
-                "grok",
-                "collection",
-                "billing_schema",
-                source=source,
-                status="unsupported_format",
-                message="Billing response did not contain a config object",
-            )
-        ]
-
-    current_period = config.get("currentPeriod")
-    if not isinstance(current_period, Mapping):
-        current_period = {}
-    period_start = str(
-        current_period.get("start") or config.get("billingPeriodStart") or ""
-    )
-    period_end = str(
-        current_period.get("end") or config.get("billingPeriodEnd") or ""
-    )
-    scope = str(current_period.get("type") or "included_credits")
-    rows: list[dict[str, Any]] = []
-
-    used_percent = config.get("creditUsagePercent")
-    if not isinstance(used_percent, (int, float)) or isinstance(used_percent, bool):
-        monthly_limit = config.get("monthlyLimit")
-        used = config.get("used")
-        limit_value = (
-            monthly_limit.get("val") if isinstance(monthly_limit, Mapping) else None
-        )
-        used_value = used.get("val") if isinstance(used, Mapping) else None
-        if (
-            isinstance(limit_value, (int, float))
-            and not isinstance(limit_value, bool)
-            and limit_value > 0
-            and isinstance(used_value, (int, float))
-            and not isinstance(used_value, bool)
-        ):
-            used_percent = used_value / limit_value * 100
-    if isinstance(used_percent, (int, float)) and not isinstance(used_percent, bool):
-        normalized_percent = max(0, min(100, float(used_percent)))
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "quota",
-                "used_percent",
-                scope=scope,
-                period_start=period_start,
-                period_end=period_end,
-                value=normalized_percent,
-                unit="percent",
-                resets_at=period_end,
-                source=source,
-                status=status,
-                message="Weighted included-credit usage",
-            )
-        )
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "quota",
-                "remaining_percent",
-                scope=scope,
-                period_start=period_start,
-                period_end=period_end,
-                value=100 - normalized_percent,
-                unit="percent",
-                resets_at=period_end,
-                source=source,
-                status=status,
-                message="Derived as 100 minus weighted included-credit usage",
-            )
-        )
-
-    cent_fields = {
-        "monthlyLimit": "included_credit_limit",
-        "used": "included_credits_used",
-        "onDemandCap": "on_demand_cap",
-        "onDemandUsed": "on_demand_used",
-        "prepaidBalance": "prepaid_balance",
-    }
-    for source_key, metric in cent_fields.items():
-        cent = config.get(source_key)
-        if not isinstance(cent, Mapping):
-            continue
-        value = cent.get("val", 0)
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            continue
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "billing",
-                metric,
-                scope=scope,
-                period_start=period_start,
-                period_end=period_end,
-                value=value,
-                unit="USD_cents",
-                source=source,
-                status=status,
-                message="Consumer coding-credit value; not the recurring subscription fee",
-            )
-        )
-
-    for source_key, metric in (
-        ("isUnifiedBillingUser", "unified_billing_user"),
-        ("historyLen", "history_period_count"),
-    ):
-        value = config.get(source_key)
-        if isinstance(value, (bool, int, float)):
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "grok",
-                    "billing",
-                    metric,
-                    value=value,
-                    unit="boolean" if isinstance(value, bool) else "periods",
-                    source=source,
-                    status=status,
-                )
-            )
-
-    for source_key, metric in (
-        ("onDemandEnabled", "on_demand_enabled"),
-        ("subscriptionTier", "subscription_tier"),
-    ):
-        value = billing.get(source_key)
-        if isinstance(value, (str, bool, int, float)):
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "grok",
-                    "subscription",
-                    metric,
-                    value=value,
-                    unit="boolean" if isinstance(value, bool) else "",
-                    source=source,
-                    status=status,
-                )
-            )
-
-    history_entries = config.get("history")
-    entries = list(history_entries) if isinstance(history_entries, list) else []
-    latest_history = config.get("latestHistory")
-    if isinstance(latest_history, Mapping):
-        entries.append(latest_history)
-    for entry in entries:
-        if not isinstance(entry, Mapping):
-            continue
-        entry_period = entry.get("period")
-        cycle = entry.get("billingCycle")
-        history_scope = "history"
-        history_start = ""
-        history_end = ""
-        if isinstance(entry_period, Mapping):
-            history_start = str(entry_period.get("start") or "")
-            history_end = str(entry_period.get("end") or "")
-            period_type = str(entry_period.get("type") or "history")
-            history_scope = (
-                f"{period_type}:{history_start}" if history_start else period_type
-            )
-        elif isinstance(cycle, Mapping):
-            year = cycle.get("year")
-            month = cycle.get("month")
-            if isinstance(year, int) and isinstance(month, int) and 1 <= month <= 12:
-                start_date = datetime_module.date(year, month, 1)
-                end_date = (
-                    datetime_module.date(year + 1, 1, 1)
-                    if month == 12
-                    else datetime_module.date(year, month + 1, 1)
-                )
-                history_start = start_date.isoformat()
-                history_end = end_date.isoformat()
-                history_scope = history_start
-        for source_key, metric in (
-            ("includedUsed", "included_credits_used"),
-            ("onDemandUsed", "on_demand_used"),
-            ("totalUsed", "total_credits_used"),
-        ):
-            cent = entry.get(source_key)
-            if not isinstance(cent, Mapping):
-                continue
-            value = cent.get("val", 0)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                continue
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "grok",
-                    "billing",
-                    metric,
-                    record_kind="period_total",
-                    scope=history_scope,
-                    period_start=history_start,
-                    period_end=history_end,
-                    value=value,
-                    unit="USD_cents",
-                    source=source,
-                    status=status,
-                )
-            )
-    return rows
-
-
-def parse_iso_timestamp(value: Any) -> Optional[float]:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        numeric = float(value)
-        if numeric > 10_000_000_000:
-            numeric /= 1000
-        return numeric
-    if not isinstance(value, str) or not value:
-        return None
-    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
-    try:
-        parsed = datetime_module.datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime_module.timezone.utc)
-    return parsed.timestamp()
-
-
-def read_recent_grok_billing_cache(
-    path: Path, max_age_seconds: int, tail_bytes: int
-) -> tuple[Optional[dict[str, Any]], Optional[int]]:
-    """Read Grok's latest local billing snapshot without starting Grok."""
-
-    if not path.is_file() or not os.access(path, os.R_OK):
-        return None, None
-    newest: Optional[Mapping[str, Any]] = None
-    try:
-        file_size = path.stat().st_size
-        start = max(0, file_size - max(65536, tail_bytes))
-        with path.open("rb") as handle:
-            handle.seek(start)
-            if start:
-                handle.readline()
-            for raw_line in handle:
-                if b"billing: fetched credits config" not in raw_line:
-                    continue
-                try:
-                    candidate = json.loads(raw_line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if (
-                    isinstance(candidate, Mapping)
-                    and candidate.get("msg") == "billing: fetched credits config"
-                ):
-                    newest = candidate
-    except OSError:
-        return None, None
-    if newest is None:
-        return None, None
-
-    timestamp = parse_iso_timestamp(newest.get("ts"))
-    if timestamp is None:
-        return None, None
-    age_seconds = max(0, int(time.time() - timestamp))
-    if age_seconds > max_age_seconds:
-        return None, age_seconds
-
-    context = newest.get("ctx")
-    if not isinstance(context, Mapping):
-        return None, age_seconds
-    config = context.get("config")
-    if not isinstance(config, Mapping):
-        return None, age_seconds
-    sanitized: dict[str, Any] = {"config": dict(config)}
-    for key in ("onDemandEnabled", "subscriptionTier"):
-        value = context.get(key)
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            sanitized[key] = value
-    return sanitized, age_seconds
-
-
-def collect_grok(
-    collected_at: str,
-    provider_config_value: Mapping[str, Any],
-    include_history: bool,
-    state: MutableMapping[str, Any],
-) -> list[dict[str, Any]]:
-    del include_history
-    executable = find_executable(provider_config_value, ["grok"])
-    grok_home = expand_path(str(provider_config_value.get("grok_home", "~/.grok")))
-    auth_path = expand_path(
-        str(provider_config_value.get("auth_file", "~/.grok/auth.json"))
-    )
-    billing_cache_path = expand_path(
-        str(
-            provider_config_value.get(
-                "billing_cache_file", "~/.grok/logs/unified.jsonl"
-            )
-        )
-    )
-    session_files = [
-        path
-        for path in grok_home.glob("sessions/**/updates.jsonl")
-        if "subagents" not in path.parts and path.is_file()
-    ]
-    billing_cache_available = billing_cache_path.is_file() and os.access(
-        billing_cache_path, os.R_OK
-    )
-    detected = executable is not None or bool(session_files) or billing_cache_available
-    details = []
-    if executable is not None:
-        details.append(f"binary={executable}")
-    if session_files:
-        details.append(f"session_logs={len(session_files)}")
-    if billing_cache_available:
-        details.append(f"billing_cache={billing_cache_path}")
-    if not detected:
-        # No binary, session logs, or billing cache — skip entirely.
-        return []
-
-    rows = [
-        availability_row(
-            collected_at,
-            "grok",
-            True,
-            "filesystem-discovery",
-            "; ".join(details),
-        )
-    ]
-
-    offsets = state.setdefault("grok_offsets", {})
-    if not isinstance(offsets, MutableMapping):
-        offsets = {}
-        state["grok_offsets"] = offsets
-    recent_ids_raw = state.get("grok_recent_event_ids", [])
-    recent_ids_list = recent_ids_raw if isinstance(recent_ids_raw, list) else []
-    recent_ids = set(recent_ids_list)
-    new_ids: list[str] = []
-    parse_errors = 0
-    rotation_losses: list[str] = []
-    raw_session_budget = provider_config_value.get(
-        "max_session_bytes_per_poll", 25 * 1024 * 1024
-    )
-    try:
-        remaining_session_bytes = max(1024 * 1024, int(raw_session_budget))
-    except (TypeError, ValueError):
-        remaining_session_bytes = 25 * 1024 * 1024
-    deferred_files = 0
-    for index, session_file in enumerate(sorted(session_files)):
-        if remaining_session_bytes <= 0:
-            deferred_files = len(session_files) - index
-            break
-        records, errors, bytes_read, file_rotation_losses = read_new_json_lines(
-            session_file,
-            offsets,
-            max_bytes=remaining_session_bytes,
-        )
-        remaining_session_bytes -= bytes_read
-        parse_errors += errors
-        rotation_losses.extend(file_rotation_losses)
-        for record in records:
-            if record.get("method") != "_x.ai/session/update":
-                continue
-            params = record.get("params")
-            meta = params.get("_meta") if isinstance(params, Mapping) else None
-            event_id = meta.get("eventId") if isinstance(meta, Mapping) else None
-            event_key = (
-                str(event_id)
-                if event_id
-                else stable_scope(json.dumps(record, sort_keys=True))
-            )
-            if event_key in recent_ids:
-                continue
-            recent_ids.add(event_key)
-            new_ids.append(event_key)
-            rows.extend(grok_usage_rows(collected_at, record))
-    state["grok_recent_event_ids"] = (recent_ids_list + new_ids)[-5000:]
-    loss_row = rotation_loss_row(
-        collected_at,
-        "grok",
-        "grok-session-log",
-        rotation_losses,
-    )
-    if loss_row is not None:
-        rows.append(loss_row)
-    if parse_errors:
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "collection",
-                "session_log_parse_errors",
-                record_kind="interval_total",
-                value=parse_errors,
-                unit="records",
-                source="grok-session-log",
-                status="error",
-                message="Malformed records were skipped",
-            )
-        )
-    if deferred_files:
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "collection",
-                "session_files_deferred",
-                record_kind="interval_total",
-                value=deferred_files,
-                unit="files",
-                source="grok-session-log",
-                status="partial",
-                message="Per-poll local scan budget reached; remaining files will be read later",
-            )
-        )
-
-    billing_enabled = provider_config_value.get("collect_billing_via_acp", True) is True
-    auth_available = auth_path.is_file() and os.access(auth_path, os.R_OK)
-    raw_cache_age = provider_config_value.get(
-        "billing_cache_max_age_seconds", 7200
-    )
-    try:
-        cache_max_age = max(60, int(raw_cache_age))
-    except (TypeError, ValueError):
-        cache_max_age = 7200
-    raw_tail_bytes = provider_config_value.get(
-        "billing_cache_tail_bytes", 2 * 1024 * 1024
-    )
-    try:
-        tail_bytes = max(65536, int(raw_tail_bytes))
-    except (TypeError, ValueError):
-        tail_bytes = 2 * 1024 * 1024
-    cached_billing, cache_age = read_recent_grok_billing_cache(
-        billing_cache_path, cache_max_age, tail_bytes
-    )
-    if cached_billing is not None:
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "freshness",
-                "billing_source_age_seconds",
-                value=cache_age,
-                unit="seconds",
-                source="grok-unified-log",
-            )
-        )
-        rows.extend(
-            grok_billing_rows(
-                collected_at,
-                cached_billing,
-                source="grok-unified-log",
-                status="ok",
-            )
-        )
-    elif billing_enabled and executable is not None and auth_available:
-        timeout = provider_config_value.get("timeout_seconds", 30)
-        try:
-            timeout = int(timeout)
-        except (TypeError, ValueError):
-            timeout = 30
-        try:
-            billing = query_grok_billing(executable, timeout)
-            rows.extend(grok_billing_rows(collected_at, billing))
-        except Exception as error:
-            rows.append(
-                metric_row(
-                    collected_at,
-                    "grok",
-                    "collection",
-                    "billing_query",
-                    source="grok-x.ai-billing-acp",
-                    status="error",
-                    message=str(error),
-                )
-            )
-    elif billing_enabled:
-        reason = (
-            "Grok binary is missing; billing command was not run"
-            if executable is None
-            else "Grok OAuth cache is missing; billing command was not run"
-        )
-        rows.append(
-            metric_row(
-                collected_at,
-                "grok",
-                "collection",
-                "billing_query",
-                source="grok-x.ai-billing-acp",
-                status="missing",
-                message=reason,
-            )
-        )
-    return rows
 
 
 def provider_config(config: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     providers = config.get("providers", {})
     value = providers.get(name, {}) if isinstance(providers, Mapping) else {}
     return value if isinstance(value, Mapping) else {}
+
+
+def provider_names() -> list[str]:
+    """Every bundled provider id in collection order, including any that failed to load."""
+    return [name for name in ai_usage_plugins.BUNDLED if name in PLUGINS or name in PLUGIN_LOAD_ERRORS]
 
 
 def collect_snapshot(
@@ -4129,25 +710,13 @@ def collect_snapshot(
     progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[dict[str, Any]]:
     collected_at = iso_utc(utc_now())
-    handlers: dict[
-        str,
-        Callable[
-            [str, Mapping[str, Any], bool, MutableMapping[str, Any]],
-            list[dict[str, Any]],
-        ],
-    ] = {
-        "codex": collect_codex,
-        "claude": collect_claude,
-        "antigravity": collect_antigravity,
-        "gemini_cli": collect_gemini_cli,
-        "grok": collect_grok,
-    }
+    names = provider_names()
 
     rows: list[dict[str, Any]] = []
     enabled = [
-        name for name in handlers if provider_config(config, name).get("enabled", True) is True
+        name for name in names if provider_config(config, name).get("enabled", True) is True
     ]
-    for name, handler in handlers.items():
+    for name in names:
         settings = provider_config(config, name)
         if progress is not None and name in enabled:
             progress(name, enabled.index(name) + 1, len(enabled))
@@ -4167,7 +736,12 @@ def collect_snapshot(
             )
             continue
         try:
-            provider_rows = handler(collected_at, settings, include_history, state)
+            plugin = PLUGINS.get(name)
+            if plugin is None:
+                raise RuntimeError(f"provider module failed to load: {PLUGIN_LOAD_ERRORS[name]}")
+            provider_rows = plugin.collect(
+                CollectContext(collected_at, settings, include_history, state, VERSION)
+            )
         except Exception as error:  # One provider cannot suppress the others.
             provider_rows = [
                 metric_row(
@@ -4187,16 +761,18 @@ def collect_snapshot(
 
 def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     results: dict[str, dict[str, Any]] = {}
-    definitions = {
-        "codex": ["codex"],
-        "claude": ["claude"],
-        "antigravity": ["agy"],
-        "gemini_cli": ["gemini"],
-        "grok": ["grok"],
-    }
-    for name, executable_names in definitions.items():
+    for name in provider_names():
         settings = provider_config(config, name)
         enabled = settings.get("enabled", True) is True
+        plugin = PLUGINS.get(name)
+        if plugin is None:
+            results[name] = {
+                "enabled": enabled,
+                "detected": False,
+                "executable": None,
+                "load_error": PLUGIN_LOAD_ERRORS[name],
+            }
+            continue
         if not enabled:
             results[name] = {
                 "enabled": False,
@@ -4205,83 +781,9 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             }
             continue
         executable = (
-            find_executable(settings, executable_names) if enabled else None
+            find_executable(settings, list(plugin.executable_names)) if enabled else None
         )
-        extra: dict[str, Any] = {}
-        if name == "claude":
-            stats_setting = settings.get(
-                "stats_file", "~/.claude/stats-cache.json"
-            )
-            stats_path = expand_path(str(stats_setting))
-            extra["stats_file"] = str(stats_path)
-            extra["stats_file_readable"] = (
-                stats_path.is_file() and os.access(stats_path, os.R_OK)
-            )
-            projects_dir = expand_path(
-                str(settings.get("projects_dir", "~/.claude/projects"))
-            )
-            extra["projects_dir"] = str(projects_dir)
-            extra["session_log_count"] = len(claude_session_files(projects_dir))
-        elif name == "antigravity":
-            cache_path = expand_path(
-                str(
-                    settings.get(
-                        "cache_file", "~/.ai-usage/cache/antigravity.json"
-                    )
-                )
-            )
-            extra["cache_file"] = str(cache_path)
-            extra["cache_file_readable"] = (
-                cache_path.is_file() and os.access(cache_path, os.R_OK)
-            )
-            events_path = expand_path(
-                str(
-                    settings.get(
-                        "events_file",
-                        "~/.ai-usage/cache/antigravity-events.jsonl",
-                    )
-                )
-            )
-            extra["events_file"] = str(events_path)
-            extra["events_file_readable"] = (
-                events_path.is_file() and os.access(events_path, os.R_OK)
-            )
-        elif name == "gemini_cli":
-            telemetry_path = expand_path(
-                str(
-                    settings.get(
-                        "telemetry_file",
-                        "~/.ai-usage/cache/gemini-telemetry.log",
-                    )
-                )
-            )
-            extra["telemetry_file"] = str(telemetry_path)
-            extra["telemetry_file_readable"] = (
-                telemetry_path.is_file() and os.access(telemetry_path, os.R_OK)
-            )
-        elif name == "grok":
-            grok_home = expand_path(str(settings.get("grok_home", "~/.grok")))
-            session_files = [
-                path
-                for path in grok_home.glob("sessions/**/updates.jsonl")
-                if "subagents" not in path.parts and path.is_file()
-            ]
-            billing_cache = expand_path(
-                str(
-                    settings.get(
-                        "billing_cache_file", "~/.grok/logs/unified.jsonl"
-                    )
-                )
-            )
-            auth_file = expand_path(
-                str(settings.get("auth_file", "~/.grok/auth.json"))
-            )
-            extra["session_log_count"] = len(session_files)
-            extra["billing_cache_file"] = str(billing_cache)
-            extra["billing_cache_readable"] = (
-                billing_cache.is_file() and os.access(billing_cache, os.R_OK)
-            )
-            extra["auth_file_present"] = auth_file.is_file()
+        extra: dict[str, Any] = plugin.doctor_extra(settings)
         source_available = any(
             bool(value)
             for key, value in extra.items()
@@ -4303,6 +805,9 @@ def print_doctor(config: Mapping[str, Any], as_json: bool = False) -> None:
         return
     print("Provider discovery (no provider commands executed):")
     for name, result in results.items():
+        if result.get("load_error"):
+            print(f"  {name:13} could not be loaded — {result['load_error']}")
+            continue
         if not result["enabled"]:
             print(f"  {name:13} disabled")
             continue
@@ -4374,31 +879,14 @@ def stable_python_executable(executable: Optional[str] = None) -> Path:
     return path
 
 
-def antigravity_wrapper_content(config_path: Path) -> str:
+def wrapper_content(config_path: Path, command: str) -> str:
     return (
         "#!/bin/sh\n"
         f"exec {shlex.quote(str(stable_python_executable()))} "
         f"{shlex.quote(str(DEFAULT_INSTALLED_SCRIPT))} "
-        "antigravity-statusline --config "
+        f"{command} --config "
         f"{shlex.quote(str(config_path))}\n"
     )
-
-
-def desired_gemini_telemetry(settings: Mapping[str, Any]) -> dict[str, Any]:
-    telemetry_path = expand_path(
-        str(
-            settings.get(
-                "telemetry_file", "~/.ai-usage/cache/gemini-telemetry.log"
-            )
-        )
-    )
-    return {
-        "enabled": True,
-        "target": "local",
-        "outfile": str(telemetry_path),
-        "logPrompts": False,
-        "traces": False,
-    }
 
 
 def ownership_path() -> Path:
@@ -4610,41 +1098,32 @@ def prepare_integration_plans(
     config_path: Path,
     ownership: Optional[Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    antigravity = provider_config(config, "antigravity")
-    wrapper_path = DEFAULT_ROOT / "antigravity-statusline"
-    antigravity_path = expand_path(
-        str(antigravity.get("settings_file", "~/.gemini/antigravity-cli/settings.json"))
-    )
-    antigravity_plan = prepare_integration_plan(
-        "antigravity",
-        antigravity,
-        antigravity_path,
-        "statusLine",
-        {"type": "command", "command": str(wrapper_path)},
-        antigravity.get("enabled", True) is True
-        and antigravity.get("configure_status_line", True) is True,
-        find_executable(antigravity, ["agy"]),
-        previous_integration_record(ownership, "antigravity"),
-    )
-    antigravity_plan["wrapper_path"] = wrapper_path
-    antigravity_plan["wrapper_bytes"] = antigravity_wrapper_content(config_path).encode(
-        "utf-8"
-    )
-
-    gemini = provider_config(config, "gemini_cli")
-    gemini_path = expand_path(str(gemini.get("settings_file", "~/.gemini/settings.json")))
-    gemini_plan = prepare_integration_plan(
-        "gemini_cli",
-        gemini,
-        gemini_path,
-        "telemetry",
-        desired_gemini_telemetry(gemini),
-        gemini.get("enabled", True) is True
-        and gemini.get("configure_telemetry", True) is True,
-        find_executable(gemini, ["gemini"]),
-        previous_integration_record(ownership, "gemini_cli"),
-    )
-    return {"antigravity": antigravity_plan, "gemini_cli": gemini_plan}
+    plans: dict[str, dict[str, Any]] = {}
+    for name, plugin in PLUGINS.items():
+        spec = plugin.integration
+        if spec is None:
+            continue
+        settings = provider_config(config, name)
+        wrapper_path = DEFAULT_ROOT / spec.wrapper_command if spec.wrapper_command else None
+        settings_path = expand_path(str(settings.get(spec.settings_setting, spec.settings_default)))
+        plan = prepare_integration_plan(
+            name,
+            settings,
+            settings_path,
+            spec.field,
+            spec.desired(settings, wrapper_path),
+            settings.get("enabled", True) is True
+            and settings.get(spec.enable_setting, True) is True,
+            find_executable(settings, list(plugin.executable_names)),
+            previous_integration_record(ownership, name),
+        )
+        if wrapper_path is not None and spec.wrapper_command is not None:
+            plan["wrapper_path"] = wrapper_path
+            plan["wrapper_bytes"] = wrapper_content(config_path, spec.wrapper_command).encode(
+                "utf-8"
+            )
+        plans[name] = plan
+    return plans
 
 
 def integration_ownership_record(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -4659,7 +1138,9 @@ def integration_ownership_record(plan: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def apply_integration_plan(plan: MutableMapping[str, Any], tx: FilesystemTransaction) -> None:
-    name = str(plan["name"])
+    plugin = PLUGINS[str(plan["name"])]
+    spec = plugin.integration
+    assert spec is not None
     if plan.get("write") is True:
         settings_path = Path(plan["settings_path"])
         document = dict(plan["document"])
@@ -4667,29 +1148,19 @@ def apply_integration_plan(plan: MutableMapping[str, Any], tx: FilesystemTransac
         tx.snapshot(settings_path)
         tx.ensure_directory(settings_path.parent)
         write_json_object(settings_path, document)
-    if name == "gemini_cli" and plan.get("owned") is True:
-        telemetry_path = expand_path(str(plan["value"]["outfile"]))
-        tx.ensure_directory(telemetry_path.parent)
+    if plan.get("owned") is True:
+        for directory in spec.owned_directories(plan["value"]):
+            tx.ensure_directory(directory)
 
     status = str(plan["status"])
-    if name == "antigravity":
-        if status == "configured":
-            print(f"Configured Antigravity status-line capture: {plan['settings_path']}")
-        elif status in {"preexisting identical", "managed"}:
-            print(f"Preserved Antigravity statusLine ({status}): {plan['settings_path']}")
-        elif status == "missing executable":
-            print("Skipped Antigravity integration: agy was not found")
-        elif status != "disabled":
-            print(f"Preserved Antigravity settings ({status}): {plan['settings_path']}")
-    else:
-        if status == "configured":
-            print(f"Configured local Gemini CLI telemetry: {plan['settings_path']}")
-        elif status in {"preexisting identical", "managed"}:
-            print(f"Preserved Gemini CLI telemetry ({status}): {plan['settings_path']}")
-        elif status == "missing executable":
-            print("Skipped Gemini CLI integration: gemini was not found")
-        elif status != "disabled":
-            print(f"Preserved Gemini CLI settings ({status}): {plan['settings_path']}")
+    if status == "configured":
+        print(f"Configured {spec.configured_label}: {plan['settings_path']}")
+    elif status in {"preexisting identical", "managed"}:
+        print(f"Preserved {spec.preserved_label} ({status}): {plan['settings_path']}")
+    elif status == "missing executable":
+        print(f"Skipped {spec.display_name} integration: {plugin.executable_names[0]} was not found")
+    elif status != "disabled":
+        print(f"Preserved {spec.display_name} settings ({status}): {plan['settings_path']}")
 
 
 def build_launch_agent_plist(
@@ -4838,8 +1309,37 @@ def launch_agent(domain: str) -> None:
     run_launchctl(["kickstart", "-k", f"{domain}/{SERVICE_LABEL}"], check=True)
 
 
+PLUGIN_PACKAGE = "ai_usage_plugins"
+
+
+def plugin_module_plans(ownership: Optional[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Managed-file plans for every module of the plugin package, read from beside this file."""
+    source_dir = Path(__file__).resolve().parent / PLUGIN_PACKAGE
+    loaded_dir = Path(ai_usage_plugins.__file__).resolve().parent
+    if loaded_dir != source_dir:
+        raise ValueError(
+            f"refusing to install: the loaded plugins ({loaded_dir}) are not the ones beside "
+            f"this collector ({source_dir})"
+        )
+    return {
+        f"plugin_module:{name}": prepare_managed_file(
+            f"plugin_module:{name}",
+            DEFAULT_ROOT / PLUGIN_PACKAGE / f"{name}.py",
+            (source_dir / f"{name}.py").read_bytes(),
+            0o600,
+            ownership,
+        )
+        for name in ai_usage_plugins.MODULES
+    }
+
+
 def install_service(config_path: Path, no_start: bool) -> None:
     config_path = config_path.resolve(strict=False)
+    if PLUGIN_LOAD_ERRORS:
+        raise ValueError(
+            "refusing to install an incomplete collector; provider modules failed to load: "
+            + "; ".join(f"{name}: {error}" for name, error in PLUGIN_LOAD_ERRORS.items())
+        )
     if not no_start:
         if sys.platform != "darwin":
             raise RuntimeError("LaunchAgent installation can only be started on macOS")
@@ -4896,15 +1396,23 @@ def install_service(config_path: Path, no_start: bool) -> None:
             previous_ownership,
         ),
     }
-    antigravity_plan = integration_plans["antigravity"]
-    if antigravity_plan.get("owned") is True:
-        file_plans["antigravity_wrapper"] = prepare_managed_file(
-            "antigravity_wrapper",
-            Path(antigravity_plan["wrapper_path"]),
-            bytes(antigravity_plan["wrapper_bytes"]),
-            0o700,
-            previous_ownership,
-        )
+    for name, plan in integration_plans.items():
+        if "wrapper_path" in plan and plan.get("owned") is True:
+            file_plans[f"{name}_wrapper"] = prepare_managed_file(
+                f"{name}_wrapper",
+                Path(plan["wrapper_path"]),
+                bytes(plan["wrapper_bytes"]),
+                0o700,
+                previous_ownership,
+            )
+    module_plans = plugin_module_plans(previous_ownership)
+    file_plans.update(module_plans)
+    previous_files = previous_ownership.get("files", {}) if previous_ownership else {}
+    obsolete_modules = {
+        key: record
+        for key, record in previous_files.items()
+        if key.startswith("plugin_module:") and key not in module_plans
+    }
 
     domain = f"gui/{os.getuid()}"
     service_loaded = False
@@ -4949,11 +1457,16 @@ def install_service(config_path: Path, no_start: bool) -> None:
         else:
             print(f"Preserved existing config: {config_path}")
 
-        for key in ("installed_script",):
+        # The collector and its plugin package are written together, in one
+        # transaction: a failure restores every one of them.
+        for key in ("installed_script", *module_plans):
             apply_managed_file(file_plans[key], tx)
+        for key, record in obsolete_modules.items():
+            remove_owned_file(key, record, tx)
         print_doctor(config)
-        if "antigravity_wrapper" in file_plans:
-            apply_managed_file(file_plans["antigravity_wrapper"], tx)
+        for key, plan in file_plans.items():
+            if key.endswith("_wrapper"):
+                apply_managed_file(plan, tx)
         for plan in integration_plans.values():
             apply_integration_plan(plan, tx)
 
@@ -5278,6 +1791,34 @@ def remove_owned_file(
     return True
 
 
+def wrapper_integrations(
+    integrations: Mapping[str, Any], files: Mapping[str, Any]
+) -> list[str]:
+    """Integrations whose hook runs collector.py through an installer-owned wrapper."""
+    names = []
+    for name in dict.fromkeys([*integrations, *PLUGINS]):
+        plugin = PLUGINS.get(name)
+        has_wrapper = plugin is not None and plugin.integration is not None and bool(
+            plugin.integration.wrapper_command
+        )
+        if has_wrapper or f"{name}_wrapper" in files:
+            names.append(name)
+    return names
+
+
+def hook_may_use_managed_wrapper(name: str, value: Any) -> bool:
+    plugin = PLUGINS.get(name)
+    spec = plugin.integration if plugin is not None else None
+    if spec is None or not spec.wrapper_command:
+        return True  # unknown provider: assume it may
+    return value == spec.desired({}, DEFAULT_ROOT / spec.wrapper_command)
+
+
+def integration_display_name(name: str) -> str:
+    plugin = PLUGINS.get(name)
+    return plugin.integration.display_name if plugin is not None and plugin.integration else name
+
+
 def uninstall_service(config_path: Path) -> None:
     del config_path
     ownership = load_ownership()
@@ -5301,42 +1842,49 @@ def uninstall_service(config_path: Path) -> None:
             run_launchctl(["bootout", domain, str(DEFAULT_PLIST_PATH)], check=True)
             service_stopped = True
         integrations = ownership["integrations"]
-        antigravity_record = integrations.get("antigravity", {})
-        gemini_record = integrations.get("gemini_cli", {})
-        antigravity_detached = detach_owned_integration(
-            "antigravity", antigravity_record, tx
-        )
-        detach_owned_integration("gemini_cli", gemini_record, tx)
+        detached: dict[str, bool] = {}
+        for name, record in integrations.items():
+            detached[name] = detach_owned_integration(
+                name, record if isinstance(record, Mapping) else {}, tx
+            )
 
         files = ownership["files"]
-        wrapper_record = files.get("antigravity_wrapper")
-        wrapper_removed = remove_owned_file(
-            "antigravity_wrapper", wrapper_record, tx
-        )
-        unowned_hook_uses_managed_path = bool(
-            isinstance(antigravity_record, Mapping)
-            and antigravity_record.get("owned") is not True
-            and antigravity_record.get("attached") is True
-            and antigravity_record.get("value")
-            == {
-                "type": "command",
-                "command": str(DEFAULT_ROOT / "antigravity-statusline"),
-            }
-        )
-        script_safe = (
-            antigravity_detached
-            or wrapper_removed
-            or (
-                not isinstance(wrapper_record, Mapping)
-                and not unowned_hook_uses_managed_path
+        # collector.py may only go when no hook can still run it through a wrapper:
+        # each wrapper-backed hook was detached, its wrapper removed, or it never
+        # pointed at the managed wrapper path.
+        unsafe_hooks: list[str] = []
+        for name in wrapper_integrations(integrations, files):
+            record = integrations.get(name, {})
+            wrapper_record = files.get(f"{name}_wrapper")
+            wrapper_removed = remove_owned_file(f"{name}_wrapper", wrapper_record, tx)
+            unowned_hook_uses_managed_path = bool(
+                isinstance(record, Mapping)
+                and record.get("owned") is not True
+                and record.get("attached") is True
+                and hook_may_use_managed_wrapper(name, record.get("value"))
             )
-        )
+            hook_safe = (
+                detached.get(name, False)
+                or wrapper_removed
+                or (
+                    not isinstance(wrapper_record, Mapping)
+                    and not unowned_hook_uses_managed_path
+                )
+            )
+            if not hook_safe:
+                unsafe_hooks.append(integration_display_name(name))
         remove_owned_file("plist", files.get("plist"), tx)
-        if script_safe:
+        if not unsafe_hooks:
             remove_owned_file("installed_script", files.get("installed_script"), tx)
+            for key in [key for key in files if key.startswith("plugin_module:")]:
+                remove_owned_file(key, files.get(key), tx)
+            package_dir = DEFAULT_ROOT / PLUGIN_PACKAGE
+            if package_dir.is_dir() and not package_dir.is_symlink() and not any(package_dir.iterdir()):
+                package_dir.rmdir()
         else:
             print(
-                "Preserved collector.py because an unowned Antigravity hook may still depend on it"
+                f"Preserved collector.py because an unowned {' and '.join(unsafe_hooks)} hook "
+                "may still depend on it"
             )
 
         tx.snapshot(ownership_path())
@@ -5585,11 +2133,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_config_argument(daemon_parser)
 
-    antigravity_parser = subparsers.add_parser(
-        "antigravity-statusline",
-        help="accept one Antigravity status-line payload on stdin",
-    )
-    add_config_argument(antigravity_parser)
+    for plugin in PLUGINS.values():
+        if plugin.integration is not None and plugin.integration.wrapper_command:
+            status_line_parser = subparsers.add_parser(
+                plugin.integration.wrapper_command,
+                help=plugin.integration.wrapper_help,
+            )
+            add_config_argument(status_line_parser)
 
     doctor_parser = subparsers.add_parser(
         "doctor", help="discover providers without executing them"
@@ -5645,8 +2195,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 0
         if arguments.command == "daemon":
             return run_daemon(arguments.config)
-        if arguments.command == "antigravity-statusline":
-            return run_antigravity_statusline(arguments.config)
+        status_plugin = status_line_plugin(arguments.command)
+        if status_plugin is not None:
+            return run_status_line(status_plugin, arguments.config)
         if arguments.command == "doctor":
             config = load_config(arguments.config)
             print_doctor(config, arguments.json)

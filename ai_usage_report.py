@@ -25,7 +25,15 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
-import ai_usage_service as collector
+# Bundled beside the collector modules (the app's collector/ directory, or the
+# repository). Import them from there even under `python -I`.
+sys.dont_write_bytecode = True
+_REPORT_DIR = os.path.dirname(os.path.realpath(__file__))
+if _REPORT_DIR not in sys.path:
+    sys.path.insert(0, _REPORT_DIR)
+
+import ai_usage_service as collector  # noqa: E402
+from ai_usage_plugins.base import ProviderDef, SourceDef  # noqa: E402,F401  (re-exported)
 
 REPORT_SCHEMA = "ai-usage/report/v1"
 LOG_TAIL_BYTES = 256 * 1024
@@ -52,123 +60,12 @@ AUTH_PATTERN = re.compile(r"auth|sign.?in|log.?in|401|403|unauthori[sz]ed|creden
 
 # --------------------------------------------------------------------------- provider catalogue
 
-class SourceDef:
-    def __init__(
-        self,
-        sid: str,
-        role: str,
-        label: str,
-        kind: str,
-        csv_sources: Iterable[str],
-        *,
-        needs_rows: bool,
-        error_metrics: Iterable[str] = (),
-    ) -> None:
-        self.id = sid
-        self.role = role
-        self.label = label
-        self.kind = kind
-        self.csv_sources = set(csv_sources)
-        self.needs_rows = needs_rows
-        self.error_metrics = set(error_metrics)
-
-
-class ProviderDef:
-    def __init__(self, pid: str, name: str, product: str, *, mode: str, split: str,
-                 record_kind: str, quota: str, sources: list[SourceDef],
-                 reported_note: Optional[str], quota_note: Optional[str] = None) -> None:
-        self.id = pid
-        self.name = name
-        self.product = product
-        self.mode = mode
-        self.split = split
-        self.record_kind = record_kind
-        self.quota = quota  # polled | event | unsupported
-        self.sources = sources
-        self.reported_note = reported_note
-        self.quota_note = quota_note
-
-    def source_for_csv(self, csv_source: str) -> Optional[SourceDef]:
-        for source in self.sources:
-            if csv_source in source.csv_sources:
-                return source
-        return None
-
-
-
+# Each provider's catalogue entry (base.ProviderDef) comes from its plugin, in the
+# report's established order. A provider whose module failed to load is left
+# out and named in the report's collector.plugin_errors.
 PROVIDERS = [
-    ProviderDef(
-        "codex", "Codex", "OpenAI Codex", mode="polled", split="total_only",
-        record_kind="period_total", quota="polled",
-        reported_note="Codex does not report a usage cost.",
-        sources=[
-            SourceDef("rate-limits", "quota", "Rate limits",
-                      "Codex account API, read-only (account/rateLimits/read)",
-                      ["codex-rate-limits"], needs_rows=True,
-                      error_metrics=["rate_limits_query", "metadata_query", "unexpected_error"]),
-            SourceDef("account-usage", "usage", "Account usage",
-                      "Codex account API, read-only (account/usage/read)",
-                      ["codex-account-usage"], needs_rows=True,
-                      error_metrics=["account_usage_query", "metadata_query", "unexpected_error"]),
-        ],
-    ),
-    ProviderDef(
-        "claude", "Claude Code", "Claude Code", mode="event", split="input_output",
-        record_kind="event_total", quota="polled",
-        reported_note="Claude Code's local data doesn't include a usage cost.",
-        quota_note="Your plan's session and weekly limits, as Claude Code's /usage shows them.",
-        sources=[
-            SourceDef("sessions", "usage", "Session transcripts",
-                      "Local Claude Code session transcripts (~/.claude/projects)",
-                      ["claude-session-log"], needs_rows=False,
-                      error_metrics=["unexpected_error"]),
-            SourceDef("stats-cache", "history", "Daily stats",
-                      "Claude Code local stats cache (undocumented format)",
-                      ["claude-stats-cache"], needs_rows=True,
-                      error_metrics=["stats_cache"]),
-            SourceDef("subscription-usage", "quota", "Plan limits",
-                      "Claude Code's /usage: its cached limits, refreshed by one locked-down headless run when stale",
-                      ["claude-usage-command", "claude-usage-cache"], needs_rows=True,
-                      error_metrics=["subscription_usage_query"]),
-        ],
-    ),
-    ProviderDef(
-        "antigravity", "Antigravity", "Antigravity CLI", mode="event", split="input_output",
-        record_kind="delta", quota="event",
-        reported_note="Antigravity does not report a usage cost.",
-        quota_note="Reported by Antigravity while it runs. Between sessions the last reading is kept; that is normal, not stale.",
-        sources=[
-            SourceDef("status-line", "both", "Status-line updates",
-                      "Sent by Antigravity while it runs (status-line callback)",
-                      ["antigravity-status-line", "antigravity-status-line-events"], needs_rows=True,
-                      error_metrics=["status_line_cache", "unexpected_error"]),
-        ],
-    ),
-    ProviderDef(
-        "grok", "Grok Build", "Grok Build CLI", mode="event", split="input_output",
-        record_kind="event_total", quota="polled",
-        reported_note=None,
-        quota_note="Credit percentage for the current billing period, from xAI billing. It is not your subscription price.",
-        sources=[
-            SourceDef("session-log", "usage", "Session log", "Local Grok session files",
-                      ["grok-session-log"], needs_rows=False,
-                      error_metrics=["unexpected_error"]),
-            SourceDef("billing", "quota", "Billing snapshot",
-                      "Local billing log; xAI billing lookup as fallback (no model calls)",
-                      ["grok-unified-log", "grok-x.ai-billing-acp"], needs_rows=True,
-                      error_metrics=["billing_query", "unexpected_error"]),
-        ],
-    ),
-    ProviderDef(
-        "gemini_cli", "Gemini CLI", "Gemini CLI", mode="event", split="input_output",
-        record_kind="event_total", quota="unsupported",
-        reported_note="Gemini CLI does not report a usage cost.",
-        sources=[
-            SourceDef("telemetry", "usage", "Local telemetry file", "Gemini CLI telemetry (opt-in)",
-                      ["gemini-telemetry"], needs_rows=False,
-                      error_metrics=["telemetry_file", "unexpected_error"]),
-        ],
-    ),
+    plugin.report
+    for plugin in sorted(collector.PLUGINS.values(), key=lambda plugin: plugin.report_order)
 ]
 PROVIDER_BY_ID = {p.id: p for p in PROVIDERS}
 
@@ -1211,6 +1108,7 @@ def build_report(
             "csv_rows": scan.row_count,
             "installed_version": ".".join(str(part) for part in installed_version) if installed_version else None,
             "capabilities": capabilities,
+            **({"plugin_errors": dict(collector.PLUGIN_LOAD_ERRORS)} if collector.PLUGIN_LOAD_ERRORS else {}),
         },
         "thresholds": {"stale_after_seconds": stale_after,
                        "grok_billing_stale_after_seconds": GROK_BILLING_STALE_SECONDS},
