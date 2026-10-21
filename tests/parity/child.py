@@ -157,7 +157,7 @@ def main() -> int:
         elif op == "report":
             arguments = [
                 "--config", str(config_path), "--now", plan["now_iso"], "--service", "skip",
-                "--installed-collector", str(Path(plan["src"]) / "ai_usage_service.py"),
+                "--installed-collector", step.get("installed_collector", str(Path(plan["src"]) / "ai_usage_service.py")),
                 "--days", str(step.get("days", 30)),
             ]
             outcome = captured(lambda: report.main(arguments))
@@ -166,6 +166,12 @@ def main() -> int:
             except ValueError:
                 outcome["report"] = None
             results.append({"op": op, **outcome})
+        elif op == "write_file":
+            Path(step["path"]).write_text(step["text"], encoding="utf-8")
+            results.append({"op": op})
+        elif op == "cli":
+            # Phase 2 plans only (tests/test_provider_instances.py): any collector command.
+            results.append({"op": op, **captured(lambda: service.main([*step["args"], "--config", str(config_path)]))})
         else:
             raise SystemExit(f"unknown parity step: {op}")
     sys.__stdout__.write(json.dumps({"results": results}, sort_keys=True) + "\n")

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Behavior parity for the provider-plugin refactor (phase 1, AC-3).
+"""Behavior parity for the provider-plugin project (phase 1 AC-3, phase 2 AC-1/AC-4).
 
 Each scenario builds a sandbox (fake provider executables, provider data files
 and a config), then runs a plan of public entry points through child.py with
 wall-clock time frozen at FIXED_NOW. The outputs are normalized only as
 NORMALIZE describes and compared with golden files captured from the merged
-pre-refactor revision recorded in BASELINE.
+pre-refactor revision recorded in BASELINE, after applying phase 2's declared
+INTENTIONAL_CHANGES to the golden side.
 
     python3 tests/parity/driver.py capture --src DIR   # write golden/ from DIR (the baseline only)
     python3 tests/parity/driver.py compare [--src DIR]  # compare DIR (default: this checkout)
@@ -26,12 +27,13 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 GOLDEN = HERE / "golden"
 BASELINE_FILE = HERE / "BASELINE"
+PHASE1_FILE = HERE / "PHASE1"
 CHILD = HERE / "child.py"
 
 FIXED_NOW = "2026-08-21T12:00:00Z"
@@ -485,14 +487,17 @@ def normalize(document: dict[str, Any], root: Path, src: Path) -> dict[str, Any]
     return document
 
 
-def run_scenario(src: Path, name: str, handoff: Optional[tuple[Path, int]] = None) -> dict[str, Any]:
+def run_scenario(src: Path, name: Union[str, Callable[[Sandbox], list[dict[str, Any]]]],
+                 handoff: Optional[tuple[Path, int]] = None,
+                 environment_extra: Optional[Callable[[Sandbox], dict[str, str]]] = None) -> dict[str, Any]:
     """Run a scenario's plan with `src`. With `handoff` (other_src, index), the
     steps from `index` on run with other_src in the same sandbox: data written
-    by one revision is read by the other."""
+    by one revision is read by the other. `name` may also be a plan builder, and
+    `environment_extra` adds variables to the collector's environment."""
     root = Path(tempfile.mkdtemp(prefix="ai-usage-parity-"))
     try:
         box = Sandbox(root)
-        steps = SCENARIOS[name](box)
+        steps = (SCENARIOS[name] if isinstance(name, str) else name)(box)
         environment = {
             "HOME": str(box.home),
             "PATH": os.pathsep.join([str(box.bin), "/usr/bin", "/bin"]),
@@ -501,6 +506,7 @@ def run_scenario(src: Path, name: str, handoff: Optional[tuple[Path, int]] = Non
             "PYTHONDONTWRITEBYTECODE": "1",
             # Lifecycle commands are not part of a plan; a set-but-empty override means "no launchctl".
             "AI_USAGE_LAUNCHCTL": "",
+            **(environment_extra(box) if environment_extra else {}),
         }
         segments = [(src, steps)]
         if handoff is not None:
@@ -556,11 +562,45 @@ def golden_path(name: str) -> Path:
     return GOLDEN / f"{name}.json"
 
 
+# Phase 2 (tasks/phase-2/prd-provider-instances.md) changes the output on purpose, in
+# exactly these places and nothing else. expected() applies them to the unchanged
+# golden files; the observed output is never normalized for them.
+VERSION = "2.3.0"
+INTENTIONAL_CHANGES = {
+    "report.collector.version": f"the collector version, {VERSION}",
+    "report.collector.installed_version": f"{VERSION} when the golden file has one (the installed collector is this tree)",
+    "report.collector.capabilities.instances": "added: true when the installed collector is 2.3.0 or newer",
+    "report.providers[*].type": "added: the provider's canonical type, its id for a built-in",
+    "doctor_json.stdout[*].type": "added: the same type on every doctor --json entry",
+}
+
+
+def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
+    """The golden document for `name` with INTENTIONAL_CHANGES applied to the results
+    of steps `changed_from` onward (the ones this tree runs in a carry-forward)."""
+    document = json.loads(golden_path(name).read_text(encoding="utf-8"))
+    for result in document["results"][changed_from:]:
+        report = result.get("report") if result["op"] == "report" else None
+        if report:
+            collector = report["collector"]
+            collector["version"] = VERSION
+            if collector["installed_version"] is not None:
+                collector["installed_version"] = VERSION
+            collector["capabilities"]["instances"] = collector["installed_version"] is not None
+            for provider in report["providers"]:
+                provider["type"] = provider["id"]
+        if result["op"] == "doctor_json" and result.get("return") == 0:
+            entries = json.loads(result["stdout"])
+            for key, entry in entries.items():
+                entry["type"] = key
+            result["stdout"] = json.dumps(entries, indent=2, sort_keys=True) + "\n"
+    return document
+
+
 def compare(src: Path, names: Optional[list[str]] = None) -> dict[str, Optional[str]]:
     differences: dict[str, Optional[str]] = {}
     for name in names or list(SCENARIOS):
-        expected = json.loads(golden_path(name).read_text(encoding="utf-8"))
-        differences[name] = first_difference(expected, run_scenario(src, name))
+        differences[name] = first_difference(expected(name), run_scenario(src, name))
     return differences
 
 
@@ -585,9 +625,13 @@ def capture(src: Path) -> None:
         print(f"captured {name}")
 
 
-def extract_baseline(destination: Path) -> Path:
-    """The BASELINE revision's tree, from git (needs the commit in local history)."""
-    sha = baseline_sha()
+def phase1_sha() -> str:
+    return PHASE1_FILE.read_text(encoding="utf-8").split()[0]
+
+
+def extract_baseline(destination: Path, sha: Optional[str] = None) -> Path:
+    """A revision's tree (BASELINE by default), from git (needs the commit in local history)."""
+    sha = sha or baseline_sha()
     archive = subprocess.run(["git", "-C", str(REPO), "archive", sha], capture_output=True, check=True).stdout
     destination.mkdir(parents=True, exist_ok=True)
     subprocess.run(["tar", "-x", "-C", str(destination)], input=archive, check=True)
