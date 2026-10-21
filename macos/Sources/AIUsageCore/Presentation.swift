@@ -189,14 +189,15 @@ public enum Presentation {
                 out.append(Notice(id: "collector", tone: .failure, title: "The last check failed",
                                   detail: (failure.message ?? "") + " · Nothing was changed. The collector log has details.",
                                   providerId: nil))
-            } else if let name {
-                let what = failure.kind == "quota" ? "quota" : failure.kind == "usage" ? "usage" : "check"
+            } else if let id = failure.provider {
+                // A provider whose plugin failed to load is not in the report: name it by id.
+                let what = failure.kind == "quota" ? "quota " : failure.kind == "usage" ? "usage " : ""
                 out.append(Notice(
-                    id: "fail-\(failure.provider ?? "")-\(failure.source ?? "")",
+                    id: "fail-\(id)-\(failure.source ?? "")",
                     tone: .failure,
-                    title: failure.auth ? "\(name) needs you to sign in" : "\(name) \(what) check failed",
+                    title: failure.auth ? "\(name ?? id) needs you to sign in" : "\(name ?? id) \(what)check failed",
                     detail: "\(failure.message ?? "No details") · cached values are kept",
-                    providerId: failure.provider))
+                    providerId: name == nil ? nil : id))
             }
         }
         for provider in report.providers where provider.enabled {
@@ -496,7 +497,7 @@ public enum NotificationPlanner {
         if preferences.failures, let attempt = report.collection.lastAttemptAt, now.timeIntervalSince(attempt) < 2 * 3600 {
             for failure in report.collection.failures {
                 let key = "failure|\(failure.provider ?? "collector")|\(failure.source ?? "")|\(ReportDate.format(attempt))"
-                let name = failure.provider.flatMap { report.provider($0)?.name } ?? "The collector"
+                let name = failure.provider.flatMap { report.provider($0)?.name } ?? failure.provider ?? "The collector"
                 let title = failure.auth ? "\(name) needs you to sign in" :
                     (failure.kind == "collector" ? "The last check failed" : "\(name) check failed")
                 out.append(PlannedAlert(key: key, title: title, body: (failure.message ?? "") + " Cached values are kept."))

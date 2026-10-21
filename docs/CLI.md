@@ -138,6 +138,8 @@ reported*. It never means zero.
     "failures": [                          // from the latest attempt only
       { "provider": "codex", "source": "rate-limits", "kind": "quota",
         "at": "…", "message": "…", "auth": false }
+      // kind: the source's role (quota, usage, …); collector: the whole check failed;
+      // plugin: the provider's module failed to load in this report (source "collector")
     ],
     "summary": {
       "providers_attempted": 4, "providers_updated": 4, "providers_partly": 0,

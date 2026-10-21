@@ -63,7 +63,7 @@ Each provider module defines `PLUGIN = ProviderPlugin(...)`.
 
 | What fails | What happens |
 | --- | --- |
-| A provider module fails to import | The other providers load and collect as before. On every poll, the failed provider gets one `collection/unexpected_error` row whose message is `provider module failed to load: <error>`, unless it is disabled in the config. `doctor` shows `load_error` for it. The report leaves it out and lists the error in `collector.plugin_errors`; the key is present only when something failed. |
+| A provider module fails to import | The other providers load and collect as before. On every poll, the failed provider gets one `collection/unexpected_error` row whose message is `provider module failed to load: <error>`, unless it is disabled in the config. `doctor` shows `load_error` for it. The report leaves it out and lists the error in `collector.plugin_errors`; the key is present only when something failed. If the report's own copy of the module fails, the report also counts the provider as failed: one `collection.failures` entry (`kind: "plugin"`, the provider id, the load error), `providers_failed` and `providers_attempted` each one higher, and a `partial` result (`failed` if no other provider updated). The app shows it as a failure notice named by the provider id. A provider that is turned off is not counted, and isn't listed in `skipped` either, because its display name is in the module that failed. |
 | `collect()` raises | Unchanged from before: one `collection/unexpected_error` row with the error message, and the other providers still run. |
 | `install` from a source tree with a module that fails to load | Refused before anything is written. The installer does not install an incomplete module set. |
 | The Antigravity module fails to load (known limit) | Its `antigravity-statusline` command isn't registered, so the status-line hook gets a usage error instead of the plain name "Antigravity" that it shows for any other failure. If `base` or `support` fails, no command works. Install never writes an incomplete set, and it writes the modules before `collector.py`, so this needs a damaged install. |
@@ -82,6 +82,7 @@ providers' rows with the parity golden files (`tests/test_plugin_architecture.py
 **Install:**
 - Every module is a managed file, with the ownership key `plugin_module:<name>`.
 - `collector.py` and all modules are written in the same transaction. If any write fails, every file is restored, so a failed upgrade never leaves a mix of versions. The failure test fails each write in turn.
+- An interruption (Ctrl-C, `KeyboardInterrupt`) during install or uninstall is handled like a failure: the files are restored and a service stopped for the change is started again, then the interruption is raised. A `kill -9` or a power loss is not covered.
 - Upgrading from the single-file collector (2.2.0 and earlier) adds the package in that transaction. Config, state and CSV are not rewritten.
 - Reinstalling the same version rewrites no program file.
 - An owned module that a newer version no longer ships is removed only if it is unchanged.

@@ -189,6 +189,38 @@ class FailureIsolationTests(unittest.TestCase):
                          {"claude": "RuntimeError: claude module is broken"})
         self.assertNotIn("claude", [p["id"] for p in report["report"]["providers"]])
 
+    def test_a_provider_that_fails_to_load_in_the_report_is_a_reported_failure(self) -> None:
+        # The report's own package is the broken one: claude has no catalogue entry, so
+        # the collection status must still count it, through the contract the app reads.
+        observed = self.run_with_broken("claude", append="\nraise RuntimeError('claude module is broken')\n")
+        golden = json.loads(driver.golden_path("all_providers").read_text(encoding="utf-8"))
+        expected = next(r for r in golden["results"] if r["op"] == "report")["report"]
+        report = next(r for r in observed["results"] if r["op"] == "report")["report"]
+        collection = report["collection"]
+        self.assertEqual(collection["last_attempt_result"], "partial")
+        self.assertEqual(collection["failures"], [{
+            "provider": "claude", "source": "collector", "kind": "plugin",
+            "at": expected["collection"]["last_attempt_at"],
+            "message": "provider module failed to load: RuntimeError: claude module is broken", "auth": False}])
+        self.assertEqual(collection["summary"], {**expected["collection"]["summary"],
+                                                 "providers_updated": 4, "providers_failed": 1})
+        self.assertEqual(report["providers"], [p for p in expected["providers"] if p["id"] != "claude"])
+
+    def test_a_turned_off_provider_that_fails_to_load_is_not_a_failure(self) -> None:
+        # claude is turned off in this scenario, so its broken module changes no status.
+        with tempfile.TemporaryDirectory(prefix="ai-usage-broken-") as temporary:
+            src = copy_tree(Path(temporary) / "src")
+            path = src / "ai_usage_plugins" / "claude.py"
+            path.write_text(path.read_text(encoding="utf-8") + "\nraise RuntimeError('broken')\n", encoding="utf-8")
+            observed = driver.run_scenario(src, "disabled_and_missing")
+        golden = json.loads(driver.golden_path("disabled_and_missing").read_text(encoding="utf-8"))
+        def collection(document: dict[str, Any]) -> dict[str, Any]:
+            return next(r for r in document["results"] if r["op"] == "report")["report"]["collection"]
+        expected = collection(golden)
+        # Its display name lives in the module that failed, so it can't be listed as skipped.
+        expected["summary"]["skipped"].remove("Claude Code")
+        self.assertEqual(collection(observed), expected)
+
     def test_a_provider_whose_collect_raises_is_one_error_row_and_others_still_collect(self) -> None:
         observed = self.run_with_broken(
             "grok", replace=("def collect(context: CollectContext) -> list[dict[str, Any]]:\n",

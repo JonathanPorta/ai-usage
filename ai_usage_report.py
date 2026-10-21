@@ -937,6 +937,23 @@ def build_report(
             "auth": False,
         }]
         collection["summary"] = None
+    # A provider whose module failed to load in this report has no catalogue entry, so
+    # its rows can't count above. Unless it is turned off, it is a failed provider.
+    load_failures = [
+        {"provider": pid, "source": "collector", "kind": "plugin", "at": collection["last_attempt_at"],
+         "message": f"provider module failed to load: {error}", "auth": False}
+        for pid, error in collector.PLUGIN_LOAD_ERRORS.items()
+        if collector.provider_config(config, pid).get("enabled", True) is True
+    ]
+    if load_failures and not cycle_failures:
+        collection["failures"] = [*collection["failures"], *load_failures]
+        summary = collection["summary"]
+        if summary is not None:
+            summary["providers_attempted"] += len(load_failures)
+            summary["providers_failed"] += len(load_failures)
+        if collection["last_attempt_result"] is not None:
+            others_updated = summary is not None and (summary["providers_updated"] or summary["providers_partly"])
+            collection["last_attempt_result"] = "partial" if others_updated else "failed"
 
     next_scheduled = None
     paused = pause_requested and supports_pause
