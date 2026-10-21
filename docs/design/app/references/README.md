@@ -7,7 +7,7 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 
 | Item | Value |
 | --- | --- |
-| Images | 50 PNGs: 25 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15 (below) |
+| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts 2026-10-20 (below) |
 | Checksums | `SHA256SUMS` (identical to the package's `SHA256SUMS.txt`) |
 | Command | `make app-snapshot` (`AIUsage --snapshot .sandbox/snapshots/fixture`) |
 | Data | Committed synthetic fixture `macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json`, evaluated at 2026-09-29T16:40:00Z, `TZ=America/Denver` |
@@ -46,6 +46,23 @@ weekly 65% used, weekly Fable 4% used), shown as "% used" like Claude Code's `/u
 | Replaced (12) | `detail-claude-tokens`, `history-tokens-claude`, `history-tokens-claude-narrow`, `popover-monitoring`, `popover-overview`, `popover-overview-short`, light and dark |
 | Rendered at | `f6537ee`; byte-identical after merging the focus-ring and notice fixes (`5874dc8`) |
 | Re-verified | A fresh `make app-snapshot-check` matches all 50 |
+
+## Added accounts (accepted 2026-10-20)
+
+Accepted by the owner (Jonathan) on 2026-10-20 from the review page
+https://claude.ai/artifact/WayXUcbCyjuNB8wgSrkMap (PR #11, phase 2).
+
+| Item | Value |
+| --- | --- |
+| Added (24) | `popover-settings-two-accounts`, `popover-overview-two-accounts`, `detail-claude-az-quota`, and `add-account-{unsupported,closed,empty,problems,duplicate,ready,saving,saved,failed}`, light and dark |
+| Data | The second committed fixture, `report-fixture-two-accounts.json` (`claude-az`, "Claude (work)") |
+| Rendered at | `dc5371d`; byte-identical at the merge commit `315c43e` |
+| Toolchain | macOS 27.0.1, Swift 6.4 |
+
+On macOS 27.0.1 the earlier 50 baselines (rendered on 26.6.1) no longer match byte for byte,
+so `make app-snapshot-check` fails on them there. They are not re-rendered here. Re-baselining
+them needs its own review, and so does the single-account `popover-settings`, which now shows
+"Add Claude account…".
 
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 
