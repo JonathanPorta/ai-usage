@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 # Bundled beside the collector modules (the app's collector/ directory, or the
 # repository). Import them from there even under `python -I`.
@@ -67,7 +67,20 @@ PROVIDERS = [
     plugin.report
     for plugin in sorted(collector.PLUGINS.values(), key=lambda plugin: plugin.report_order)
 ]
-PROVIDER_BY_ID = {p.id: p for p in PROVIDERS}
+
+
+def catalogue(config: Mapping[str, Any]) -> list[ProviderDef]:
+    """The built-ins in report order, then each added instance as configured.
+
+    An instance's entry is its plugin's, with the instance's own id and label:
+    rules select on `definition.type`, data lookups on `definition.id`.
+    """
+    definitions = list(PROVIDERS)
+    for account in collector.accounts(config):
+        plugin = collector.PLUGINS.get(account.type)
+        if account.added and plugin is not None:
+            definitions.append(plugin.report.for_instance(account.id, account.label or account.id))
+    return definitions
 
 
 # --------------------------------------------------------------------------- time helpers
@@ -346,7 +359,7 @@ def evaluate_attempt(state: ProviderState, attempt: Attempt) -> Optional[str]:
             if r.category == "collection" and r.status in ("error", "missing")
             and r.metric in definition.error_metrics and r.metric not in NON_FATAL_ERROR_METRICS
         ]
-        if state.definition.id == "gemini_cli" and any(r.metric == "telemetry_file" for r in errors):
+        if state.definition.type == "gemini_cli" and any(r.metric == "telemetry_file" for r in errors):
             source.status = "off"
             source.error = None
             state.setup = "not_configured"
@@ -503,9 +516,9 @@ def build_days(definition: ProviderDef, aggregated: dict[str, dict[str, float]],
 
 def models_today(definition: ProviderDef, rows: list[Row], model_rows: list[Row], today: str) -> list[dict[str, Any]]:
     totals: dict[str, float] = {}
-    if definition.id == "grok":
+    if definition.type == "grok":
         for row in model_rows:
-            if row.provider != "grok" or row.ts is None or local_date(row.ts) != today:
+            if row.provider != definition.id or row.ts is None or local_date(row.ts) != today:
                 continue
             try:
                 payload = json.loads(row.value)
@@ -556,7 +569,7 @@ def window_identity(provider: str, scope: str, window_seconds: Optional[float]) 
         label, short, ranges = f"{text} limit", text, ["24h", "7d"] if seconds <= DAY else ["7d", "35d"]
     else:
         label, short, ranges = "Limit", "Limit", ["7d", "35d"]
-    if provider == "claude" and scope.startswith("weekly:"):
+    if provider == "claude" and scope.startswith("weekly:"):  # provider: the canonical type
         model = scope.split(":", 1)[1]
         return f"{label} · {model}", f"{short} · {model}", ranges
     limit_id = scope.split(":", 1)[0] if ":" in scope else ""
@@ -609,20 +622,20 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
     quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
     groups: dict[str, list[Row]] = {}
     for row in rows:
-        if definition.id == "codex" and row.metric != "used_percent":
+        if definition.type == "codex" and row.metric != "used_percent":
             continue
-        if definition.id in ("grok", "claude") and row.metric != "used_percent":
+        if definition.type in ("grok", "claude") and row.metric != "used_percent":
             continue
-        if definition.id == "antigravity" and row.metric != "remaining_percent":
+        if definition.type == "antigravity" and row.metric != "remaining_percent":
             continue
         groups.setdefault(row.scope, []).append(row)
     windows: list[dict[str, Any]] = []
     for scope, group in groups.items():
         window_seconds = next((number(r.window) for r in reversed(group) if number(r.window)), None)
-        label, short, ranges = window_identity(definition.id, scope, window_seconds)
-        derived = definition.id == "codex"
+        label, short, ranges = window_identity(definition.type, scope, window_seconds)
+        derived = definition.type == "codex"
         # Claude Code's own /usage says "% used", so its limits are shown the same way.
-        basis = "used" if definition.id in ("grok", "claude") else "remaining"
+        basis = "used" if definition.type in ("grok", "claude") else "remaining"
         readings: dict[float, dict[str, Any]] = {}
         for row in group:
             value = number(row.value)
@@ -655,7 +668,7 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
         retired = omitted and now - measured_at > max(2 * span, DAY)
         cause: Optional[str] = None
         collected_at = quota_source.last_read_at if quota_source else None
-        threshold = GROK_BILLING_STALE_SECONDS if definition.id == "grok" else stale_after
+        threshold = GROK_BILLING_STALE_SECONDS if definition.type == "grok" else stale_after
         if quota_source is not None and quota_source.status == "auth":
             cause = "auth"
         elif quota_source is not None and quota_source.status == "failed":
@@ -770,31 +783,9 @@ def probe_service(runner: Optional[Callable[[list[str]], subprocess.CompletedPro
 
 
 PAUSE_MIN_VERSION = (2, 2, 0)
-_VERSION_LINE = re.compile(r'^VERSION = "([0-9]+)\.([0-9]+)\.([0-9]+)"', re.MULTILINE)
-
-
-def installed_collector_script() -> Optional[Path]:
-    """The script the LaunchAgent actually runs (ProgramArguments[1])."""
-    try:
-        import plistlib
-        with collector.DEFAULT_PLIST_PATH.open("rb") as handle:
-            arguments = plistlib.load(handle).get("ProgramArguments") or []
-    except (OSError, ValueError):
-        return None
-    return Path(arguments[1]) if len(arguments) > 1 else None
-
-
-def installed_collector_version(script: Optional[Path]) -> Optional[tuple[int, int, int]]:
-    """Read VERSION from the installed script's text. Never executes it."""
-    if script is None:
-        return None
-    try:
-        with script.open("r", encoding="utf-8", errors="replace") as handle:
-            head = handle.read(16384)
-    except OSError:
-        return None
-    match = _VERSION_LINE.search(head)
-    return tuple(int(part) for part in match.groups()) if match else None  # type: ignore[return-value]
+# Read from the LaunchAgent's script text, never executed (kept here for callers).
+installed_collector_script = collector.installed_collector_script
+installed_collector_version = collector.installed_collector_version
 
 
 def default_runner(arguments: list[str]) -> subprocess.CompletedProcess:
@@ -828,10 +819,13 @@ def build_report(
         "progress": supports_pause,
         "service_control": True,
         "settings": True,
+        # Added accounts (`instances`) are collected by 2.3.0 and newer.
+        "instances": installed_version is not None and installed_version >= collector.INSTANCES_MIN_VERSION,
     }
     pause_requested = config.get("poll_paused") is True
 
-    states = {p.id: ProviderState(p) for p in PROVIDERS}
+    definitions = catalogue(config)
+    states = {p.id: ProviderState(p) for p in definitions}
     latest_results: dict[str, Optional[str]] = {}
     for attempt in scan.attempts:
         if attempt.at is not None and attempt.at > now:
@@ -860,13 +854,23 @@ def build_report(
 
     # Configured enablement wins for providers the latest attempt hasn't seen yet.
     for pid, state in states.items():
-        settings = collector.provider_config(config, pid)
+        settings = collector.settings_for(config, pid)
         if settings.get("enabled", True) is not True and state.setup != "disabled":
             state.enabled = False
             state.setup = "disabled"
             state.setup_note = "Turned off in the collector config; cached values are kept."
             for source in state.sources.values():
                 source.status = "off"
+    # An older installed collector ignores `instances`: say so instead of "not found".
+    if installed_version is not None and installed_version < collector.INSTANCES_MIN_VERSION:
+        for definition in definitions[len(PROVIDERS):]:
+            state = states[definition.id]
+            if state.setup != "disabled":
+                state.setup = "not_configured"
+                state.setup_note = (
+                    f"Not collected: the installed collector ({'.'.join(map(str, installed_version))}) "
+                    "predates added accounts. Reinstall the collector to collect it."
+                )
 
     # Collection summary for the latest attempt.
     collection: dict[str, Any] = {
@@ -940,10 +944,11 @@ def build_report(
     # A provider whose module failed to load in this report has no catalogue entry, so
     # its rows can't count above. Unless it is turned off, it is a failed provider.
     load_failures = [
-        {"provider": pid, "source": "collector", "kind": "plugin", "at": collection["last_attempt_at"],
-         "message": f"provider module failed to load: {error}", "auth": False}
-        for pid, error in collector.PLUGIN_LOAD_ERRORS.items()
-        if collector.provider_config(config, pid).get("enabled", True) is True
+        {"provider": account.id, "source": "collector", "kind": "plugin", "at": collection["last_attempt_at"],
+         "message": f"provider module failed to load: {collector.PLUGIN_LOAD_ERRORS[account.type]}", "auth": False}
+        for account in collector.accounts(config)
+        if account.type in collector.PLUGIN_LOAD_ERRORS
+        and collector.settings_for(config, account.id).get("enabled", True) is True
     ]
     if load_failures and not cycle_failures:
         collection["failures"] = [*collection["failures"], *load_failures]
@@ -987,7 +992,7 @@ def build_report(
                     loss_dates.setdefault(pid, set()).add(local_date(row.ts))
 
     providers_out = []
-    for definition in PROVIDERS:
+    for definition in definitions:
         state = states[definition.id]
         usage_rows = scan.usage.get(definition.id, [])
         usage_source = next((s for s in state.sources.values() if s.definition.role in ("usage", "both")), None)
@@ -1029,8 +1034,9 @@ def build_report(
 
         costs: dict[str, Any] = {"reported": None, "reported_note": definition.reported_note,
                                  "api_equivalent": None, "subscription": None}
-        if definition.id == "grok":
-            billing = [r for r in scan.billing if r.ts is not None and r.ts <= now and number(r.value) is not None]
+        if definition.type == "grok":
+            billing = [r for r in scan.billing if r.provider == definition.id and r.ts is not None
+                       and r.ts <= now and number(r.value) is not None]
             if billing:
                 latest_bill = max(billing, key=lambda r: r.ts)
                 measured = latest_bill.ts - freshness_rows.get(latest_bill.tx, 0.0) if latest_bill.source == "grok-unified-log" else latest_bill.ts
@@ -1045,14 +1051,14 @@ def build_report(
                 costs["reported_note"] = "No billing snapshot has been read yet."
             window_start = now - 30 * DAY
             api = [number(r.value) or 0 for r in scan.api_cost
-                   if r.provider == "grok" and r.ts is not None and window_start <= r.ts <= now]
+                   if r.provider == definition.id and r.ts is not None and window_start <= r.ts <= now]
             if api:
                 costs["api_equivalent"] = {"amount_usd": clean(round(sum(api), 2)),
                                            "basis": "API-equivalent cost reported by Grok sessions",
                                            "range_days": 30}
         month = today[:7]
         rate_rows = [r for r in scan.monthly_rate.get(definition.id, []) if r.period_start[:7] == month and number(r.value) is not None]
-        configured = collector.provider_config(config, definition.id).get("monthly_subscription_usd")
+        configured = collector.settings_for(config, definition.id).get("monthly_subscription_usd")
         if rate_rows:
             costs["subscription"] = {"monthly_usd": clean(number(max(rate_rows, key=lambda r: r.ts or 0).value)),
                                      "source": "csv", "entered_by_user": True}
@@ -1073,12 +1079,12 @@ def build_report(
                 "last_read_at": iso(source.last_read_at), "measured_at": measured,
                 "error": source.error,
             })
-        if definition.id == "claude":
+        if definition.type == "claude":
             cache = state.sources["stats-cache"]
             if cache.status == "ok":
                 stale_note = any(
                     r.metric == "source_age_seconds" and r.status == "stale"
-                    for r in (latest.provider_rows("claude") if latest else []))
+                    for r in (latest.provider_rows(definition.id) if latest else []))
                 if stale_note:
                     cache.status = "stale"
                     sources_out[1]["status"] = "stale"
@@ -1092,7 +1098,7 @@ def build_report(
             state.notes.append("A session log rotated before it was read; affected days are shown as missing, not zero.")
 
         providers_out.append({
-            "id": definition.id, "name": definition.name, "product": definition.product,
+            "id": definition.id, "type": definition.type, "name": definition.name, "product": definition.product,
             "enabled": state.enabled, "setup": state.setup, "setup_note": state.setup_note,
             "usage": {
                 "status": usage_status, "stale_cause": usage_cause,

@@ -81,7 +81,7 @@ from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fi
 )
 
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
 TEST_SERVICE_LABEL_PREFIX = f"{PRODUCTION_SERVICE_LABEL}.test."
 
@@ -206,7 +206,108 @@ def validate_config(config: Mapping[str, Any]) -> None:
     providers = config.get("providers")
     if not isinstance(providers, Mapping):
         raise ValueError("providers must be an object")
+    validate_instances(config)
     validate_configured_paths(config)
+
+
+# Added instances (phase 2): `instances` holds accounts beyond each plugin's built-in
+# one. An instance's id is its provider id everywhere (CSV, state, report); its
+# plugin is its canonical type; its label is display text only.
+INSTANCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+INSTANCE_KEYS = ("id", "plugin", "label", "settings")
+INSTANCES_MIN_VERSION = (2, 3, 0)
+
+
+class Account:
+    """One provider the collector reads: a plugin's built-in instance or an added one."""
+
+    def __init__(self, account_id: str, plugin_id: str, label: Optional[str] = None) -> None:
+        self.id = account_id
+        self.type = plugin_id
+        self.label = label
+
+    @property
+    def added(self) -> bool:
+        return self.label is not None
+
+
+def configured_instances(config: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    instances = config.get("instances", [])
+    return [entry for entry in instances if isinstance(entry, Mapping)] if isinstance(instances, list) else []
+
+
+def validate_instances(config: Mapping[str, Any]) -> None:
+    for name, plugin in PLUGINS.items():
+        for key in plugin.instance_only_settings:
+            if key in provider_config(config, name):
+                raise ValueError(f"providers.{name}.{key} is only for added accounts; use `instance add`")
+    instances = config.get("instances", [])
+    if not isinstance(instances, list):
+        raise ValueError("instances must be a list")
+    seen: set[str] = set()
+    for index, entry in enumerate(instances):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"instances[{index}] must be an object")
+        instance_id = entry.get("id")
+        if not isinstance(instance_id, str) or not INSTANCE_ID_PATTERN.match(instance_id):
+            raise ValueError(
+                f"instances[{index}].id must be a lowercase slug: a letter, then up to 31 "
+                "letters, digits, '-' or '_'"
+            )
+        where = f"instances.{instance_id}"
+        unknown = sorted(set(entry) - set(INSTANCE_KEYS))
+        if unknown:
+            raise ValueError(f"{where} has unknown keys: {', '.join(unknown)}")
+        if instance_id in ai_usage_plugins.BUNDLED:
+            raise ValueError(f"{where}: the id is a built-in provider's")
+        if instance_id in seen:
+            raise ValueError(f"{where}: the id is used twice")
+        seen.add(instance_id)
+        plugin_id = entry.get("plugin")
+        if plugin_id not in ai_usage_plugins.BUNDLED:
+            raise ValueError(f"{where}.plugin must be one of: {', '.join(ai_usage_plugins.BUNDLED)}")
+        label = entry.get("label")
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError(f"{where}.label must be a non-empty string")
+        settings = entry.get("settings", {})
+        if not isinstance(settings, Mapping):
+            raise ValueError(f"{where}.settings must be an object")
+        plugin = PLUGINS.get(plugin_id)
+        if plugin is None:
+            continue  # reported as this account's error row when it is collected
+        if plugin.instance_settings is None:
+            raise ValueError(f"{where}: {plugin_id} does not support added accounts")
+        try:
+            plugin.instance_settings(settings)
+        except ValueError as error:
+            raise ValueError(f"{where}.settings: {error}") from error
+
+
+def accounts(config: Mapping[str, Any]) -> list[Account]:
+    """Every provider to collect, in order: the built-ins, then added instances as configured."""
+    found = [Account(name, name) for name in provider_names()]
+    for entry in configured_instances(config):
+        found.append(Account(str(entry["id"]), str(entry["plugin"]), str(entry["label"])))
+    return found
+
+
+def account_settings(config: Mapping[str, Any], account: Account) -> Mapping[str, Any]:
+    if not account.added:
+        return provider_config(config, account.id)
+    entry = next(e for e in configured_instances(config) if e.get("id") == account.id)
+    settings = entry.get("settings", {})
+    plugin = PLUGINS.get(account.type)
+    if plugin is None or plugin.instance_settings is None:
+        return settings
+    return plugin.instance_settings(settings)
+
+
+def settings_for(config: Mapping[str, Any], provider_id: str) -> Mapping[str, Any]:
+    """A provider's settings by id: a built-in's or an added instance's."""
+    for account in accounts(config):
+        if account.id == provider_id:
+            return account_settings(config, account)
+    return {}
 
 
 def pending_state_path(state_path: Path) -> Path:
@@ -235,14 +336,20 @@ def configured_path_roles(
         ),
         ("pending state journal", pending_state_path(state_path), "file"),
     ]
-    for provider_name, plugin in PLUGINS.items():
-        if not plugin.path_roles:
+    for account in accounts(config):
+        plugin = PLUGINS.get(account.type)
+        if plugin is None or not plugin.path_roles:
             continue
-        provider = providers.get(provider_name)
-        if not isinstance(provider, Mapping):
-            raise ValueError(f"providers.{provider_name} must be an object")
+        if account.added:
+            provider = account_settings(config, account)
+            prefix = f"instances.{account.id}"
+        else:
+            provider = providers.get(account.id)
+            prefix = f"providers.{account.id}"
+            if not isinstance(provider, Mapping):
+                raise ValueError(f"providers.{account.id} must be an object")
         for setting_name, expected_type in plugin.path_roles:
-            role = f"providers.{provider_name}.{setting_name}"
+            role = f"{prefix}.{setting_name}"
             value = provider.get(setting_name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{role} must be a non-empty string")
@@ -710,14 +817,16 @@ def collect_snapshot(
     progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[dict[str, Any]]:
     collected_at = iso_utc(utc_now())
-    names = provider_names()
+    every = accounts(config)
 
     rows: list[dict[str, Any]] = []
     enabled = [
-        name for name in names if provider_config(config, name).get("enabled", True) is True
+        account.id for account in every
+        if account_settings(config, account).get("enabled", True) is True
     ]
-    for name in names:
-        settings = provider_config(config, name)
+    for account in every:
+        name = account.id
+        settings = account_settings(config, account)
         if progress is not None and name in enabled:
             progress(name, enabled.index(name) + 1, len(enabled))
         if settings.get("enabled", True) is not True:
@@ -736,12 +845,20 @@ def collect_snapshot(
             )
             continue
         try:
-            plugin = PLUGINS.get(name)
+            plugin = PLUGINS.get(account.type)
             if plugin is None:
-                raise RuntimeError(f"provider module failed to load: {PLUGIN_LOAD_ERRORS[name]}")
-            provider_rows = plugin.collect(
-                CollectContext(collected_at, settings, include_history, state, VERSION)
+                raise RuntimeError(f"provider module failed to load: {PLUGIN_LOAD_ERRORS[account.type]}")
+            # An added instance keeps its own checkpoints under state["instances"][id];
+            # a built-in keeps the top-level keys it always had.
+            account_state = (
+                state.setdefault("instances", {}).setdefault(name, {}) if account.added else state
             )
+            provider_rows = plugin.collect(
+                CollectContext(collected_at, settings, include_history, account_state, VERSION)
+            )
+            if account.added:
+                for row in provider_rows:
+                    row["provider"] = name
         except Exception as error:  # One provider cannot suppress the others.
             provider_rows = [
                 metric_row(
@@ -761,16 +878,19 @@ def collect_snapshot(
 
 def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     results: dict[str, dict[str, Any]] = {}
-    for name in provider_names():
-        settings = provider_config(config, name)
+    for account in accounts(config):
+        name = account.id
+        settings = account_settings(config, account)
         enabled = settings.get("enabled", True) is True
-        plugin = PLUGINS.get(name)
+        plugin = PLUGINS.get(account.type)
+        identity = {"type": account.type, **({"label": account.label} if account.added else {})}
         if plugin is None:
             results[name] = {
                 "enabled": enabled,
                 "detected": False,
                 "executable": None,
-                "load_error": PLUGIN_LOAD_ERRORS[name],
+                "load_error": PLUGIN_LOAD_ERRORS[account.type],
+                **identity,
             }
             continue
         if not enabled:
@@ -778,6 +898,7 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
                 "enabled": False,
                 "detected": False,
                 "executable": None,
+                **identity,
             }
             continue
         executable = (
@@ -794,6 +915,7 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             "detected": bool(executable or source_available),
             "executable": str(executable) if executable else None,
             **extra,
+            **identity,
         }
     return results
 
@@ -1692,6 +1814,44 @@ def stop_service() -> dict[str, Any]:
 CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}
 
 
+_VERSION_LINE = re.compile(r'^VERSION = "([0-9]+)\.([0-9]+)\.([0-9]+)"', re.MULTILINE)
+
+
+def installed_collector_script() -> Optional[Path]:
+    """The script the LaunchAgent actually runs (ProgramArguments[1])."""
+    try:
+        with DEFAULT_PLIST_PATH.open("rb") as handle:
+            arguments = plistlib.load(handle).get("ProgramArguments") or []
+    except (OSError, ValueError):
+        return None
+    return Path(arguments[1]) if len(arguments) > 1 else None
+
+
+def installed_collector_version(script: Optional[Path]) -> Optional[tuple[int, int, int]]:
+    """Read VERSION from the installed script's text. Never executes it."""
+    if script is None:
+        return None
+    try:
+        with script.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(16384)
+    except OSError:
+        return None
+    match = _VERSION_LINE.search(head)
+    return tuple(int(part) for part in match.groups()) if match else None  # type: ignore[return-value]
+
+
+def require_instance_support() -> None:
+    """Refuse to add or enable an account the installed collector would silently ignore."""
+    version = installed_collector_version(installed_collector_script())
+    if version is None or version < INSTANCES_MIN_VERSION:
+        installed = ".".join(map(str, version)) if version else "none found"
+        minimum = ".".join(map(str, INSTANCES_MIN_VERSION))
+        raise RuntimeError(
+            f"added accounts need the installed collector {minimum} or newer (installed: {installed}); "
+            "reinstall it first with `python3 ai_usage_service.py install`"
+        )
+
+
 def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
     if "=" not in assignment:
         raise ValueError(f"expected KEY=JSON_VALUE, got {assignment!r}")
@@ -1705,8 +1865,10 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
         return parts, value
     if (
         len(parts) == 3
-        and parts[0] == "providers"
-        and parts[1] in ai_usage_plugins.BUNDLED
+        and (
+            (parts[0] == "providers" and parts[1] in ai_usage_plugins.BUNDLED)
+            or (parts[0] == "instances" and INSTANCE_ID_PATTERN.match(parts[1]))
+        )
         and parts[2] in CONFIGURABLE_PROVIDER_KEYS
     ):
         if parts[2] == "enabled" and not isinstance(value, bool):
@@ -1728,6 +1890,30 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
     parsed = [parse_config_assignment(item) for item in assignments]
     if not parsed:
         raise ValueError("no settings given")
+    if any(parts[0] == "instances" and parts[2] == "enabled" and value is True for parts, value in parsed):
+        require_instance_support()
+
+    def apply(updated: dict[str, Any]) -> None:
+        for parts, value in parsed:
+            if parts[0] == "instances":
+                instance_entry(updated, parts[1]).setdefault("settings", {})[parts[2]] = value
+                continue
+            node = updated
+            for part in parts[:-1]:
+                child = node.get(part)
+                if not isinstance(child, dict):
+                    child = {}
+                    node[part] = child
+                node = child
+            node[parts[-1]] = value
+
+    update_config(config_path, apply)
+    return {".".join(parts): value for parts, value in parsed}
+
+
+def update_config(config_path: Path, apply: Callable[[dict[str, Any]], None]) -> None:
+    """Change config.json under its lock: apply to the raw file, validate the merged
+    result, then replace the file atomically with its mode kept."""
     # Write the file the collector actually reads: replacing a symlinked alias
     # would detach it from its target, and the lock must sit beside the target
     # so every alias serializes on the same one.
@@ -1738,21 +1924,56 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
         if not isinstance(raw, dict):
             raise ValueError("config root must be a JSON object")
         updated = copy.deepcopy(raw)
-        for parts, value in parsed:
-            node = updated
-            for part in parts[:-1]:
-                child = node.get(part)
-                if not isinstance(child, dict):
-                    child = {}
-                    node[part] = child
-                node = child
-            node[parts[-1]] = value
+        apply(updated)
         merged = deep_merge(DEFAULT_CONFIG, updated)
         validate_config(merged)
         mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o600
         atomic_write_bytes(config_path, (json.dumps(updated, indent=2) + "\n").encode("utf-8"), mode=mode)
     load_config(config_path)  # the written file must load exactly as the collector will
-    return {".".join(parts): value for parts, value in parsed}
+
+
+def instance_entry(raw: Mapping[str, Any], instance_id: str) -> dict[str, Any]:
+    for entry in raw.get("instances", []) if isinstance(raw.get("instances"), list) else []:
+        if isinstance(entry, dict) and entry.get("id") == instance_id:
+            return entry
+    raise ValueError(f"no added account with id {instance_id!r}")
+
+
+def add_instance(
+    config_path: Path, plugin_id: str, instance_id: str, label: str, config_dir: Optional[str]
+) -> dict[str, Any]:
+    """Append an added account to `instances`. Its monthly price is left unset."""
+    settings: dict[str, Any] = {}
+    if config_dir is not None:
+        if not expand_path(config_dir).is_dir():
+            raise ValueError(f"config folder not found: {config_dir}")
+        settings["config_dir"] = config_dir
+    entry = {"id": instance_id, "plugin": plugin_id, "label": label, "settings": settings}
+    require_instance_support()
+
+    def apply(updated: dict[str, Any]) -> None:
+        instances = updated.setdefault("instances", [])
+        if not isinstance(instances, list):
+            raise ValueError("instances must be a list")
+        instances.append(entry)
+
+    update_config(config_path, apply)
+    return entry
+
+
+def list_instances(config_path: Path) -> list[dict[str, Any]]:
+    config = load_config(config_path)
+    return [
+        {"id": account.id, "plugin": account.type, "label": account.label,
+         "enabled": account_settings(config, account).get("enabled", True) is True,
+         "settings": dict(next(e for e in configured_instances(config) if e["id"] == account.id).get("settings", {}))}
+        for account in accounts(config) if account.added
+    ]
+
+
+def set_instance_enabled(config_path: Path, instance_id: str, enabled: bool) -> dict[str, Any]:
+    configure(config_path, [f"instances.{instance_id}.enabled={json.dumps(enabled)}"])
+    return {"id": instance_id, "enabled": enabled}
 
 
 def detach_owned_integration(
@@ -2177,8 +2398,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_argument(configure_parser)
     configure_parser.add_argument(
         "--set", action="append", default=[], metavar="KEY=JSON",
-        help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd",
+        help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd, "
+        "instances.<id>.enabled|monthly_subscription_usd",
     )
+    instance_parser = subparsers.add_parser(
+        "instance", help="added accounts of a provider (for example a second Claude login)"
+    )
+    instance_commands = instance_parser.add_subparsers(dest="instance_command", required=True)
+    instance_add = instance_commands.add_parser("add", help="add an account (its price is set later)")
+    add_config_argument(instance_add)
+    instance_add.add_argument("--plugin", required=True, help="the provider it is an account of")
+    instance_add.add_argument("--id", required=True, dest="instance_id",
+                              help="a lowercase slug, unique, never a built-in provider's id")
+    instance_add.add_argument("--label", required=True, help="the name shown for it")
+    instance_add.add_argument("--config-dir", help="the account's own config folder (Claude: its CLAUDE_CONFIG_DIR)")
+    instance_list = instance_commands.add_parser("list", help="print the added accounts as JSON")
+    add_config_argument(instance_list)
+    for verb in ("enable", "disable"):
+        toggle = instance_commands.add_parser(verb, help=f"{verb} an added account (its data is kept)")
+        add_config_argument(toggle)
+        toggle.add_argument("instance_id", metavar="ID")
     uninstall_parser = subparsers.add_parser(
         "uninstall", help="remove the service but preserve config and data"
     )
@@ -2221,6 +2460,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             return print_status()
         if arguments.command == "uninstall":
             uninstall_service(arguments.config)
+            return 0
+        if arguments.command == "instance":
+            if arguments.instance_command == "add":
+                print(json.dumps(add_instance(arguments.config, arguments.plugin, arguments.instance_id,
+                                              arguments.label, arguments.config_dir)))
+            elif arguments.instance_command == "list":
+                print(json.dumps(list_instances(arguments.config)))
+            else:
+                print(json.dumps(set_instance_enabled(arguments.config, arguments.instance_id,
+                                                      arguments.instance_command == "enable")))
             return 0
         if arguments.command == "version":
             print(VERSION)

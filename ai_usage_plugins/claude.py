@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -685,7 +686,11 @@ def collect_claude(
         )
     )
 
-    if not stats_available:
+    if not stats_available and provider_config.get("config_dir"):
+        # An added account: Claude Code doesn't always write a stats cache, and the
+        # transcripts already cover usage, so its absence is not an error.
+        pass
+    elif not stats_available:
         rows.append(
             metric_row(
                 collected_at,
@@ -912,16 +917,20 @@ CLAUDE_USAGE_REFRESH_GRACE_MS = 120_000
 CLAUDE_USAGE_WINDOWS = {"session": ("session", 18000), "weekly_all": ("weekly", 604800)}
 
 
-def claude_usage_environment() -> dict[str, str]:
+def claude_usage_environment(config_dir: Optional[Path] = None) -> dict[str, str]:
     environment = {
         key: value
         for key, value in os.environ.items()
         # Nothing inherited may redirect, re-authenticate or reconfigure the
-        # run (a base URL, an API key, simple/non-essential-traffic modes).
-        if not key.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))
+        # run (a base URL, an API key, simple/non-essential-traffic modes), or
+        # point it at another account's config dir.
+        if not key.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE")) and key != "CLAUDE_CONFIG_DIR"
     }
     environment["PATH"] = discovery_path()
     environment.update(CLAUDE_USAGE_ENVIRONMENT)
+    if config_dir is not None:
+        # An added account: its own absolute config dir (the environment does not expand "~").
+        environment["CLAUDE_CONFIG_DIR"] = str(config_dir)
     return environment
 
 
@@ -987,7 +996,7 @@ def read_claude_usage_cache(path: Path) -> Optional[dict[str, Any]]:
     }
 
 
-def run_claude_usage(executable: Path, timeout_seconds: int) -> None:
+def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optional[Path] = None) -> None:
     """Run the locked-down `/usage` once; it refreshes the cache as a side effect."""
 
     timeout_seconds = max(5, min(int(timeout_seconds), 120))
@@ -999,7 +1008,7 @@ def run_claude_usage(executable: Path, timeout_seconds: int) -> None:
             stderr=subprocess.PIPE,
             text=True,
             cwd=workdir,
-            env=claude_usage_environment(),
+            env=claude_usage_environment(config_dir),
             start_new_session=os.name == "posix",
         )
         process_group = process.pid if os.name == "posix" else None
@@ -1088,7 +1097,9 @@ def collect_claude_subscription_usage(
 
     started_ms = time.time() * 1000
     try:
-        run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)))
+        config_dir = provider_config.get("config_dir")
+        run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)),
+                         expand_path(str(config_dir)) if config_dir else None)
         refreshed = read_claude_usage_cache(cache_path)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         rows = [error_row(str(error))]
@@ -1130,29 +1141,53 @@ def doctor_extra(settings: Mapping[str, Any]) -> dict[str, Any]:
     return extra
 
 
+DEFAULT_SETTINGS = {
+    "enabled": True,
+    "executable": None,
+    "executable_names": ["claude"],
+    "stats_file": "~/.claude/stats-cache.json",
+    "projects_dir": "~/.claude/projects",
+    "stale_after_seconds": 172800,
+    "max_session_bytes_per_poll": 26214400,
+    # Subscription limits (/usage), read from Claude Code's own cache in
+    # ~/.claude.json and refreshed by one locked-down headless `/usage`
+    # run only when that cache is older than the max age.
+    "subscription_usage": True,
+    "usage_cache_file": "~/.claude.json",
+    "usage_cache_max_age_seconds": 900,
+    "timeout_seconds": 30,
+    "monthly_subscription_usd": None,
+}
+
+
+def instance_settings(explicit: Mapping[str, Any]) -> dict[str, Any]:
+    """An added Claude account: every path comes from its own config_dir, never ~/.claude.
+
+    Claude Code keeps an account's transcripts, stats cache and `.claude.json`
+    inside the CLAUDE_CONFIG_DIR it runs with. Explicit settings apply last.
+    """
+    config_dir = explicit.get("config_dir")
+    if not isinstance(config_dir, str) or not config_dir.strip():
+        raise ValueError("config_dir must be a non-empty string: the account's CLAUDE_CONFIG_DIR")
+    directory = expand_path(config_dir)
+    derived = {
+        **copy.deepcopy(DEFAULT_SETTINGS),
+        "stats_file": str(directory / "stats-cache.json"),
+        "projects_dir": str(directory / "projects"),
+        "usage_cache_file": str(directory / ".claude.json"),
+    }
+    return {**derived, **explicit, "config_dir": str(directory)}
+
+
 PLUGIN = ProviderPlugin(
     id="claude",
-    default_settings={
-        "enabled": True,
-        "executable": None,
-        "executable_names": ["claude"],
-        "stats_file": "~/.claude/stats-cache.json",
-        "projects_dir": "~/.claude/projects",
-        "stale_after_seconds": 172800,
-        "max_session_bytes_per_poll": 26214400,
-        # Subscription limits (/usage), read from Claude Code's own cache in
-        # ~/.claude.json and refreshed by one locked-down headless `/usage`
-        # run only when that cache is older than the max age.
-        "subscription_usage": True,
-        "usage_cache_file": "~/.claude.json",
-        "usage_cache_max_age_seconds": 900,
-        "timeout_seconds": 30,
-        "monthly_subscription_usd": None,
-    },
+    default_settings=DEFAULT_SETTINGS,
     executable_names=("claude",),
     collect=collect,
     doctor_extra=doctor_extra,
-    path_roles=(("stats_file", "file"), ("projects_dir", "directory")),
+    path_roles=(("stats_file", "file"), ("projects_dir", "directory"), ("usage_cache_file", "file")),
+    instance_settings=instance_settings,
+    instance_only_settings=("config_dir",),
     report=ProviderDef(
         "claude", "Claude Code", "Claude Code", mode="event", split="input_output",
         record_kind="event_total", quota="polled",
