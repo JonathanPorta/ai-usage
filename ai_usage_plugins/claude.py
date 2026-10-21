@@ -1189,6 +1189,27 @@ def instance_settings(explicit: Mapping[str, Any]) -> dict[str, Any]:
     return {**derived, **explicit, "config_dir": str(directory)}
 
 
+def refresh_dir(settings: Mapping[str, Any]) -> Optional[tuple[str, str]]:
+    """The folder `/usage` refreshes: an added account's CLAUDE_CONFIG_DIR, or the default
+    account's ~/.claude (it always runs with CLAUDE_CONFIG_DIR removed). None when the
+    account is disabled or its plan limits are off, so it never runs `claude`."""
+    if settings.get("enabled", True) is not True or settings.get("subscription_usage", True) is not True:
+        return None
+    config_dir = settings.get("config_dir")
+    if config_dir:
+        return "config_dir", str(config_dir)
+    return "(Claude Code's default folder)", "~/.claude"
+
+
+def refresh_cache(settings: Mapping[str, Any]) -> Optional[str]:
+    """The `.claude.json` that `/usage` refreshes, inside the folder it runs with, even when
+    `usage_cache_file` points the account's reading elsewhere."""
+    target = refresh_dir(settings)
+    if target is None:
+        return None
+    return "~/.claude.json" if target[0].startswith("(") else str(Path(target[1]) / ".claude.json")
+
+
 PLUGIN = ProviderPlugin(
     id="claude",
     default_settings=DEFAULT_SETTINGS,
@@ -1198,6 +1219,8 @@ PLUGIN = ProviderPlugin(
     path_roles=(("stats_file", "file"), ("projects_dir", "directory"), ("usage_cache_file", "file")),
     instance_settings=instance_settings,
     instance_only_settings=("config_dir",),
+    refresh_dir=refresh_dir,
+    refresh_cache=refresh_cache,
     report=ProviderDef(
         "claude", "Claude Code", "Claude Code", mode="event", split="input_output",
         record_kind="event_total", quota="polled",

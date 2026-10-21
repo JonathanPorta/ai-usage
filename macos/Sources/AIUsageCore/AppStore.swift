@@ -56,6 +56,8 @@ public final class AppStore {
     public private(set) var liveService: ServiceObservation?
     /// Lifecycle and settings actions (start/stop, pause/resume, config writes).
     public private(set) var action: ActionState = .idle
+    /// True from an add-account submission's start until its refresh ends.
+    public private(set) var isAddingAccount = false
 
     /// The snapshot as it reads now: calendar rollover and deadlines applied, and
     /// the service state taken from whichever observation is newer (probe or report).
@@ -311,27 +313,40 @@ public final class AppStore {
         await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
     }
 
-    /// Adds an account through the collector. True when it was saved.
+    /// Adds an account through the collector.
     @discardableResult
-    public func addAccount(_ request: AccountRequest) async -> Bool {
-        await perform("Adding \(request.label)…", success: "\(request.label) added. It is read at the next check.") {
+    public func addAccount(_ request: AccountRequest) async -> AccountSaveResult {
+        // Busy until its refresh ends, not just its write: the banner reads done before then.
+        guard !isAddingAccount else { return .busy }
+        isAddingAccount = true
+        defer { isAddingAccount = false }
+        let outcome = await perform("Adding \(request.label)…", success: "\(request.label) added. It is read at the next check.") {
             try await self.config.addAccount(request)
         }
-        if case .done = action { return true }
-        return false
+        switch outcome {
+        case .done: return .saved
+        case let .failed(reason): return .failed(reason)
+        default: return .busy
+        }
     }
 
-    private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async {
-        guard !isActing else { return }
+    /// Runs one action and returns how it ended (`nil` when another was still running),
+    /// taken before the follow-up probe and refresh can let other actions change `action`.
+    @discardableResult
+    private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async -> ActionState? {
+        guard !isActing else { return nil }
         action = .running(running)
+        let outcome: ActionState
         do {
             try await body()
-            action = .done(success)
+            outcome = .done(success)
         } catch {
-            action = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            outcome = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
+        action = outcome
         await probeService()
         await refresh()
+        return outcome
     }
 
     /// Shows an action state without running anything. Previews and snapshot renders only.

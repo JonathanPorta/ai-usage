@@ -131,3 +131,26 @@ How the work differed from the plan above. None of it changes an acceptance crit
 
   Each fix has a regression test that failed before it.
 - **AC-10** is pending: the owner checks `claude` and `claude-az` on their Mac after the merge and an approved reinstall.
+
+## Corrective work after the merge (2026-10-20)
+
+An independent review after #11 merged found three defects. They are fixed on `jp/b/fix-account-isolation-findings`. Each regression failed before its fix and passes after it. No AC changes.
+- [x] C1 Refresh-folder collisions hidden by read-path overrides <- AC-1, AC-5
+  - The plugin hook `refresh_dir` and `validate_refresh_dirs` cover equal and nested folders, symlink aliases, and the default account's `~/.claude`.
+  - Accounts that never refresh aren't compared.
+- [x] C2 `instance add` saves the expanded absolute folder <- AC-2
+  - Symlinks are kept; unset variables are refused.
+  - With the variable absent, list, `doctor`, `once` and disable all work.
+- [x] C3 The add-account result is the operation's own <- AC-8
+  - `AccountSaveResult`, `isAddingAccount` and `AccountSubmission`.
+  - XCTests use a held refresh with other actions running in between.
+  - Renders are unchanged.
+- [x] C4 The refreshed `.claude.json` is compared on its own (second review of #13) <- AC-1, AC-5
+  - `refresh_cache` and `validate_refresh_caches` cover aliases between added accounts, aliases to the default `~/.claude.json`, and aliases to another account's `usage_cache_file`.
+  - The failure was reproduced with the fake `claude`; real Claude Code's write strategy through a symlink was not tested.
+- [x] C5 AC-10 procedure corrections (second review of #13)
+  - Step 4 parses `doctor --json` as the provider map it is.
+  - The backup is a locked snapshot that finishes an interrupted commit first, and rollback keeps newer data.
+  - Step 8 waits, with a timeout, for a new collection by the service that includes both accounts.
+  - `tests/test_ac10_procedure.py` runs every snippet against an isolated install, including the previous 2.2.0 collector for the snapshot.
+- [ ] Owner: merge #13. Then green main CI, the reinstall approval, and AC-10, per `procedure-reinstall-ac10.md`.

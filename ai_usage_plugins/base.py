@@ -77,6 +77,13 @@ class ProviderPlugin:
     instance_settings: Optional[Callable[[Mapping[str, Any]], dict[str, Any]]] = None
     # Settings only an added instance may set; the built-in rejects them.
     instance_only_settings: tuple[str, ...] = ()
+    # The folder an account's own refresh writes to, as (setting name or a "(description)",
+    # path), from its resolved settings; None when it never refreshes. No two accounts
+    # may share or nest it, whatever their read paths say.
+    refresh_dir: Optional[Callable[[Mapping[str, Any]], Optional[tuple[str, str]]]] = None
+    # The file that refresh writes, whatever the account reads instead (None when it never
+    # refreshes). It may not resolve to another account's refreshed or read file.
+    refresh_cache: Optional[Callable[[Mapping[str, Any]], Optional[str]]] = None
 
 
 # --------------------------------------------------------------------------- report catalogue

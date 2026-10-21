@@ -111,15 +111,92 @@ final class AddedAccountTests: XCTestCase {
                              collector: SpyCollector(), service: SpyService(), config: config)
         let request = AccountRequest(plugin: "claude", id: "claude-work", label: "Claude (work)", configDir: "/tmp/w")
         let added = await store.addAccount(request)
-        XCTAssertTrue(added)
+        XCTAssertEqual(added, .saved)
         XCTAssertEqual(config.added, [request])
         XCTAssertEqual(store.action, .done("Claude (work) added. It is read at the next check."))
         config.error = ClientError.processFailed("instances.claude-work: the id is used twice")
         store.dismissAction()
         let again = await store.addAccount(request)
-        XCTAssertFalse(again)
+        XCTAssertEqual(again, .failed("instances.claude-work: the id is used twice"))
         XCTAssertEqual(store.action, .failed("instances.claude-work: the id is used twice"))
     }
+
+    // The review finding: the result was read from the shared banner after the
+    // post-save refresh, which other actions and dismissal can change meanwhile.
+    @MainActor
+    func testASaveStaysSavedWhenAnotherActionFailsAndTheBannerIsDismissedDuringItsRefresh() async throws {
+        let gate = Gate()
+        let config = AccountSpy()
+        let store = AppStore(environment: environment(), reporter: HeldReporter(try Report.twoAccountFixture(), gate),
+                             collector: SpyCollector(), service: SpyService(), config: config)
+        let adding = Task { await store.addAccount(Self.work) }
+        await gate.waitForArrivals(1)
+        XCTAssertFalse(store.isActing, "the banner already reads done while the refresh runs")
+        config.applyError = ClientError.processFailed("settings refused")
+        let other = Task { await store.applySettings([.pollPaused(true)]) }
+        await until { store.action == .failed("settings refused") }
+        store.dismissAction()
+        await gate.open()
+        let result = await adding.value
+        await other.value
+        XCTAssertEqual(result, .saved)
+        XCTAssertEqual(config.added, [Self.work])
+    }
+
+    @MainActor
+    func testAFailedSaveStaysFailedWhenAnotherActionSucceedsDuringItsRefresh() async throws {
+        let gate = Gate()
+        let config = AccountSpy()
+        config.error = ClientError.processFailed("path role collision")
+        let store = AppStore(environment: environment(), reporter: HeldReporter(try Report.twoAccountFixture(), gate),
+                             collector: SpyCollector(), service: SpyService(), config: config)
+        let adding = Task { await store.addAccount(Self.work) }
+        await gate.waitForArrivals(1)
+        let other = Task { await store.applySettings([.pollPaused(true)]) }
+        await until { store.action == .done("Settings saved") }
+        await gate.open()
+        let result = await adding.value
+        await other.value
+        XCTAssertEqual(result, .failed("path role collision"), "the form must not close on another action's success")
+    }
+
+    @MainActor
+    func testARepeatedSubmissionDuringTheFirstOnesRefreshWritesOnce() async throws {
+        let gate = Gate()
+        let config = AccountSpy()
+        let store = AppStore(environment: environment(), reporter: HeldReporter(try Report.twoAccountFixture(), gate),
+                             collector: SpyCollector(), service: SpyService(), config: config)
+        let first = Task { await store.addAccount(Self.work) }
+        await gate.waitForArrivals(1)
+        XCTAssertTrue(store.isAddingAccount, "busy for the submission's whole lifetime")
+        let repeated = Task { await store.addAccount(Self.work) }
+        for _ in 0..<200 { await Task.yield() }  // its write, if it makes one, happens now
+        await gate.open()
+        let second = await repeated.value
+        XCTAssertEqual(second, .busy)
+        let firstResult = await first.value
+        XCTAssertEqual(firstResult, .saved)
+        XCTAssertFalse(store.isAddingAccount)
+        XCTAssertEqual(config.added, [Self.work], "one write")
+    }
+
+    func testTheFormIsBusyUntilItsOwnSubmissionEndsAndKeepsTheDraftOnFailure() {
+        var submission = AccountSubmission()
+        XCTAssertTrue(submission.begin())
+        XCTAssertFalse(submission.begin(), "a second click while the first is in flight does nothing")
+        XCTAssertTrue(submission.inFlight)
+        XCTAssertFalse(submission.finish(.failed("the id is used twice")), "a failure keeps the form open")
+        XCTAssertEqual(submission.failure, "the id is used twice")
+        XCTAssertFalse(submission.inFlight)
+        XCTAssertTrue(submission.begin())
+        XCTAssertNil(submission.failure, "a new attempt clears the old reason")
+        XCTAssertFalse(submission.finish(.busy))
+        XCTAssertNotNil(submission.failure)
+        XCTAssertTrue(submission.begin())
+        XCTAssertTrue(submission.finish(.saved), "only a save closes it")
+    }
+
+    static let work = AccountRequest(plugin: "claude", id: "claude-work", label: "Claude (work)", configDir: "/tmp/w")
 
     func testWritersWithoutAccountSupportRefuse() async {
         do {
@@ -132,9 +209,62 @@ final class AddedAccountTests: XCTestCase {
 final class AccountSpy: ConfigWriting, @unchecked Sendable {
     var added: [AccountRequest] = []
     var error: Error?
-    func apply(_ changes: [ConfigChange]) async throws {}
+    var applyError: Error?
+    func apply(_ changes: [ConfigChange]) async throws {
+        if let applyError { throw applyError }
+    }
     func addAccount(_ request: AccountRequest) async throws {
         if let error { throw error }
         added.append(request)
+    }
+}
+
+/// Yields until the condition holds; the gate keeps the store's refresh from finishing meanwhile.
+@MainActor
+func until(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+    let deadline = Date().addingTimeInterval(10)
+    while !condition() {
+        guard Date() < deadline else { return XCTFail("timed out waiting", file: file, line: line) }
+        await Task.yield()
+    }
+}
+
+/// Holds every report fetch until opened, so a test can act while a refresh is in flight.
+actor Gate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+    private(set) var arrivals = 0
+
+    func pass() async {
+        arrivals += 1
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
+
+    nonisolated func waitForArrivals(_ count: Int, file: StaticString = #filePath, line: UInt = #line) async {
+        let deadline = Date().addingTimeInterval(10)
+        while await arrivals < count {
+            guard Date() < deadline else { return XCTFail("timed out waiting for a report fetch", file: file, line: line) }
+            await Task.yield()
+        }
+    }
+}
+
+final class HeldReporter: ReportFetching, @unchecked Sendable {
+    private let report: Report
+    private let gate: Gate
+    init(_ report: Report, _ gate: Gate) {
+        self.report = report
+        self.gate = gate
+    }
+    func fetch() async throws -> Report {
+        await gate.pass()
+        return report
     }
 }

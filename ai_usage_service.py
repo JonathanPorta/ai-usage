@@ -361,6 +361,61 @@ def configured_path_roles(
     return roles
 
 
+def validate_refresh_dirs(config: Mapping[str, Any]) -> None:
+    """No two accounts may refresh the same folder, or one inside another's, even when
+    their read paths are moved apart: one would refresh the other's login while reading
+    a cache nothing refreshes. Identity is compared resolved; the folder Claude is run
+    with keeps its own spelling."""
+    folders: list[tuple[str, Path]] = []
+    for account in accounts(config):
+        plugin = PLUGINS.get(account.type)
+        if plugin is None or plugin.refresh_dir is None:
+            continue
+        prefix = f"instances.{account.id}" if account.added else f"providers.{account.id}"
+        target = plugin.refresh_dir(account_settings(config, account))
+        if target is None:
+            continue  # this account never refreshes (disabled, or its refresh is off)
+        name, folder = target
+        role = f"{prefix} {name}" if name.startswith("(") else f"{prefix}.{name}"
+        folders.append((role, expand_path(folder)))
+    for index, (role, path) in enumerate(folders):
+        for other_role, other in folders[:index]:
+            if path == other:
+                raise ValueError(f"refresh folder collision: {other_role} and {role} both resolve to {path}; "
+                                 f"give one its own folder or disable it")
+            for inner_role, inner, outer_role, outer in ((role, path, other_role, other),
+                                                         (other_role, other, role, path)):
+                if inner.is_relative_to(outer):
+                    raise ValueError(
+                        f"refresh folder overlap: {inner_role} ({inner}) is inside {outer_role} ({outer}); "
+                        f"give one its own folder or disable it")
+    validate_refresh_caches(config)
+
+
+def validate_refresh_caches(config: Mapping[str, Any]) -> None:
+    """The file each refresh writes may not be another account's, refreshed or read, even
+    through a symlink. Read overrides don't move it, so it is compared on its own."""
+    files: list[tuple[str, str, Path, bool]] = []  # (account, role, resolved path, refreshed)
+    for account in accounts(config):
+        plugin = PLUGINS.get(account.type)
+        if plugin is None or plugin.refresh_cache is None:
+            continue
+        prefix = f"instances.{account.id}" if account.added else f"providers.{account.id}"
+        settings = account_settings(config, account)
+        refreshed = plugin.refresh_cache(settings)
+        if refreshed is not None:
+            name = Path(refreshed).name
+            files.append((account.id, f"{prefix}'s refreshed {name}", expand_path(refreshed), True))
+        read = settings.get("usage_cache_file")
+        if isinstance(read, str) and read.strip():
+            files.append((account.id, f"{prefix}.usage_cache_file", expand_path(read), False))
+    for index, (account_id, role, path, refreshed) in enumerate(files):
+        for other_id, other_role, other, other_refreshed in files[:index]:
+            if account_id != other_id and (refreshed or other_refreshed) and path == other:
+                raise ValueError(f"refresh cache collision: {other_role} and {role} both resolve to {path}; "
+                                 f"give each account its own .claude.json")
+
+
 def validate_configured_paths(config: Mapping[str, Any]) -> None:
     """Reject aliases, derived-lock collisions, and wrong path roles pre-mutation."""
 
@@ -389,6 +444,7 @@ def validate_configured_paths(config: Mapping[str, Any]) -> None:
                 and path.is_relative_to(other)
             ):
                 raise ValueError(f"path role overlap: {role} ({path}) is inside {other_role} ({other})")
+    validate_refresh_dirs(config)
 
     for role, path, expected_type in roles:
         if path.exists():
@@ -1959,6 +2015,10 @@ def instance_entry(raw: Mapping[str, Any], instance_id: str) -> dict[str, Any]:
     raise ValueError(f"no added account with id {instance_id!r}")
 
 
+# `$NAME` or `${NAME}`, as os.path.expandvars reads them.
+UNEXPANDED_VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
 def add_instance(
     config_path: Path, plugin_id: str, instance_id: str, label: str, config_dir: Optional[str]
 ) -> dict[str, Any]:
@@ -1968,9 +2028,20 @@ def add_instance(
                          f"{PLUGIN_LOAD_ERRORS[plugin_id]}")
     settings: dict[str, Any] = {}
     if config_dir is not None:
-        if not expand_path(config_dir).is_dir():
+        unset = [name for braced, bare in UNEXPANDED_VARIABLE.findall(config_dir)
+                 for name in [braced or bare] if name not in os.environ]
+        if unset:
+            raise ValueError(f"config_dir names an environment variable that isn't set: ${unset[0]}")
+        # Saved as the folder itself, so a process without the caller's environment
+        # (launchd's) reads the same one. Symlinks keep the name they were given.
+        plugin = PLUGINS.get(plugin_id)
+        if plugin is not None and plugin.instance_settings is not None:
+            directory = Path(plugin.instance_settings({"config_dir": config_dir})["config_dir"])
+        else:
+            directory = expand_path(config_dir)  # refused below: the plugin takes no accounts
+        if not directory.is_dir():
             raise ValueError(f"config folder not found: {config_dir}")
-        settings["config_dir"] = config_dir
+        settings["config_dir"] = str(directory)
     entry = {"id": instance_id, "plugin": plugin_id, "label": label, "settings": settings}
     require_instance_support()
 

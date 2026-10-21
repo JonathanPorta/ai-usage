@@ -97,9 +97,9 @@ enum SnapshotRenderer {
             report: two, open: true, draft: ready, touched: true, folderCheck: { _ in true })))
         try shoot("add-account-saved", width, nil, store(.done("Claude (personal) added. It is read at the next check.")),
                   form(VStack(alignment: .leading, spacing: T.Space.s3) { ActionBanner(); AddAccountView(report: two) }))
-        try shoot("add-account-failed", width, nil,
-                  store(.failed("added accounts need the installed collector 2.3.0 or newer (installed: 2.2.0); reinstall it first with `python3 ai_usage_service.py install`")),
-                  form(AddAccountView(report: two, open: true, draft: ready, touched: true, folderCheck: { _ in true })))
+        let refusal = "added accounts need the installed collector 2.3.0 or newer (installed: 2.2.0); reinstall it first with `python3 ai_usage_service.py install`"
+        try shoot("add-account-failed", width, nil, store(.failed(refusal)),
+                  form(AddAccountView(report: two, open: true, draft: ready, touched: true, failure: refusal, folderCheck: { _ in true })))
     }
 
     /// History states for layout review: a narrower window (the shared compact
