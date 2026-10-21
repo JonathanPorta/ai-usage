@@ -50,7 +50,9 @@ weekly 65% used, weekly Fable 4% used), shown as "% used" like Claude Code's `/u
 ## Added accounts (accepted 2026-10-20)
 
 Accepted by the owner (Jonathan) on 2026-10-20 from the review page
-https://claude.ai/artifact/WayXUcbCyjuNB8wgSrkMap (PR #11, phase 2).
+https://claude.ai/artifact/WayXUcbCyjuNB8wgSrkMap (PR #11, phase 2). The decision, its scope and its
+exclusions are recorded on PR #12:
+https://github.com/JonathanPorta/ai-usage/pull/12#issuecomment-6308344030.
 
 | Item | Value |
 | --- | --- |
