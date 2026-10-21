@@ -1099,7 +1099,7 @@ def collect_claude_subscription_usage(
     try:
         config_dir = provider_config.get("config_dir")
         run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)),
-                         expand_path(str(config_dir)) if config_dir else None)
+                         account_config_dir(str(config_dir)) if config_dir else None)
         refreshed = read_claude_usage_cache(cache_path)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         rows = [error_row(str(error))]
@@ -1160,6 +1160,16 @@ DEFAULT_SETTINGS = {
 }
 
 
+def account_config_dir(config_dir: str) -> Path:
+    """An added account's CLAUDE_CONFIG_DIR: absolute, with "~" expanded but symlinks
+    kept, because Claude Code keys an account's login to the folder as it was named."""
+    expanded = os.path.expandvars(os.path.expanduser(config_dir))
+    if not os.path.isabs(expanded):
+        # The daemon has no working directory of its own to resolve it against.
+        raise ValueError(f"config_dir must be an absolute path or start with ~: {config_dir}")
+    return Path(os.path.normpath(expanded))
+
+
 def instance_settings(explicit: Mapping[str, Any]) -> dict[str, Any]:
     """An added Claude account: every path comes from its own config_dir, never ~/.claude.
 
@@ -1169,7 +1179,7 @@ def instance_settings(explicit: Mapping[str, Any]) -> dict[str, Any]:
     config_dir = explicit.get("config_dir")
     if not isinstance(config_dir, str) or not config_dir.strip():
         raise ValueError("config_dir must be a non-empty string: the account's CLAUDE_CONFIG_DIR")
-    directory = expand_path(config_dir)
+    directory = account_config_dir(config_dir)
     derived = {
         **copy.deepcopy(DEFAULT_SETTINGS),
         "stats_file": str(directory / "stats-cache.json"),

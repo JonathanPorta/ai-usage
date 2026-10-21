@@ -46,6 +46,8 @@ struct AddAccountView: View {
             Button {
                 draft = AccountDraft()
                 touched = false
+                // An earlier, unrelated failure must not read as this form's.
+                if case .failed = store.action { store.dismissAction() }
                 open = true
             } label: { Label("Add Claude account…", systemImage: Symbols.add) }
                 .buttonStyle(.link).font(.auBody)

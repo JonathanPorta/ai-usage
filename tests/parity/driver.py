@@ -584,7 +584,7 @@ def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
         if report:
             collector = report["collector"]
             collector["version"] = VERSION
-            if collector["installed_version"] is not None:
+            if collector["installed_version"] == "2.2.0":
                 collector["installed_version"] = VERSION
             collector["capabilities"]["instances"] = collector["installed_version"] is not None
             for provider in report["providers"]:

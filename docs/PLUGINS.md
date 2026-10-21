@@ -162,11 +162,14 @@ kept, and re-enabling resumes without recounting).
 
 ### Validation (before anything is written)
 - The entry keys are `id`, `plugin`, `label` and an optional `settings` object; no others.
-- Claude requires a non-empty `config_dir`. `providers.claude.config_dir` is rejected: the built-in account keeps `~/.claude` and `~/.claude.json`.
+- Claude requires a non-empty `config_dir`, either absolute or starting with `~`. A relative folder is rejected, because the daemon has no working directory to resolve it against. `providers.claude.config_dir` is also rejected: the built-in account keeps `~/.claude` and `~/.claude.json`.
 - Path roles are checked across every account, as resolved paths, so two accounts can't read the same transcripts or usage cache, even through a symlink. Claude's `usage_cache_file` is a path role for every account, the default included.
+- One account's folder can't sit inside another account's folder for the same role, for example inside `~/.claude/projects`, because transcripts are found recursively.
+- The config file itself can't be any account's path. This is checked before the write, so a refused `instance add` leaves the file unchanged.
+- `instance add` refuses a plugin whose module currently fails to load.
 
 ### A Claude account's paths and `/usage`
-- **Paths:** from its own `config_dir` (expanded to an absolute path): `<dir>/projects`, `<dir>/stats-cache.json` and `<dir>/.claude.json`. Explicit `settings` apply after those. Nothing falls back to `~/.claude`.
+- **Paths:** from its own `config_dir`, with `~` expanded but symlinks kept as named, because Claude Code keys an account's login to its folder name: `<dir>/projects`, `<dir>/stats-cache.json` and `<dir>/.claude.json`. Explicit `settings` apply after those. Nothing falls back to `~/.claude`.
 - **`/usage` refresh:**
   - an added account runs `claude` with `CLAUDE_CONFIG_DIR=<absolute dir>`;
   - the default account runs it with `CLAUDE_CONFIG_DIR` removed, even when the collector itself runs where it is set.

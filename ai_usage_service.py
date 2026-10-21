@@ -176,13 +176,17 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("config root must be a JSON object")
     config = deep_merge(DEFAULT_CONFIG, loaded)
     validate_config(config)
+    validate_config_file_role(config, path)
+    return config
+
+
+def validate_config_file_role(config: Mapping[str, Any], path: Path) -> None:
     config_canonical = path.resolve(strict=False)
     for role, configured_path, _expected_type in configured_path_roles(config):
         if configured_path.resolve(strict=False) == config_canonical:
             raise ValueError(
                 f"path role collision: config file and {role} both resolve to {config_canonical}"
             )
-    return config
 
 
 def validate_config(config: Mapping[str, Any]) -> None:
@@ -370,6 +374,21 @@ def validate_configured_paths(config: Mapping[str, Any]) -> None:
                 f"path role collision: {previous} and {role} both resolve to {canonical}"
             )
         canonical_roles[canonical] = role
+    # One account's directory inside another account's same directory role would
+    # be read by both (Claude's transcripts are found recursively).
+    directories = [
+        (role, path.resolve(strict=False)) for role, path, kind in roles
+        if kind == "directory" and role.startswith(("providers.", "instances."))
+    ]
+    for role, path in directories:
+        for other_role, other in directories:
+            if (
+                role != other_role
+                and role.rsplit(".", 1)[1] == other_role.rsplit(".", 1)[1]
+                and other != path
+                and path.is_relative_to(other)
+            ):
+                raise ValueError(f"path role overlap: {role} ({path}) is inside {other_role} ({other})")
 
     for role, path, expected_type in roles:
         if path.exists():
@@ -1927,6 +1946,7 @@ def update_config(config_path: Path, apply: Callable[[dict[str, Any]], None]) ->
         apply(updated)
         merged = deep_merge(DEFAULT_CONFIG, updated)
         validate_config(merged)
+        validate_config_file_role(merged, config_path)
         mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o600
         atomic_write_bytes(config_path, (json.dumps(updated, indent=2) + "\n").encode("utf-8"), mode=mode)
     load_config(config_path)  # the written file must load exactly as the collector will
@@ -1943,6 +1963,9 @@ def add_instance(
     config_path: Path, plugin_id: str, instance_id: str, label: str, config_dir: Optional[str]
 ) -> dict[str, Any]:
     """Append an added account to `instances`. Its monthly price is left unset."""
+    if plugin_id in ai_usage_plugins.BUNDLED and plugin_id not in PLUGINS:
+        raise ValueError(f"{plugin_id} can't take an account while its module fails to load: "
+                         f"{PLUGIN_LOAD_ERRORS[plugin_id]}")
     settings: dict[str, Any] = {}
     if config_dir is not None:
         if not expand_path(config_dir).is_dir():

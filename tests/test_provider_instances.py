@@ -207,6 +207,28 @@ class InstanceConfigTests(unittest.TestCase):
         self.rejects(self.config([], config_dir=str(self.home / "az")),
                      "providers.claude.config_dir is only for added accounts")
 
+    def test_a_relative_config_dir_is_rejected(self) -> None:
+        # The daemon has no working directory to resolve it against (review finding).
+        self.rejects(self.config([self.az(settings={"config_dir": ".claude-az"})]),
+                     "config_dir must be an absolute path or start with ~: .claude-az")
+
+    def test_a_symlinked_config_dir_keeps_the_name_it_was_given(self) -> None:
+        # Claude Code keys an account's login to its CLAUDE_CONFIG_DIR as named.
+        (self.home / "link").symlink_to(self.home / "az")
+        config = self.load(self.config([self.az(settings={"config_dir": "~/link"})]))
+        settings = SERVICE.account_settings(config, SERVICE.accounts(config)[-1])
+        self.assertEqual(settings["config_dir"], str(self.home / "link"))
+        environment = sys.modules["ai_usage_plugins.claude"].claude_usage_environment(
+            sys.modules["ai_usage_plugins.claude"].account_config_dir("~/link"))
+        self.assertEqual(environment["CLAUDE_CONFIG_DIR"], str(self.home / "link"))
+
+    def test_an_account_folder_inside_another_accounts_transcripts_is_rejected(self) -> None:
+        nested = self.home / "default" / "projects" / "az"
+        nested.mkdir(parents=True)
+        self.rejects(self.config([self.az(settings={"config_dir": str(nested)})],
+                                 projects_dir=str(self.home / "default" / "projects")),
+                     "path role overlap: instances.claude-az.projects_dir")
+
     def test_two_accounts_reading_the_same_transcripts_are_rejected(self) -> None:
         self.rejects(self.config([self.az()], projects_dir=str(self.home / "az" / "projects")),
                      "path role collision: providers.claude.projects_dir and instances.claude-az.projects_dir")
@@ -260,8 +282,8 @@ class TwoAccountCollectionTests(unittest.TestCase):
         home = Path(os.path.realpath(self.runs.box.home))
         self.assertEqual(self.runs.read(), [
             {"CLAUDE_CONFIG_DIR": None, "cache": str(home / ".claude.json")},
-            {"CLAUDE_CONFIG_DIR": str(home / "claude-az"), "cache": str(home / "claude-az" / ".claude.json")},
-        ], "the default account never inherits CLAUDE_CONFIG_DIR; the added one gets its own, absolute")
+            {"CLAUDE_CONFIG_DIR": str(self.runs.box.home / "claude-az"), "cache": str(home / "claude-az" / ".claude.json")},
+        ], "the default account never inherits CLAUDE_CONFIG_DIR; the added one gets its own, absolute, as named")
         rows = poll_rows(document["results"][0])
         self.assertEqual((session_percent(rows, "claude"), session_percent(rows, "claude-az")), ("8", "50"))
         self.assertTrue(all(r["status"] == "ok" for r in rows if r["metric"] == "used_percent"))
@@ -534,6 +556,30 @@ class InstanceCommandTests(unittest.TestCase):
                 self.assertEqual(self.config.read_bytes(), before)
         # Turning an account off never needs the newer collector.
         self.cli("instance", "disable", "claude-az")
+
+    def test_a_config_file_colliding_with_the_new_account_is_left_unchanged(self) -> None:
+        # The config-file collision is checked before the write (review finding).
+        account_config = self.account / "config.json"
+        shutil.copy(self.config, account_config)
+        (self.account / ".claude.json").unlink()
+        account_config.rename(self.account / ".claude.json")
+        target = self.account / ".claude.json"
+        before = target.read_bytes()
+        result = self.case.run("instance", "add", "--plugin", "claude", "--id", "claude-az", "--label", "AZ",
+                               "--config-dir", "~/claude-az", "--config", str(target), check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("path role collision: config file and instances.claude-az.usage_cache_file", result.stderr)
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_a_plugin_that_fails_to_load_cannot_take_an_account(self) -> None:
+        before = self.config.read_bytes()
+        with mock.patch.dict(SERVICE.PLUGINS, clear=False) as plugins, \
+                mock.patch.dict(SERVICE.PLUGIN_LOAD_ERRORS, {"claude": "RuntimeError: broken"}):
+            del plugins["claude"]
+            with self.assertRaises(ValueError) as caught:
+                SERVICE.add_instance(self.config, "claude", "claude-az", "AZ", str(self.account))
+        self.assertIn("claude can't take an account while its module fails to load", str(caught.exception))
+        self.assertEqual(self.config.read_bytes(), before)
 
     def test_a_symlinked_config_stays_linked(self) -> None:
         link = self.case.root / "config-link.json"
