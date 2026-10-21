@@ -121,7 +121,7 @@ How the work differed from the plan above. None of it changes an acceptance crit
 - **6.0:**
   - A second committed fixture, `report-fixture-two-accounts.json`, carries the added account, so every existing render keeps its fixture.
   - The pre-phase-2 fixture is kept as a test resource (`report-collector-2.2.0.json`) to prove decoding.
-  - There are 24 new renders: Settings and the overview with two accounts, the added account's quota detail, and the 9 add-account states, each in light and dark. They aren't added to `docs/design/app/references/SHA256SUMS`, because that is the owner's visual acceptance.
+  - There are 24 new renders: Settings and the overview with two accounts, the added account's quota detail, and the 9 add-account states, each in light and dark. The owner accepted them on 2026-10-20, after the merge, and they were then added to `docs/design/app/references/SHA256SUMS`.
 - **Review** (independent, read-only), fixed in `bf9eca1`:
   - a relative `--config-dir` resolved against the daemon's working directory;
   - an account accepted for a plugin that failed to load;
