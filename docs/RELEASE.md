@@ -1,7 +1,7 @@
 ---
 status: draft
 owner: Jonathan
-updated: 2026-10-10
+updated: 2026-10-20
 ---
 
 # RELEASE — ai-usage
@@ -10,7 +10,7 @@ updated: 2026-10-10
 
 | Component | Artifact | Version source |
 | --- | --- | --- |
-| Collector | `ai_usage_service.py`, installed by `python3 ai_usage_service.py install` to `~/.ai-usage/collector.py` | `VERSION` in `ai_usage_service.py` |
+| Collector | `ai_usage_service.py` and its provider plugin package `ai_usage_plugins/`, installed by `python3 ai_usage_service.py install` to `~/.ai-usage/collector.py` and `~/.ai-usage/ai_usage_plugins/` (see `docs/PLUGINS.md`) | `VERSION` in `ai_usage_service.py` |
 | Reporting layer | `ai_usage_report.py` (bundled inside the app; also runnable from the repo) | `REPORT_SCHEMA` (`ai-usage/report/v1`) |
 | macOS app | `macos/build/AI Usage.app`, built by `make app-build` | `CFBundleShortVersionString` in `macos/Support/Info.plist` |
 

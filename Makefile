@@ -56,7 +56,9 @@ test: ## Run the full unit and black-box suite
 check: ## Compile supported Python sources and run tests
 	$(PYTHON) -m py_compile ai_usage_service.py ai_usage_report.py ai_usage_fixtures.py \
 		test_ai_usage_service.py test_ai_usage_report.py macos/scripts/generate_design_tokens.py \
-		scripts/launchd_integration_check.py
+		scripts/launchd_integration_check.py tests/parity/driver.py tests/parity/child.py tests/parity/test_parity.py \
+		tests/test_plugin_architecture.py tests/test_install_lifecycle.py scripts/check_app_bundle.py \
+		ai_usage_plugins/*.py
 	$(MAKE) test
 
 spec-check: ## Vendored Blessed spec-pack check; report-only, ARGS=--strict in CI
@@ -92,8 +94,9 @@ APP := macos/build/AI Usage.app
 app-test: ## Swift unit tests for the macOS app core, plus an isolated sandbox end-to-end run
 	AI_USAGE_REPO_ROOT="$(CURDIR)" AI_USAGE_TEST_PYTHON="$$(command -v $(PYTHON))" swift test --package-path macos
 
-app-build: ## Assemble and ad-hoc sign macos/build/AI Usage.app
+app-build: ## Assemble and ad-hoc sign macos/build/AI Usage.app, then check its bundled collector
 	bash macos/scripts/build_app.sh
+	$(PYTHON) scripts/check_app_bundle.py "$(APP)"
 
 app-run: app-build ## Launch the app against the installed collector (reads ~/.ai-usage)
 	-@pkill -x AIUsage 2>/dev/null; true

@@ -145,9 +145,9 @@ struct MonitoringView: View {
                 Text("Last successful check \(Format.moment(success, now: now))").font(.auCaption).foregroundStyle(T.Color.muted.color)
             }
             ForEach(Array(report.collection.failures.enumerated()), id: \.offset) { _, failure in
-                let name = failure.provider.flatMap { report.provider($0)?.name } ?? "Collector"
+                let name = failure.provider.flatMap { report.provider($0)?.name } ?? failure.provider ?? "Collector"
                 Button {
-                    if let id = failure.provider { openDetail(id) }
+                    if let id = failure.provider, report.provider(id) != nil { openDetail(id) }
                 } label: {
                     Label("\(name) \(failure.kind): \(failure.message ?? "failed")",
                           systemImage: failure.auth ? Symbols.signIn : Symbols.failure)

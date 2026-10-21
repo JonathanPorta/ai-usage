@@ -427,6 +427,22 @@ final class PresentationTests: XCTestCase {
         XCTAssertFalse(notices.contains { $0.title.contains("5-hour") }, "stale windows never raise limit notices")
     }
 
+    func testAFailureForAProviderMissingFromTheReportIsStillANotice() throws {
+        // A provider whose plugin failed to load in the reporter has no provider entry.
+        var report = try fixture()
+        report.collection.lastAttemptResult = .partial
+        report.collection.failures = [CollectionState.Failure(
+            provider: "claude-missing", source: "collector", kind: "plugin", at: report.generatedAt,
+            message: "provider module failed to load: RuntimeError: broken", auth: false)]
+        let notice = try XCTUnwrap(Presentation.notices(report, now: report.generatedAt).first)
+        XCTAssertEqual(notice.title, "claude-missing check failed")
+        XCTAssertEqual(notice.detail, "provider module failed to load: RuntimeError: broken · cached values are kept")
+        XCTAssertNil(notice.providerId, "no detail screen to open for a provider the report lacks")
+        let alert = try XCTUnwrap(NotificationPlanner.alerts(
+            for: report, now: report.generatedAt, preferences: .init(limits: false, failures: true), delivered: []).first)
+        XCTAssertEqual(alert.title, "claude-missing check failed")
+    }
+
     func testStaleQuotaCaptionNamesTheReadingTime() throws {
         let report = try fixture()
         let five = try XCTUnwrap(report.provider("codex")?.quota.windows.first { $0.short == "5-hour" })

@@ -1,7 +1,7 @@
 ---
 status: approved
 owner: Jonathan
-updated: 2026-10-05
+updated: 2026-10-20
 ---
 
 # APP — ai-usage macOS menu-bar app
@@ -95,7 +95,7 @@ into both scenes with `.environment(store)`.
 | `AI_USAGE_CONFIG` | Config path passed to the report and to `once`. Default: the plist's `--config`, or else `~/.ai-usage/config.json`. |
 | `AI_USAGE_PYTHON` | Interpreter. Default: the plist's `ProgramArguments[0]`, or else `/usr/bin/python3`. |
 | `AI_USAGE_COLLECTOR` | Collector script for Collect now. Default: the plist's `ProgramArguments[1]`. |
-| `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/collector/ai_usage_report.py`, next to the bundled `ai_usage_service.py` it imports. |
+| `AI_USAGE_REPORT_SCRIPT` | Reporting module. Default: the bundled `Resources/collector/ai_usage_report.py`, next to the bundled `ai_usage_service.py` and `ai_usage_plugins/` it imports. |
 | `AI_USAGE_SERVICE` | `skip` marks an isolated (sandbox) data source. The report skips its launchd probe, and the app disables service probing and Start/Stop entirely, so a sandbox run can never control the real LaunchAgent. |
 | `AI_USAGE_STATE_DIR` | Where the last report is cached. Default: Application Support. |
 
