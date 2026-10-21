@@ -523,7 +523,7 @@ private struct HistoryEmptyState: View {
         switch availability {
         case .trackingDisabled:
             Button("Enable tracking") {
-                Task { await store.applySettings([.providerEnabled(provider.id, true)]) }
+                Task { await store.applySettings([.enabling(provider, true)]) }
             }
             .buttonStyle(.borderedProminent).controlSize(.small)
         case .notDetected, .notConfigured:
@@ -551,7 +551,7 @@ private struct SetupNotice: View {
         if !provider.enabled || provider.setup == .disabled {
             notice("Tracking is off for \(provider.name); earlier history is shown.") {
                 Button("Enable tracking") {
-                    Task { await store.applySettings([.providerEnabled(provider.id, true)]) }
+                    Task { await store.applySettings([.enabling(provider, true)]) }
                 }
             }
         } else if provider.setup == .notDetected || provider.setup == .notConfigured {

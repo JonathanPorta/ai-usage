@@ -542,6 +542,8 @@ class FixtureContractTests(unittest.TestCase):
     def test_committed_app_fixture_matches_the_generator(self) -> None:
         committed = fx.FIXTURE_PATH.read_text(encoding="utf-8")
         self.assertEqual(committed, fx.render_fixture(), "run `make fixture` to refresh the app fixture")
+        two = fx.TWO_ACCOUNT_FIXTURE_PATH.read_text(encoding="utf-8")
+        self.assertEqual(two, fx.render_fixture(second_account=True), "run `make fixture` to refresh the app fixture")
 
     def test_fixture_covers_the_states_the_app_must_render(self) -> None:
         built = json.loads(fx.FIXTURE_PATH.read_text(encoding="utf-8"))

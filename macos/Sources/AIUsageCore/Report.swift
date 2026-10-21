@@ -36,7 +36,12 @@ public struct CollectorInfo: Codable, Equatable, Sendable {
         public var progress: Bool
         public var serviceControl: Bool
         public var settings: Bool
+        /// The installed collector collects added accounts (`instances`, 2.3.0+). Absent before 2.3.0.
+        public var instances: Bool?
     }
+
+    /// Whether Settings may offer "Add account…".
+    public var supportsAddedAccounts: Bool { capabilities?.instances == true }
 }
 
 public struct Thresholds: Codable, Equatable, Sendable {
@@ -96,6 +101,9 @@ public struct Provider: Codable, Equatable, Identifiable, Sendable {
     }
 
     public var id: String
+    /// The canonical type (the plugin id, e.g. `claude`). Absent in reports before 2.3.0,
+    /// where every provider is a built-in whose type is its id.
+    public var type: String?
     public var name: String
     public var product: String
     public var enabled: Bool
@@ -112,6 +120,9 @@ public struct Provider: Codable, Equatable, Identifiable, Sendable {
     public var notes: [String]
 
     public var isActive: Bool { enabled && setup == .ready }
+    public var canonicalType: String { type ?? id }
+    /// An added account (config `instances`): its id is never a type, so it never equals its type.
+    public var isAddedAccount: Bool { canonicalType != id }
     public var activeWindows: [QuotaWindow] { quota.windows.filter { !$0.retired } }
 }
 
@@ -346,6 +357,14 @@ public extension Report {
     /// For previews and tests only; the app never shows it as real data.
     static func fixture() throws -> Report {
         guard let url = Bundle.module.url(forResource: "report-fixture", withExtension: "json", subdirectory: "fixtures") else {
+            throw ReportError.malformed("fixture resource missing")
+        }
+        return try decode(Data(contentsOf: url))
+    }
+
+    /// The fixture with an added Claude account (`claude-az`, labeled "Claude (work)").
+    static func twoAccountFixture() throws -> Report {
+        guard let url = Bundle.module.url(forResource: "report-fixture-two-accounts", withExtension: "json", subdirectory: "fixtures") else {
             throw ReportError.malformed("fixture resource missing")
         }
         return try decode(Data(contentsOf: url))

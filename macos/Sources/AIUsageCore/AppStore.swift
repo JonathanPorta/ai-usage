@@ -311,6 +311,16 @@ public final class AppStore {
         await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
     }
 
+    /// Adds an account through the collector. True when it was saved.
+    @discardableResult
+    public func addAccount(_ request: AccountRequest) async -> Bool {
+        await perform("Adding \(request.label)…", success: "\(request.label) added. It is read at the next check.") {
+            try await self.config.addAccount(request)
+        }
+        if case .done = action { return true }
+        return false
+    }
+
     private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async {
         guard !isActing else { return }
         action = .running(running)
@@ -323,6 +333,9 @@ public final class AppStore {
         await probeService()
         await refresh()
     }
+
+    /// Shows an action state without running anything. Previews and snapshot renders only.
+    public func previewAction(_ state: ActionState) { action = state }
 
     public func dismissAction() {
         if case .running = action { return }

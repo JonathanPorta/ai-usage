@@ -59,6 +59,13 @@ struct SettingsView: View {
         DispatchQueue.main.async { proxy.scrollTo("provider-\(focusProvider)", anchor: .top) }
     }
 
+    /// An added account also names what it is an account of, and its id.
+    private func subtitle(_ provider: Provider) -> String? {
+        let setup = provider.setup != .disabled ? Presentation.setupText(provider) : nil
+        guard provider.isAddedAccount else { return setup }
+        return (["\(provider.product) account · \(provider.id)"] + [setup].compactMap { $0 }).joined(separator: " · ")
+    }
+
     private func loadPrices() {
         guard let report = store.report else { return }
         for provider in report.providers {
@@ -104,9 +111,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     SwitchRow(isOn: Binding(
                         get: { provider.enabled },
-                        set: { value in Task { await store.applySettings([.providerEnabled(provider.id, value)]) } }
+                        set: { value in Task { await store.applySettings([.enabling(provider, value)]) } }
                     ), title: provider.name,
-                       subtitle: provider.setup != .disabled ? Presentation.setupText(provider) : nil)
+                       subtitle: subtitle(provider))
                     .disabled(store.isActing)
                     HStack(spacing: T.Space.s2) {
                         Text("Subscription $").font(.auCaption).foregroundStyle(T.Color.muted.color)
@@ -130,6 +137,8 @@ struct SettingsView: View {
             }
             Text("Turning a provider off keeps its cached data; it stops being checked. Prices are never compared with quota or reported cost.")
                 .font(.auCaption).foregroundStyle(T.Color.muted.color).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            AddAccountView(report: report)
         }
     }
 
@@ -149,7 +158,7 @@ struct SettingsView: View {
 
     private func savePrice(_ provider: Provider) {
         guard let parsed = parsedPrice(provider), priceChanged(provider) else { return }
-        Task { await store.applySettings([.monthlySubscription(provider.id, parsed)]) }
+        Task { await store.applySettings([.pricing(provider, parsed)]) }
     }
 
     private var notificationsSection: some View {

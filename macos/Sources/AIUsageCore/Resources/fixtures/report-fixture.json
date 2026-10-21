@@ -4,18 +4,19 @@
   "timezone": "America/Denver",
   "today": "2026-09-29",
   "collector": {
-    "version": "2.2.0",
+    "version": "2.3.0",
     "config_path": "/sandbox/config.json",
     "usage_csv": "/sandbox/data/usage.csv",
     "log_file": "/sandbox/data/collector.log",
     "interval_seconds": 3600,
     "csv_rows": 9259,
-    "installed_version": "2.2.0",
+    "installed_version": "2.3.0",
     "capabilities": {
       "pause": true,
       "progress": true,
       "service_control": true,
-      "settings": true
+      "settings": true,
+      "instances": true
     }
   },
   "thresholds": {
@@ -60,6 +61,7 @@
   "providers": [
     {
       "id": "codex",
+      "type": "codex",
       "name": "Codex",
       "product": "OpenAI Codex",
       "enabled": true,
@@ -4451,6 +4453,7 @@
     },
     {
       "id": "claude",
+      "type": "claude",
       "name": "Claude Code",
       "product": "Claude Code",
       "enabled": true,
@@ -11306,6 +11309,7 @@
     },
     {
       "id": "antigravity",
+      "type": "antigravity",
       "name": "Antigravity",
       "product": "Antigravity CLI",
       "enabled": true,
@@ -12474,6 +12478,7 @@
     },
     {
       "id": "grok",
+      "type": "grok",
       "name": "Grok Build",
       "product": "Grok Build CLI",
       "enabled": true,
@@ -15983,6 +15988,7 @@
     },
     {
       "id": "gemini_cli",
+      "type": "gemini_cli",
       "name": "Gemini CLI",
       "product": "Gemini CLI",
       "enabled": true,

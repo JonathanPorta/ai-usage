@@ -22,7 +22,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AIUsageCoreTests",
-            dependencies: ["AIUsageCore"]
+            dependencies: ["AIUsageCore"],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )
