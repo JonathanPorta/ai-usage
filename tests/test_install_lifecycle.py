@@ -218,6 +218,67 @@ class InstallLifecycleTests(unittest.TestCase):
                 SERVICE.install_service(self.config, no_start=True)
         self.assertNotEqual(tree_state(self.case.home), before)
 
+    def test_an_interrupted_upgrade_restores_the_files_and_restarts_the_service(self) -> None:
+        # Ctrl-C (KeyboardInterrupt) is not an Exception; it must still roll back.
+        older = variant_tree(self.case.root / "older", "older collector")
+        self.install_with(older)
+        before = tree_state(self.case.home)
+        real_write = SERVICE.atomic_write_bytes
+        calls: list[list[str]] = []
+
+        def write(path: Path, content: bytes, mode: int = 0o600) -> None:
+            if path.parent.name == "ai_usage_plugins" and path.name == "claude.py":
+                raise KeyboardInterrupt
+            real_write(path, content, mode=mode)
+
+        def launchctl(arguments: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(arguments)
+            stdout = f'"{SERVICE.SERVICE_LABEL}" => enabled\n' if arguments[0] == "print-disabled" else ""
+            return subprocess.CompletedProcess(["launchctl", *arguments], 0, stdout, "")
+
+        with self.in_process_install_paths(), \
+                mock.patch.object(SERVICE.sys, "platform", "darwin"), \
+                mock.patch.object(SERVICE, "find_launchctl", return_value=self.case.fake_launchctl()), \
+                mock.patch.object(SERVICE, "run_launchctl", side_effect=launchctl), \
+                mock.patch.object(SERVICE, "atomic_write_bytes", side_effect=write):
+            with self.assertRaises(KeyboardInterrupt):
+                SERVICE.install_service(self.config, no_start=False)
+
+        self.assertEqual(tree_state(self.case.home), before, "mixed versions after an interrupted upgrade")
+        self.assertFalse(list(self.case.home.glob(".ai-usage-install-recovery-*")))
+        commands = [arguments[0] for arguments in calls]
+        self.assertEqual(commands[commands.index("bootout"):], ["bootout", "enable", "bootstrap", "kickstart"],
+                         "the service stopped for the upgrade is started again")
+
+    def test_an_interrupted_uninstall_restores_the_files_and_restarts_the_service(self) -> None:
+        self.case.run("install", "--no-start", "--config", str(self.config))
+        before = tree_state(self.case.home)
+        calls: list[list[str]] = []
+
+        def launchctl(arguments: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(arguments)
+            return subprocess.CompletedProcess(["launchctl", *arguments], 0, "", "")
+
+        real_unlink = Path.unlink
+
+        def unlink(path: Path, missing_ok: bool = False) -> None:
+            if path.name == "install-ownership.json":
+                raise KeyboardInterrupt
+            real_unlink(path, missing_ok=missing_ok)
+
+        with self.in_process_install_paths(), \
+                mock.patch.object(SERVICE.sys, "platform", "darwin"), \
+                mock.patch.object(SERVICE, "find_launchctl", return_value=self.case.fake_launchctl()), \
+                mock.patch.object(SERVICE, "run_launchctl", side_effect=launchctl), \
+                mock.patch.object(Path, "unlink", unlink):
+            with self.assertRaises(KeyboardInterrupt):
+                SERVICE.uninstall_service(self.config)
+
+        self.assertEqual(tree_state(self.case.home), before)
+        self.assertFalse(list(self.case.home.glob(".ai-usage-install-recovery-*")))
+        commands = [arguments[0] for arguments in calls]
+        self.assertEqual(commands[commands.index("bootout"):], ["bootout", "enable", "bootstrap", "kickstart"])
+
     def test_an_owned_module_this_version_no_longer_ships_is_removed_only_if_unchanged(self) -> None:
         self.case.run("install", "--no-start", "--config", str(self.config))
         package = self.root / "ai_usage_plugins"

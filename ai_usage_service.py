@@ -1306,6 +1306,11 @@ def apply_managed_file(plan: Mapping[str, Any], tx: FilesystemTransaction) -> No
     atomic_write_bytes(path, bytes(plan["content"]), mode=int(plan["mode"]))
 
 
+def failure_text(error: BaseException) -> str:
+    """The error for a failure message; a bare KeyboardInterrupt has no text."""
+    return str(error) or ("interrupted" if isinstance(error, KeyboardInterrupt) else type(error).__name__)
+
+
 def launch_agent(domain: str) -> None:
     # Explicit order: clear any persistent disable (e.g. from `stop`) first,
     # then bootstrap, then make sure it runs. No legacy `load -w` side effects.
@@ -1439,7 +1444,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
             run_launchctl(["disable", target], check=True)
         except Exception as restore_error:
             raise RuntimeError(
-                f"installation failed ({error}); files were restored, but the collector "
+                f"installation failed ({failure_text(error)}); files were restored, but the collector "
                 f"could not restore its disabled state ({restore_error}). It was disabled "
                 f"(stopped at login) before this install; run `launchctl disable {target}`"
             ) from error
@@ -1508,7 +1513,9 @@ def install_service(config_path: Path, no_start: bool) -> None:
             launch_attempted = True
             launch_agent(domain)
         tx.cleanup()
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
+        # Ctrl-C is not an Exception, but it must restore the files and service too;
+        # the interruption is re-raised once they are restored.
         cleanup_failed = False
         if launch_attempted:
             try:
@@ -1527,7 +1534,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
         if cleanup_failed:
             # The new service may still be running: leave launchd as it is.
             raise RuntimeError(
-                f"installation failed ({error}) and the new service could not be "
+                f"installation failed ({failure_text(error)}) and the new service could not be "
                 f"stopped safely; installed files and recovery artifacts were preserved at "
                 f"{tx.recovery_dir}"
             ) from error
@@ -1537,7 +1544,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
             restore_disabled_state(error)
             if service_stopped:
                 raise RuntimeError(
-                    f"installation failed ({error}); {rollback_error}. The collector was stopped "
+                    f"installation failed ({failure_text(error)}); {rollback_error}. The collector was stopped "
                     "for this install and has NOT been restarted: restore the recovery artifacts, "
                     "then run `collector.py start`"
                 ) from error
@@ -1548,7 +1555,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
             except Exception as recovery_error:
                 restore_disabled_state(error)
                 raise RuntimeError(
-                    f"installation failed ({error}); files were restored but the prior "
+                    f"installation failed ({failure_text(error)}); files were restored but the prior "
                     f"service could not be restarted ({recovery_error}); recovery artifacts: "
                     f"{tx.recovery_dir}"
                 ) from error
@@ -1899,14 +1906,14 @@ def uninstall_service(config_path: Path) -> None:
         ownership_path().unlink()
         fsync_directory(ownership_path().parent)
         tx.cleanup()
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
         tx.rollback(preserve_recovery=service_stopped)
         if service_stopped:
             try:
                 launch_agent(domain)
             except Exception as recovery_error:
                 raise RuntimeError(
-                    f"uninstall failed ({error}); files were restored but the service "
+                    f"uninstall failed ({failure_text(error)}); files were restored but the service "
                     f"could not be restarted ({recovery_error}); recovery artifacts: "
                     f"{tx.recovery_dir}"
                 ) from error
