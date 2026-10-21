@@ -3,8 +3,9 @@
 The collector reads each AI tool through a **provider plugin**. Phase 1 of the
 provider-plugin project (`tasks/project-plan.md`) moved the five built-in
 providers behind one interface and one registry. Their behavior did not change.
-Phase 2 adds more than one instance of a provider (for example a second Claude
-account). Phase 3 adds plugins that are not bundled. Neither exists yet.
+Phase 2 added more than one instance of a provider: an added Claude account
+(see [Added accounts](#added-accounts-phase-2)). Phase 3 adds plugins that are
+not bundled; it doesn't exist yet.
 
 ## Layout
 
@@ -53,6 +54,8 @@ Each provider module defines `PLUGIN = ProviderPlugin(...)`.
 | `integration` | Optional `IntegrationSpec`: a field the installer may add to the provider's own settings file (Antigravity's status line, Gemini CLI's telemetry). It can have a wrapper script, which the installer owns, that runs `collector.py <wrapper_command>`. |
 | `status_line(settings, payload)` | Optional. Records one status-line payload and returns the text to show. It is run through the integration's wrapper command (`antigravity-statusline`). |
 | `report`, `report_order` | The report's catalogue entry (`ProviderDef` with its `SourceDef`s) and its position in the report's provider list. |
+| `instance_settings(explicit)` | Optional (phase 2). Present only on a plugin that allows added accounts: returns an added instance's complete settings, or raises `ValueError`. A plugin with an `integration` never has it. |
+| `instance_only_settings` | Settings only an added instance may set; the built-in rejects them (Claude: `config_dir`). |
 
 **Rules for provider modules:**
 - Importing a module only defines things. It starts no process, reads or writes no file, and collects nothing. A test checks this with an audit hook.
@@ -133,6 +136,66 @@ reintroduced provider branch.
 3. Add tests and parity coverage for it.
 
 Nothing else in the collector changes. The report shows the provider through its `ProviderDef`.
+
+## Added accounts (phase 2)
+
+`config.json` may list **added instances** of a bundled plugin, beyond each
+plugin's built-in one. In 2.3.0 only Claude allows them.
+
+```json
+"instances": [
+  {"id": "claude-az", "plugin": "claude", "label": "Claude (az)", "settings": {"config_dir": "~/.claude-az"}}
+]
+```
+
+Add one with `collector.py instance add` or Settings › "Add Claude account…".
+`instance list`, `enable` and `disable` manage them. Removing one isn't
+supported yet: disable it instead (its config entry, state and CSV history are
+kept, and re-enabling resumes without recounting).
+
+### Three names
+| Name | Example | Meaning | Selects |
+| --- | --- | --- | --- |
+| **id** | `claude-az` | The provider id everywhere: the CSV `provider` column, `state["instances"][<id>]`, the report's `id`, the progress events and the `doctor` key. A lowercase slug (`^[a-z][a-z0-9_-]{0,31}$`), unique, never a bundled id, and never changed after it is added. | That account's rows, state, quota, notes, costs and settings |
+| **type** | `claude` | The **canonical type**: the plugin id. A built-in's type is its id; an added account's never is. It is on every provider in the report (`providers[].type`) and in `doctor --json`. Phase 4's All view groups by it. | Provider-specific behavior: the plugin's collector code and the report's presentation rules |
+| **label** | `Claude (az)` | Display text only: the report's `name`. | Nothing |
+
+### Validation (before anything is written)
+- The entry keys are `id`, `plugin`, `label` and an optional `settings` object; no others.
+- Claude requires a non-empty `config_dir`. `providers.claude.config_dir` is rejected: the built-in account keeps `~/.claude` and `~/.claude.json`.
+- Path roles are checked across every account, as resolved paths, so two accounts can't read the same transcripts or usage cache, even through a symlink. Claude's `usage_cache_file` is a path role for every account, the default included.
+
+### A Claude account's paths and `/usage`
+- **Paths:** from its own `config_dir` (expanded to an absolute path): `<dir>/projects`, `<dir>/stats-cache.json` and `<dir>/.claude.json`. Explicit `settings` apply after those. Nothing falls back to `~/.claude`.
+- **`/usage` refresh:**
+  - an added account runs `claude` with `CLAUDE_CONFIG_DIR=<absolute dir>`;
+  - the default account runs it with `CLAUDE_CONFIG_DIR` removed, even when the collector itself runs where it is set.
+  
+  Each account reads only its own `.claude.json`.
+- **No stats cache:** an added account without `stats-cache.json` is collected from its transcripts and `/usage`. Its daily-stats source shows as waiting, not failed.
+
+### Collection, state and order
+- **Order:** collection, CSV rows, `doctor` and `once --progress` take the built-ins in `BUNDLED` order, then added accounts in config order. The report takes the built-ins in `report_order`, then added accounts in config order.
+- **State:** an added account keeps its checkpoints in `state["instances"][<id>]`. The built-ins keep their top-level keys, so nothing is migrated.
+- **Rows:** the collector stamps each added account's rows with its id.
+- **A disabled account** writes the usual disabled marker row and nothing else.
+
+### Version compatibility
+- Added accounts need collector 2.3.0. The report's `collector.capabilities.instances` says whether the installed collector has them.
+- `instance add`, `instance enable` and `configure instances.<id>.enabled=true` refuse unless the LaunchAgent's collector is 2.3.0 or newer. They read its `VERSION` from the script text and never run it.
+- An older installed collector ignores `instances`, so the report shows each added account as `not_configured`, with a note to reinstall.
+- `install` and `uninstall` never change `instances` or an account's state.
+
+### Parity
+Phase 2 keeps phase 1's golden files. `tests/parity/driver.py` declares the
+only intended differences (`INTENTIONAL_CHANGES`):
+- `VERSION` 2.3.0;
+- `capabilities.instances`;
+- `type` on report providers and `doctor --json` entries.
+
+It applies them to the golden side, and compares everything else exactly.
+Data written by the phase-1 squash commit (`tests/parity/PHASE1`) carries
+forward.
 
 ## External plugins: phase 3, not implemented
 

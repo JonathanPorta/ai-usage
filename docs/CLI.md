@@ -18,6 +18,9 @@ python3 ai_usage_service.py install [--config PATH] [--no-start]
 ~/.ai-usage/collector.py stop                        # disable + bootout; stays stopped at login (2.2.0)
 ~/.ai-usage/collector.py configure --config PATH --set KEY=JSON [...]                          (2.2.0)
 ~/.ai-usage/collector.py once --progress             # also prints one JSON line per provider   (2.2.0)
+~/.ai-usage/collector.py instance add --plugin claude --id ID --label TEXT --config-dir DIR [--config PATH]  (2.3.0)
+~/.ai-usage/collector.py instance list    [--config PATH]   # JSON: the added accounts           (2.3.0)
+~/.ai-usage/collector.py instance enable|disable ID [--config PATH]                               (2.3.0)
 ~/.ai-usage/collector.py doctor    [--config PATH] [--json]
 ~/.ai-usage/collector.py uninstall [--config PATH]
 ~/.ai-usage/collector.py version
@@ -41,11 +44,25 @@ The installed collector is `collector.py` plus its provider package
 - `poll_paused=true|false`;
 - `poll_interval_seconds=N` (60 to 604800);
 - `providers.<id>.enabled=true|false`;
-- `providers.<id>.monthly_subscription_usd=N|null`.
+- `providers.<id>.monthly_subscription_usd=N|null`;
+- `instances.<id>.enabled=true|false` and `instances.<id>.monthly_subscription_usd=N|null` (an added account, 2.3.0).
 
 It is locked, validated against the merged config, atomic and mode-preserving,
 and leaves every other key untouched. It exits 1 and changes nothing on any
 invalid value.
+
+`instance add` appends an added account to `instances` through the same locked
+write, and prints the entry as JSON. Its monthly price is left unset. It
+refuses, changing nothing:
+- an invalid, duplicate or built-in id;
+- a plugin without added accounts;
+- a missing `--config-dir`;
+- a path that collides with another account's.
+
+`instance add`, `instance enable` and `configure instances.<id>.enabled=true`
+also refuse unless the LaunchAgent's collector is 2.3.0 or newer, because an
+older one would silently ignore the account. Disabling never needs it. See
+`docs/PLUGINS.md`, "Added accounts".
 
 `once --progress` lines look like
 `{"event":"provider","provider":"codex","index":1,"total":4}`.
@@ -115,7 +132,8 @@ reported*. It never means zero.
     "interval_seconds": 3600,
     "csv_rows": 329277,
     "installed_version": "2.1.0",      // VERSION read from the LaunchAgent's script; null if unknown
-    "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true }
+    "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true,
+                      "instances": false }   // instances: the installed collector collects added accounts (2.3.0+)
   },
   "thresholds": { "stale_after_seconds": 7200, "grok_billing_stale_after_seconds": 10800 },
   "service": {
@@ -146,7 +164,8 @@ reported*. It never means zero.
       "providers_failed": 0, "skipped": ["Gemini CLI"]
     }
   },
-  "providers": [ /* Provider, in display order: codex, claude, antigravity, grok, gemini_cli */ ]
+  "providers": [ /* Provider, in display order: codex, claude, antigravity, grok, gemini_cli,
+                    then added accounts in config order */ ]
 }
 ```
 
@@ -155,6 +174,8 @@ reported*. It never means zero.
 ```jsonc
 {
   "id": "codex", "name": "Codex", "product": "OpenAI Codex",
+  "type": "codex",             // canonical type (the plugin id; 2.3.0+). An added account: its own id, its label
+                               // as name, and its plugin's type, e.g. {"id": "claude-az", "type": "claude"}
   "enabled": true,
   "setup": "ready",            // ready | not_detected | disabled | not_configured | waiting
   "setup_note": null,

@@ -57,6 +57,10 @@ into both scenes with `.environment(store)`.
 | Service stopped or not installed | `service.state` | Red status row: "Collector stopped · last check 4 h ago". Cached data stays shown. |
 | Paused schedule | `schedule.state == "paused"` | Status row: "Scheduled checks paused · Collect now still works". Menu-bar pause badge. Monitoring offers Resume. |
 | Pause not supported by the installed collector | `capabilities.pause == false` | Pause is disabled, with the version needed and the reinstall command |
+| Added account (phase 2) | A provider whose `type` differs from its `id` | Shown like any provider under its label. In Settings its subtitle names the product and id ("Claude Code account · claude-az"), and its toggle and price write `instances.<id>.…` |
+| Add Claude account: unsupported | `capabilities.instances != true` | No button. A caption gives the collector version needed (2.3.0) and the reinstall command |
+| Add Claude account: editing | Settings › Providers › "Add Claude account…" | Name, id (proposed from the name until edited, then the user's), and config folder (picker shows hidden folders). Problems are listed in plain words: built-in or duplicate id, invalid id, a folder without `.claude.json`. Empty fields wait until the user has tried. "Add account" stays disabled until there are none |
+| Add Claude account: saving, saved, failed | `store.action` | Spinner with "Adding <name>…"; then the form closes and the banner says "<name> added. It is read at the next check."; or the form stays filled with "Not added: <collector's reason>" |
 | Service action or settings save | `store.action` | Spinner, then "Collector stopped; it stays stopped at login" / "Settings saved", or the exact error |
 | Cancellation | — | Collect now cannot be cancelled once started. The collector's own timeouts bound it. |
 | Confirmation | — | Stop collector asks first. It explains that the collector stays stopped at login and data is kept. |

@@ -162,6 +162,12 @@ check one interval later. The menu app changes these settings with
 everything else. `collector.py stop` / `start` disable or re-enable the
 LaunchAgent; a stopped collector stays stopped across login.
 
+A second Claude Code login (one you run with `CLAUDE_CONFIG_DIR`) can be added
+as its own provider with collector 2.3.0 or newer:
+`collector.py instance add --plugin claude --id claude-work --label "Claude (work)" --config-dir ~/.claude-work`,
+or Settings › "Add Claude account…" in the menu app. Each account keeps its own
+usage, plan limits and history; see `docs/PLUGINS.md`, "Added accounts".
+
 `monthly_subscription_usd` is intentionally manual: consumer billing metadata
 generally does not expose the price on your receipt. It is recorded once per
 calendar month, and again only if you change the configured value.

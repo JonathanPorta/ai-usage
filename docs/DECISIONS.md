@@ -239,3 +239,24 @@ routine choice made within the approved scope; change it freely with a new entry
 
 **Reason:** adding a provider no longer means editing six parallel lists, and phase 2 can change the identity model in one place.
 
+
+## 2026-10-20 — Added provider instances, phase 2 (approved scope; engineering details)
+**Choice:** `config.json` may list added instances of a bundled plugin (`instances`). In 2.3.0 only Claude allows them, for a second Claude Code login. Details: `docs/PLUGINS.md`, "Added accounts".
+- **Approved by the owner (2026-10-20):**
+  - Claude only; the built-ins stay under `providers`; the canonical type is the plugin id.
+  - User-chosen, stable ids; the label is display text only.
+  - Add, list, enable and disable now, with removal deferred.
+  - Settings "Add Claude account…", gated on the installed collector.
+  - `VERSION` 2.3.0, with an `instances` capability.
+  - `CLAUDE_CONFIG_DIR`: removed for the default account, set for each added one.
+  - The monthly price is left unset at creation.
+  - Acceptance criteria AC-1–AC-11 (`tasks/phase-2/prd-provider-instances.md`).
+- **Engineering:**
+  - An instance's id is its provider id everywhere (rows, state, report). The type selects behavior. The report's rules switched from `definition.id` to `definition.type`, and every data lookup uses `definition.id`.
+  - The plugin contract gains `instance_settings` and `instance_only_settings`. Claude derives an added account's paths from its `config_dir` before explicit overrides. Its `usage_cache_file` became a checked path role for every account.
+  - Added accounts keep state in `state["instances"][<id>]`. The built-ins keep their top-level keys, so there is no migration.
+  - The installed-collector check sits at the mutation boundary (`instance add`, `instance enable`, enabling through `configure`), not only in the app.
+  - An added account's missing `stats-cache.json` is not an error; the default account's behavior is unchanged.
+  - The phase-1 golden files are kept. Parity declares phase 2's exact output differences.
+
+**Reason:** the owner's second Claude login is collected and shown separately, without migrating or re-reading the existing history, and an older collector can never appear to support it.
