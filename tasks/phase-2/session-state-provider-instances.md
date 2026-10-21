@@ -5,9 +5,9 @@ Last updated: 2026-10-20
 | Part | State | Evidence |
 | --- | --- | --- |
 | Implementation | **Merged.** PR #11, squash-merged at head `dc5371d` as `315c43e`. | Main CI run 39540177768 green; Proofglass job `job_01M5E8XYMRH8F9403R60S8209J` ("Passed on a disposable macOS VM"). |
-| Visuals | **Approved** by the owner on 2026-10-20: the 24 reviewed renders. They're recorded by PR #12, which is waiting on its prrq re-review and merge. | Decision record on #12. |
-| Corrective work | **Open:** PR from `jp/b/fix-account-isolation-findings` fixing the three post-merge review findings (below). | Ready for review; merging it is the owner's checkpoint. |
-| AC-10 | **Pending.** Needs the corrective merge and an owner-approved reinstall. | Procedure: `procedure-reinstall-ac10.md`, prepared and not run. |
+| Visuals | **Approved** by the owner on 2026-10-20. The 24 reviewed renders are recorded by #12, merged as `4542429`. The single-account `popover-settings` was approved separately and is recorded by #14. | Decision records on #12 and #14. |
+| Corrective work | **Open:** #13 (`jp/b/fix-account-isolation-findings`) fixes the three post-merge review findings below. | Ready for review; merging it is the owner's checkpoint. |
+| AC-10 | **Pending.** Needs #13 merged and an owner-approved reinstall. | Procedure: `procedure-reinstall-ac10.md`, prepared and not run. |
 
 - **Validation review mode:** auto-proceed (owner, 2026-10-20).
 - **Blocked:** no.
@@ -15,7 +15,7 @@ Last updated: 2026-10-20
 ### Key Decisions
 - Phase-2 analysis accepted, and AC-1 to AC-11 approved, with Q1–Q8 decided: Claude only, built-ins stay under `providers`, type = plugin id, user slugs, removal deferred, Settings add gated, 2.3.0, explicit `CLAUDE_CONFIG_DIR`. Owner, 2026-10-20. Don't ask again.
 - The phase-1 golden files are kept. Phase 2 declares its exact intentional differences. The carry-forward runs from `1b60b5f`.
-- Visual approval covers the 24 reviewed renders only (owner, 2026-10-20). The single-account `popover-settings` is outside it and is presented separately. The original 50 baselines are not regenerated to hide the macOS 27 mismatch.
+- The owner approved the 24 reviewed renders and, separately, the single-account `popover-settings` (2026-10-20). The other earlier baselines are not regenerated to hide the macOS 27 mismatch.
 - No release, no change to the installed collector, no credentials.
 
 ### Corrective findings (independent review after the merge)
@@ -24,12 +24,12 @@ Last updated: 2026-10-20
 3. **App result:** the app's add-account result was read from the shared banner after the refresh. Fixed: an operation-local result, and the form stays busy for its whole submission.
 
 ### What's Next
-1. Owner: merge decisions on #12 and the corrective PR, after their reviews.
-2. Owner: review the single-account `popover-settings` renders.
-3. After both merges: an owner-approved reinstall, then AC-10 per `procedure-reinstall-ac10.md`.
+1. #14: reviewer approval, then merge through prrq.
+2. #13: reviewer approval, then the owner's merge decision.
+3. After #13 merges: an owner-approved reinstall, then AC-10 per `procedure-reinstall-ac10.md`.
 
 ### Known limits
 - An added account's source descriptions still name `~/.claude/projects`, because they're copied from the plugin's catalogue entry.
 - Its daily-stats source stays "waiting" when the account has no stats cache.
 - `make launchd-integration-check` (real launchd) was not run.
-- On macOS 27.0.1, `make app-snapshot-check` fails on the earlier 50 baselines, which were rendered on 26.6.1.
+- On macOS 27.0.1, `make app-snapshot-check` fails on the earlier baselines, which were rendered on 26.6.1. Re-baselining them needs a separate review.
