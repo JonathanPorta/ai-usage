@@ -44,13 +44,62 @@ enum SnapshotRenderer {
                 try shoot("history-tokens-\(split)", width: 920, height: 1400, HistoryView(providerId: split))
             }
             try shoot("history-quota", width: 920, height: 1400, HistoryView(providerId: first, metric: .quota))
-            if !live { try historyStates(report, shoot: shoot) }
+            if !live {
+                try historyStates(report, shoot: shoot)
+                try accountStates(width: popoverWidth) { name, width, height, store, view in
+                    try shoot(name, width: width, height: height, store: store, view)
+                }
+            }
             print("snapshot: wrote \(written.count) images to \(directory.path)")
             exit(0)
         } catch {
             FileHandle.standardError.write(Data("snapshot failed: \(error)\n".utf8))
             exit(1)
         }
+    }
+
+    /// Settings with an added Claude account, and each "Add Claude account…" state,
+    /// from the two-account fixture. Folder checks are stubbed: nothing is read from disk.
+    private static func accountStates(
+        width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        let two = try Report.twoAccountFixture()
+        func store(_ action: AppStore.ActionState = .idle, report: Report = two) -> AppStore {
+            let store = AppStore.preview(report, clock: report.generatedAt)
+            store.previewAction(action)
+            return store
+        }
+        func form(_ view: some View) -> AnyView {
+            AnyView(view.padding(T.Space.s4).background(T.Color.background.color))
+        }
+        let folder = URL(fileURLWithPath: "/Users/you/.claude-personal")
+        let ready = AccountDraft(label: "Claude (personal)", id: "claude-personal", folder: folder)
+        try shoot("popover-settings-two-accounts", width, nil, store(), AnyView(PopoverRoot(initialScreen: .settings, screenHeight: 1600)))
+        try shoot("popover-overview-two-accounts", width, nil, store(), AnyView(PopoverRoot(screenHeight: 1200)))
+        try shoot("detail-claude-az-quota", width, nil, store(),
+                  AnyView(PopoverRoot(initialScreen: .detail("claude-az"), detailMetric: .quota, screenHeight: 1000)))
+        var older = two
+        older.collector.installedVersion = "2.2.0"
+        older.collector.capabilities?.instances = nil
+        try shoot("add-account-unsupported", width, nil, store(report: older), form(AddAccountView(report: older)))
+        try shoot("add-account-closed", width, nil, store(), form(AddAccountView(report: two)))
+        try shoot("add-account-empty", width, nil, store(), form(AddAccountView(report: two, open: true)))
+        try shoot("add-account-problems", width, nil, store(), form(AddAccountView(
+            report: two, open: true, draft: AccountDraft(label: "Claude (personal)", id: "claude", idEdited: true, folder: folder),
+            touched: true, folderCheck: { _ in false })))
+        try shoot("add-account-duplicate", width, nil, store(), form(AddAccountView(
+            report: two, open: true, draft: AccountDraft(label: "Claude (work)", id: "claude-az", idEdited: true, folder: folder),
+            touched: true, folderCheck: { _ in true })))
+        try shoot("add-account-ready", width, nil, store(), form(AddAccountView(
+            report: two, open: true, draft: ready, touched: true, folderCheck: { _ in true })))
+        try shoot("add-account-saving", width, nil, store(.running("Adding Claude (personal)…")), form(AddAccountView(
+            report: two, open: true, draft: ready, touched: true, folderCheck: { _ in true })))
+        try shoot("add-account-saved", width, nil, store(.done("Claude (personal) added. It is read at the next check.")),
+                  form(VStack(alignment: .leading, spacing: T.Space.s3) { ActionBanner(); AddAccountView(report: two) }))
+        try shoot("add-account-failed", width, nil,
+                  store(.failed("added accounts need the installed collector 2.3.0 or newer (installed: 2.2.0); reinstall it first with `python3 ai_usage_service.py install`")),
+                  form(AddAccountView(report: two, open: true, draft: ready, touched: true, folderCheck: { _ in true })))
     }
 
     /// History states for layout review: a narrower window (the shared compact

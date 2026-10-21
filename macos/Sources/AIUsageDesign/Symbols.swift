@@ -20,6 +20,7 @@ public enum Symbols {
     public static let info = "info.circle"
     public static let back = "chevron.left"
     public static let forward = "chevron.right"
+    public static let add = "plus.circle"
     public static let unavailable = "minus"
 
     public enum Badge {

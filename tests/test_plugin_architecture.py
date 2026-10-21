@@ -88,8 +88,8 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_check_catches_a_reintroduced_provider_branch(self) -> None:
         source = (REPO / "ai_usage_service.py").read_text(encoding="utf-8")
         mutated = source.replace(
-            "    for name in names:\n        settings = provider_config(config, name)\n",
-            "    for name in names:\n        settings = provider_config(config, name)\n"
+            "        name = account.id\n        settings = account_settings(config, account)\n",
+            "        name = account.id\n        settings = account_settings(config, account)\n"
             "        if name == \"claude\":\n            pass\n", 1)
         self.assertNotEqual(mutated, source)
         self.assertEqual(provider_literals(mutated), {"collect_snapshot": ["claude"]})
@@ -204,7 +204,7 @@ class FailureIsolationTests(unittest.TestCase):
             "message": "provider module failed to load: RuntimeError: claude module is broken", "auth": False}])
         self.assertEqual(collection["summary"], {**expected["collection"]["summary"],
                                                  "providers_updated": 4, "providers_failed": 1})
-        self.assertEqual(report["providers"], [p for p in expected["providers"] if p["id"] != "claude"])
+        self.assertEqual(report["providers"], [{**p, "type": p["id"]} for p in expected["providers"] if p["id"] != "claude"])
 
     def test_a_turned_off_provider_that_fails_to_load_is_not_a_failure(self) -> None:
         # claude is turned off in this scenario, so its broken module changes no status.
@@ -254,6 +254,14 @@ class VerbatimMoveTests(unittest.TestCase):
 
     # The only edits: the collector version is passed in instead of read from the service.
     VERSION_PARAMETER = "client_version"
+    # Phase 2 changes these on purpose (tasks/phase-2): each account's /usage refresh
+    # gets its own CLAUDE_CONFIG_DIR, and the default account's never inherits one.
+    PHASE2_CHANGED = {
+        "claude.claude_usage_environment": "removes CLAUDE_CONFIG_DIR; sets an added account's own",
+        "claude.run_claude_usage": "passes the account's config_dir to the environment",
+        "claude.collect_claude_subscription_usage": "reads the account's config_dir",
+        "claude.collect_claude": "an added account's missing stats cache is not an error",
+    }
 
     def normalized(self, node: ast.AST) -> str:
         parameter = self.VERSION_PARAMETER
@@ -284,7 +292,7 @@ class VerbatimMoveTests(unittest.TestCase):
                 before[node.name] = node
             elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                 before[node.targets[0].id] = node
-        moved = 0
+        moved = changed = 0
         for path in sorted(PACKAGE.glob("*.py")):
             for node in ast.parse(path.read_text(encoding="utf-8")).body:
                 name = node.name if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else (
@@ -294,9 +302,15 @@ class VerbatimMoveTests(unittest.TestCase):
                 if name == "claude_usage_rows" and path.stem == "claude":
                     continue  # defined twice in the baseline; compared below
                 with self.subTest(f"{path.stem}.{name}"):
+                    if f"{path.stem}.{name}" in self.PHASE2_CHANGED:
+                        # Listed, so it must really differ: a stale entry fails here.
+                        self.assertNotEqual(self.normalized(node), self.normalized(before[name]))
+                        changed += 1
+                        continue
                     self.assertEqual(self.normalized(node), self.normalized(before[name]))
                     moved += 1
-        self.assertGreaterEqual(moved, 70)
+        self.assertGreaterEqual(moved + changed, 70)
+        self.assertEqual(changed, len(self.PHASE2_CHANGED))
         # The baseline defines claude_usage_rows twice; the second definition wins, in both.
         def last(source: str) -> str:
             nodes = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "claude_usage_rows"]

@@ -79,6 +79,18 @@ public enum ConfigChange: Equatable, Sendable {
     case pollIntervalSeconds(Int)
     case providerEnabled(String, Bool)
     case monthlySubscription(String, Double?)
+    /// An added account's settings live in its `instances` entry.
+    case accountEnabled(String, Bool)
+    case accountMonthlySubscription(String, Double?)
+
+    /// The enable change for a report provider: a built-in's or an added account's.
+    public static func enabling(_ provider: Provider, _ value: Bool) -> ConfigChange {
+        provider.isAddedAccount ? .accountEnabled(provider.id, value) : .providerEnabled(provider.id, value)
+    }
+
+    public static func pricing(_ provider: Provider, _ value: Double?) -> ConfigChange {
+        provider.isAddedAccount ? .accountMonthlySubscription(provider.id, value) : .monthlySubscription(provider.id, value)
+    }
 
     /// `KEY=JSON` for `ai_usage_service.py configure --set`.
     public var assignment: String {
@@ -86,15 +98,26 @@ public enum ConfigChange: Equatable, Sendable {
         case let .pollPaused(value): return "poll_paused=\(value)"
         case let .pollIntervalSeconds(value): return "poll_interval_seconds=\(value)"
         case let .providerEnabled(id, value): return "providers.\(id).enabled=\(value)"
-        case let .monthlySubscription(id, value):
-            guard let value else { return "providers.\(id).monthly_subscription_usd=null" }
-            return "providers.\(id).monthly_subscription_usd=\(value == value.rounded() ? String(Int(value)) : String(value))"
+        case let .monthlySubscription(id, value): return Self.price("providers.\(id)", value)
+        case let .accountEnabled(id, value): return "instances.\(id).enabled=\(value)"
+        case let .accountMonthlySubscription(id, value): return Self.price("instances.\(id)", value)
         }
+    }
+
+    private static func price(_ prefix: String, _ value: Double?) -> String {
+        guard let value else { return "\(prefix).monthly_subscription_usd=null" }
+        return "\(prefix).monthly_subscription_usd=\(value == value.rounded() ? String(Int(value)) : String(value))"
     }
 }
 
 public protocol ConfigWriting: Sendable {
     func apply(_ changes: [ConfigChange]) async throws
+    /// Runs `instance add` (added accounts, collector 2.3.0+).
+    func addAccount(_ request: AccountRequest) async throws
+}
+
+public extension ConfigWriting {
+    func addAccount(_ request: AccountRequest) async throws { throw ClientError.processFailed("Accounts can’t be added here.") }
 }
 
 public struct NoConfigWriter: ConfigWriting {
@@ -124,6 +147,19 @@ public struct LiveConfigWriter: ConfigWriting {
             let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "ai-usage: ", with: "")
             throw ClientError.processFailed(message.isEmpty ? "Settings weren’t saved." : message)
+        }
+    }
+
+    public func addAccount(_ request: AccountRequest) async throws {
+        guard let module = environment.bundledCollectorModule else { throw ClientError.reportScriptMissing }
+        let result = try await runner.run(environment.python,
+                                          arguments: [module.path] + request.arguments(configPath: environment.configPath.path),
+                                          environment: environment.childEnvironment, timeout: 30)
+        if result.timedOut { throw ClientError.timedOut("Adding the account") }
+        guard result.exitCode == 0 else {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "ai-usage: ", with: "")
+            throw ClientError.processFailed(message.isEmpty ? "The account wasn’t added." : message)
         }
     }
 }

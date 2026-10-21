@@ -6,6 +6,7 @@ does nothing else: no collection, no subprocess, no file access.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional
@@ -70,6 +71,12 @@ class ProviderPlugin:
     # Records one status-line payload; returns the text to show. Run by the
     # integration's wrapper command.
     status_line: Optional[Callable[[Mapping[str, Any], Mapping[str, Any]], str]] = None
+    # Added instances (config `instances`, phase 2). Present only on plugins that allow
+    # them: takes an added instance's explicit settings and returns its complete
+    # settings, or raises ValueError. A plugin with an integration cannot have them.
+    instance_settings: Optional[Callable[[Mapping[str, Any]], dict[str, Any]]] = None
+    # Settings only an added instance may set; the built-in rejects them.
+    instance_only_settings: tuple[str, ...] = ()
 
 
 # --------------------------------------------------------------------------- report catalogue
@@ -101,6 +108,9 @@ class ProviderDef:
                  record_kind: str, quota: str, sources: list[SourceDef],
                  reported_note: Optional[str], quota_note: Optional[str] = None) -> None:
         self.id = pid
+        # The canonical type: the plugin id. It selects provider-specific behavior;
+        # `id` (an added instance's own id) selects the provider's data.
+        self.type = pid
         self.name = name
         self.product = product
         self.mode = mode
@@ -110,6 +120,13 @@ class ProviderDef:
         self.sources = sources
         self.reported_note = reported_note
         self.quota_note = quota_note
+
+    def for_instance(self, instance_id: str, label: str) -> "ProviderDef":
+        """This catalogue entry for an added instance: its own id and name, the same type."""
+        definition = copy.copy(self)
+        definition.id = instance_id
+        definition.name = label
+        return definition
 
     def source_for_csv(self, csv_source: str) -> Optional[SourceDef]:
         for source in self.sources:

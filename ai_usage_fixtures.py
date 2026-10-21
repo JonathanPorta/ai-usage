@@ -100,17 +100,18 @@ def codex_daily(ts: float, date: str, tokens: int) -> dict[str, Any]:
              period_start=date, unit="tokens", source="codex-account-usage")
 
 
-def claude_event(ts: float, model: str, inp: int, out: int, cache_read: int = 0, session: str = "a1") -> list[dict[str, Any]]:
+def claude_event(ts: float, model: str, inp: int, out: int, cache_read: int = 0, session: str = "a1",
+                 provider: str = "claude") -> list[dict[str, Any]]:
     scope = f"{session}:{model}"
     date = iso(ts)[:10]
     rows = [
-        R(ts, "claude", "usage", "input_tokens", inp, kind="event_total", scope=scope, period_start=date,
+        R(ts, provider, "usage", "input_tokens", inp, kind="event_total", scope=scope, period_start=date,
           unit="tokens", source="claude-session-log"),
-        R(ts, "claude", "usage", "output_tokens", out, kind="event_total", scope=scope, period_start=date,
+        R(ts, provider, "usage", "output_tokens", out, kind="event_total", scope=scope, period_start=date,
           unit="tokens", source="claude-session-log"),
     ]
     if cache_read:
-        rows.append(R(ts, "claude", "usage", "cache_read_input_tokens", cache_read, kind="event_total",
+        rows.append(R(ts, provider, "usage", "cache_read_input_tokens", cache_read, kind="event_total",
                       scope=scope, period_start=date, unit="tokens", source="claude-session-log"))
     return rows
 
@@ -124,8 +125,9 @@ def claude_stats(ts: float, stale: bool = False) -> list[dict[str, Any]]:
     return rows
 
 
-def claude_quota(ts: float, scope: str, used: float, window: int, resets: float) -> dict[str, Any]:
-    return R(ts, "claude", "quota", "used_percent", used, scope=scope, unit="percent", window=window,
+def claude_quota(ts: float, scope: str, used: float, window: int, resets: float,
+                 provider: str = "claude") -> dict[str, Any]:
+    return R(ts, provider, "quota", "used_percent", used, scope=scope, unit="percent", window=window,
              resets=resets, source="claude-usage-cache")
 
 
@@ -186,7 +188,10 @@ def error(ts: float, provider: str, metric: str, source: str, message: str) -> d
 
 # --------------------------------------------------------------------------- the fixture scenario
 
-def fixture_rows(now: float) -> CsvBuilder:
+SECOND_ACCOUNT = {"id": "claude-az", "plugin": "claude", "label": "Claude (work)"}
+
+
+def fixture_rows(now: float, second_account: bool = False) -> CsvBuilder:
     """A rich, deterministic scenario around `now` (local time America/Denver).
 
     - Collection began 20 days ago, hourly checks.
@@ -199,6 +204,8 @@ def fixture_rows(now: float) -> CsvBuilder:
       billing lookup failed, so quota keeps the previous reading and is stale
       (failed) while usage stays current. One day lost to log rotation.
     - Gemini CLI: not installed.
+    - With `second_account`, an added Claude account (claude-az) that began
+      a week ago: its own transcripts and plan limits, and no stats cache.
     """
     b = CsvBuilder()
     start = now - 20 * DAY
@@ -263,6 +270,13 @@ def fixture_rows(now: float) -> CsvBuilder:
             rows.append(R(ts, "grok", "collection", "rotation_data_loss", 1, kind="interval_total", unit="files",
                           source="grok-session-log", status="error", message="session log rotated before read"))
         # Gemini: not installed -> the collector emits no rows.
+        if second_account and ts > now - 7 * DAY:
+            account = SECOND_ACCOUNT["id"]
+            rows.append(detected(ts, account))
+            rows.append(claude_quota(ts, "session", round((ts % (5 * HOUR)) / (5 * HOUR) * 30 + 2, 1), 18000,
+                                     ts - (ts % (5 * HOUR)) + 5 * HOUR, provider=account))
+            rows.append(claude_quota(ts, "weekly", 12.0 if ts > now - DAY else 6.0, 604800,
+                                     now + 2 * DAY, provider=account))
         b.transaction(rows)
         # Usage events between checks (event time in collected_at)
         events: list[dict[str, Any]] = []
@@ -270,6 +284,9 @@ def fixture_rows(now: float) -> CsvBuilder:
             events += claude_event(ts + 600, "claude-sonnet-4-5", 30_000 + lt.tm_hour * 900, 6_000, 400_000)
             if lt.tm_hour % 3 == 0:
                 events += claude_event(ts + 900, "claude-opus-4-1", 9_000, 2_000, 0, session="b2")
+        if second_account and ts > now - 7 * DAY and lt.tm_hour in (10, 15) and lt.tm_wday < 5:
+            events += claude_event(ts + 700, "claude-sonnet-4-5", 12_000, 2_500, 90_000, session="w1",
+                                   provider=SECOND_ACCOUNT["id"])
         if 9 <= lt.tm_hour <= 17 and lt.tm_wday < 5:
             scope = f"g{index:04d}"
             events += grok_event(ts + 1200, scope, 9_000, 1_300, incomplete=(lt.tm_hour == 12), cost=0.04)
@@ -281,7 +298,7 @@ def fixture_rows(now: float) -> CsvBuilder:
     return b
 
 
-def write_sandbox(root: Path, now: float, *, interval: int = 3600) -> Path:
+def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_account: bool = False) -> Path:
     """Create an isolated collector home: config, CSV and log. Returns the config path."""
     root.mkdir(parents=True, exist_ok=True)
     data = root / "data"
@@ -317,9 +334,13 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600) -> Path:
                      "collect_billing_via_acp": False},
         },
     }
+    if second_account:
+        (root / "claude-az").mkdir(exist_ok=True)
+        config["instances"] = [{**SECOND_ACCOUNT, "settings": {
+            "config_dir": str(root / "claude-az"), "executable": str(root / "bin" / "claude")}}]
     config_path = root / "config.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    fixture_rows(now).write(data / "usage.csv")
+    fixture_rows(now, second_account).write(data / "usage.csv")
     last_check = max(collector_check_times(data / "usage.csv"))
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_check))
     (data / "collector.log").write_text(
@@ -335,7 +356,7 @@ def collector_check_times(path: Path) -> list[float]:
                 for r in csv.DictReader(handle) if r["category"] == "availability"]
 
 
-def fixture_report(now_iso: str = FIXTURE_NOW) -> dict[str, Any]:
+def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False) -> dict[str, Any]:
     """The committed app fixture: deterministic paths, TZ and service state."""
     import tempfile
     import ai_usage_report as report
@@ -347,7 +368,7 @@ def fixture_report(now_iso: str = FIXTURE_NOW) -> dict[str, Any]:
         now = report.parse_ts(now_iso)
         with tempfile.TemporaryDirectory(prefix="ai-usage-fixture-") as tmp:
             root = Path(tmp)
-            config_path = write_sandbox(root, now)
+            config_path = write_sandbox(root, now, second_account=second_account)
             config = collector.load_config(config_path)
             built = report.build_report(
                 config, config_path=config_path, now=now, days=90,
@@ -366,8 +387,11 @@ def fixture_report(now_iso: str = FIXTURE_NOW) -> dict[str, Any]:
 FIXTURE_PATH = Path(__file__).resolve().parent / "macos" / "Sources" / "AIUsageCore" / "Resources" / "fixtures" / "report-fixture.json"
 
 
-def render_fixture() -> str:
-    return json.dumps(fixture_report(), indent=2, sort_keys=False) + "\n"
+TWO_ACCOUNT_FIXTURE_PATH = FIXTURE_PATH.with_name("report-fixture-two-accounts.json")
+
+
+def render_fixture(second_account: bool = False) -> str:
+    return json.dumps(fixture_report(second_account=second_account), indent=2, sort_keys=False) + "\n"
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -384,19 +408,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         now = report.parse_ts(arguments.now) if arguments.now else time.time()
         print(write_sandbox(arguments.directory, now))
         return 0
-    rendered = render_fixture()
+    fixtures = {FIXTURE_PATH: render_fixture(), TWO_ACCOUNT_FIXTURE_PATH: render_fixture(second_account=True)}
     if arguments.command == "fixture":
-        FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        FIXTURE_PATH.write_text(rendered, encoding="utf-8")
-        print(f"fixture: wrote {FIXTURE_PATH}")
+        for path, rendered in fixtures.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rendered, encoding="utf-8")
+            print(f"fixture: wrote {path}")
         return 0
-    current = FIXTURE_PATH.read_text(encoding="utf-8") if FIXTURE_PATH.exists() else ""
-    if current != rendered:
-        print(f"fixture-check: {FIXTURE_PATH} is out of date; run `make fixture`", file=sys.stderr)
+    stale = [path for path, rendered in fixtures.items()
+             if (path.read_text(encoding="utf-8") if path.exists() else "") != rendered]
+    for path in stale:
+        print(f"fixture-check: {path} is out of date; run `make fixture`", file=sys.stderr)
+    if stale:
         return 1
-    print("fixture-check: committed fixture matches the generator")
+    print("fixture-check: committed fixtures match the generator")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
