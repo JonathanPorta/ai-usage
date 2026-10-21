@@ -1201,6 +1201,15 @@ def refresh_dir(settings: Mapping[str, Any]) -> Optional[tuple[str, str]]:
     return "(Claude Code's default folder)", "~/.claude"
 
 
+def refresh_cache(settings: Mapping[str, Any]) -> Optional[str]:
+    """The `.claude.json` that `/usage` refreshes, inside the folder it runs with, even when
+    `usage_cache_file` points the account's reading elsewhere."""
+    target = refresh_dir(settings)
+    if target is None:
+        return None
+    return "~/.claude.json" if target[0].startswith("(") else str(Path(target[1]) / ".claude.json")
+
+
 PLUGIN = ProviderPlugin(
     id="claude",
     default_settings=DEFAULT_SETTINGS,
@@ -1211,6 +1220,7 @@ PLUGIN = ProviderPlugin(
     instance_settings=instance_settings,
     instance_only_settings=("config_dir",),
     refresh_dir=refresh_dir,
+    refresh_cache=refresh_cache,
     report=ProviderDef(
         "claude", "Claude Code", "Claude Code", mode="event", split="input_output",
         record_kind="event_total", quota="polled",

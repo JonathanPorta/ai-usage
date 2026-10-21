@@ -389,6 +389,31 @@ def validate_refresh_dirs(config: Mapping[str, Any]) -> None:
                     raise ValueError(
                         f"refresh folder overlap: {inner_role} ({inner}) is inside {outer_role} ({outer}); "
                         f"give one its own folder or disable it")
+    validate_refresh_caches(config)
+
+
+def validate_refresh_caches(config: Mapping[str, Any]) -> None:
+    """The file each refresh writes may not be another account's, refreshed or read, even
+    through a symlink. Read overrides don't move it, so it is compared on its own."""
+    files: list[tuple[str, str, Path, bool]] = []  # (account, role, resolved path, refreshed)
+    for account in accounts(config):
+        plugin = PLUGINS.get(account.type)
+        if plugin is None or plugin.refresh_cache is None:
+            continue
+        prefix = f"instances.{account.id}" if account.added else f"providers.{account.id}"
+        settings = account_settings(config, account)
+        refreshed = plugin.refresh_cache(settings)
+        if refreshed is not None:
+            name = Path(refreshed).name
+            files.append((account.id, f"{prefix}'s refreshed {name}", expand_path(refreshed), True))
+        read = settings.get("usage_cache_file")
+        if isinstance(read, str) and read.strip():
+            files.append((account.id, f"{prefix}.usage_cache_file", expand_path(read), False))
+    for index, (account_id, role, path, refreshed) in enumerate(files):
+        for other_id, other_role, other, other_refreshed in files[:index]:
+            if account_id != other_id and (refreshed or other_refreshed) and path == other:
+                raise ValueError(f"refresh cache collision: {other_role} and {role} both resolve to {path}; "
+                                 f"give each account its own .claude.json")
 
 
 def validate_configured_paths(config: Mapping[str, Any]) -> None:

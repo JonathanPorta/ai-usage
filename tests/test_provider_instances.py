@@ -277,6 +277,45 @@ class InstanceConfigTests(unittest.TestCase):
         self.rejects(self.config([self.az(), self.second(str(self.home / "az" / "inner"))]),
                      "refresh folder overlap: instances.claude-two.config_dir")
 
+    def test_a_refresh_cache_aliased_to_another_accounts_is_rejected_despite_a_read_override(self) -> None:
+        # Review finding: distinct folders, but B's implicit .claude.json is a symlink to A's,
+        # and B reads a separate file, so both refreshes reach A's cache while B reads a stale one.
+        (self.home / "two").mkdir()
+        (self.home / "az" / ".claude.json").write_text("{}", encoding="utf-8")
+        (self.home / "two" / ".claude.json").symlink_to(self.home / "az" / ".claude.json")
+        second = self.second("~/two")
+        self.rejects(self.config([self.az(), second]),
+                     f"refresh cache collision: instances.claude-az's refreshed .claude.json and "
+                     f"instances.claude-two's refreshed .claude.json both resolve to {self.home / 'az' / '.claude.json'}")
+
+    def test_a_refresh_cache_aliased_to_the_default_accounts_is_rejected(self) -> None:
+        (self.home / "two").mkdir()
+        (self.home / ".claude.json").write_text("{}", encoding="utf-8")
+        (self.home / "two" / ".claude.json").symlink_to(self.home / ".claude.json")
+        self.rejects(self.config([self.second("~/two")]),
+                     f"refresh cache collision: providers.claude's refreshed .claude.json and "
+                     f"instances.claude-two's refreshed .claude.json both resolve to {self.home / '.claude.json'}")
+
+    def test_a_refresh_cache_aliased_to_another_accounts_read_cache_is_rejected(self) -> None:
+        # The mirror case: B refreshes into the file A reads instead of its own.
+        (self.home / "two").mkdir()
+        read_by_az = self.root / "az-reads.json"
+        read_by_az.write_text("{}", encoding="utf-8")
+        (self.home / "two" / ".claude.json").symlink_to(read_by_az)
+        az = self.az(settings={"config_dir": str(self.home / "az"), "usage_cache_file": str(read_by_az)})
+        self.rejects(self.config([az, self.second("~/two")]),
+                     "refresh cache collision: instances.claude-az.usage_cache_file and "
+                     "instances.claude-two's refreshed .claude.json")
+
+    def test_an_accounts_own_cache_may_be_read_through_another_name(self) -> None:
+        # Within one account, reading its refreshed cache through a symlink is fine.
+        (self.home / "az" / ".claude.json").write_text("{}", encoding="utf-8")
+        (self.home / "az-cache-link.json").symlink_to(self.home / "az" / ".claude.json")
+        self.load(self.config([self.az(settings={"config_dir": str(self.home / "az"),
+                                                 "usage_cache_file": str(self.home / "az-cache-link.json")})]))
+        (self.home / ".claude.json").write_text("{}", encoding="utf-8")
+        self.load(self.config([], usage_cache_file="~/.claude.json"))
+
     def test_an_account_that_never_refreshes_may_share_a_folder(self) -> None:
         # Disabled, or with plan limits off, it never runs `claude`; its read paths are still checked.
         for off in ({"enabled": False}, {"subscription_usage": False}):
@@ -696,6 +735,28 @@ class InstanceCommandTests(unittest.TestCase):
         with usage_csv.open(encoding="utf-8") as handle:
             providers = {row["provider"] for row in csv.DictReader(handle)}
         self.assertIn("claude-az", providers, "the account was collected without the variable")
+
+    def test_an_account_whose_refresh_cache_aliases_another_is_refused_before_collection(self) -> None:
+        # Hand-written: distinct folders, B's .claude.json links to A's, and B reads elsewhere.
+        runs = self.fake_claude()
+        self.add()
+        two = self.case.home / "claude-two"
+        two.mkdir()
+        (two / ".claude.json").symlink_to(self.account / ".claude.json")
+        own = self.case.root / "two"
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        config["instances"].append({"id": "claude-two", "plugin": "claude", "label": "Two", "settings": {
+            "config_dir": str(two), "usage_cache_file": str(own / ".claude.json")}})
+        self.config.write_text(json.dumps(config), encoding="utf-8")
+        before = self.config.read_bytes()
+        for arguments in (["once"], ["doctor", "--json"]):
+            with self.subTest(arguments):
+                result = self.cli(*arguments, check=False)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("refresh cache collision: instances.claude-az's refreshed .claude.json and "
+                              "instances.claude-two's refreshed .claude.json", result.stderr)
+                self.assertEqual(self.config.read_bytes(), before)
+        self.assertFalse(runs.exists(), "nothing was refreshed")
 
     def test_a_folder_naming_an_unset_variable_is_refused_unchanged(self) -> None:
         before = self.config.read_bytes()

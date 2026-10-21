@@ -5,8 +5,8 @@ Last updated: 2026-10-20
 | Part | State | Evidence |
 | --- | --- | --- |
 | Implementation | **Merged.** PR #11, squash-merged at head `dc5371d` as `315c43e`. | Main CI run 39540177768 green; Proofglass job `job_01M5E8XYMRH8F9403R60S8209J` ("Passed on a disposable macOS VM"). |
-| Visuals | **Approved** by the owner on 2026-10-20. The 24 reviewed renders are recorded by #12, merged as `4542429`. The single-account `popover-settings` was approved separately and is recorded by #14. | Decision records on #12 and #14. |
-| Corrective work | **Open:** #13 (`jp/b/fix-account-isolation-findings`) fixes the three post-merge review findings below. | Ready for review; merging it is the owner's checkpoint. |
+| Visuals | **Approved and merged.** The 24 reviewed renders are in #12 (`4542429`), and the single-account `popover-settings`, approved separately, is in #14 (`c044725`). | Decision records on #12 and #14. |
+| Corrective work | **Open:** #13 (`jp/b/fix-account-isolation-findings`) fixes the post-merge review findings below, plus the second review's cache-alias gap and procedure corrections. | Ready for review; merging it is the owner's checkpoint. |
 | AC-10 | **Pending.** Needs #13 merged and an owner-approved reinstall. | Procedure: `procedure-reinstall-ac10.md`, prepared and not run. |
 
 - **Validation review mode:** auto-proceed (owner, 2026-10-20).
@@ -22,11 +22,13 @@ Last updated: 2026-10-20
 1. **Refresh folder:** two accounts could refresh the same Claude folder when explicit read-path overrides kept their read paths apart. Fixed by comparing every refreshing account's resolved refresh folder, the default account's `~/.claude` included; Claude still runs with the folder as named.
 2. **Folder spelling:** `instance add --config-dir '$VAR'` saved the expression, so launchd couldn't load the config. Fixed: the expanded absolute folder is saved, symlinks kept; unset variables are refused.
 3. **App result:** the app's add-account result was read from the shared banner after the refresh. Fixed: an operation-local result, and the form stays busy for its whole submission.
+4. **Refreshed cache** (second review): distinct folders whose `.claude.json` files are symlinked together passed validation when one account read a separate file. Fixed by comparing each refreshed `.claude.json` on its own. Reproduced with the fake `claude` only; real Claude Code's symlink write behavior was not tested.
+5. **AC-10 procedure** (second review): step 4's parsing, a coherent locked backup, and step 8's false pass on an earlier foreground collection. Each snippet is now tested.
 
 ### What's Next
-1. #14: reviewer approval, then merge through prrq.
-2. #13: reviewer approval, then the owner's merge decision.
-3. After #13 merges: an owner-approved reinstall, then AC-10 per `procedure-reinstall-ac10.md`.
+1. #13: reviewer approval, then the owner's merge decision.
+2. Green main CI on the merge commit.
+3. The owner's reinstall approval, then AC-10 per `procedure-reinstall-ac10.md`.
 
 ### Known limits
 - An added account's source descriptions still name `~/.claude/projects`, because they're copied from the plugin's catalogue entry.

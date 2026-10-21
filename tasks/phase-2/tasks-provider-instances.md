@@ -145,4 +145,12 @@ An independent review after #11 merged found three defects. They are fixed on `j
   - `AccountSaveResult`, `isAddingAccount` and `AccountSubmission`.
   - XCTests use a held refresh with other actions running in between.
   - Renders are unchanged.
-- [ ] Owner: merge the corrective PR. Then the reinstall and AC-10, per `procedure-reinstall-ac10.md`.
+- [x] C4 The refreshed `.claude.json` is compared on its own (second review of #13) <- AC-1, AC-5
+  - `refresh_cache` and `validate_refresh_caches` cover aliases between added accounts, aliases to the default `~/.claude.json`, and aliases to another account's `usage_cache_file`.
+  - The failure was reproduced with the fake `claude`; real Claude Code's write strategy through a symlink was not tested.
+- [x] C5 AC-10 procedure corrections (second review of #13)
+  - Step 4 parses `doctor --json` as the provider map it is.
+  - The backup is a locked snapshot that finishes an interrupted commit first, and rollback keeps newer data.
+  - Step 8 waits, with a timeout, for a new collection by the service that includes both accounts.
+  - `tests/test_ac10_procedure.py` runs every snippet against an isolated install, including the previous 2.2.0 collector for the snapshot.
+- [ ] Owner: merge #13. Then green main CI, the reinstall approval, and AC-10, per `procedure-reinstall-ac10.md`.

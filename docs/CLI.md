@@ -57,7 +57,7 @@ refuses, changing nothing:
 - an invalid, duplicate or built-in id;
 - a plugin without added accounts;
 - a missing `--config-dir`, or one naming an unset environment variable;
-- a path that collides with another account's, or a folder another account already refreshes.
+- a path that collides with another account's, or a folder or `.claude.json` another account already refreshes.
 
 It saves `--config-dir` as the absolute folder, with `~` and variables expanded and
 symlinks kept as named, so the LaunchAgent reads the same folder without the caller's

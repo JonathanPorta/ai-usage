@@ -81,6 +81,9 @@ class ProviderPlugin:
     # path), from its resolved settings; None when it never refreshes. No two accounts
     # may share or nest it, whatever their read paths say.
     refresh_dir: Optional[Callable[[Mapping[str, Any]], Optional[tuple[str, str]]]] = None
+    # The file that refresh writes, whatever the account reads instead (None when it never
+    # refreshes). It may not resolve to another account's refreshed or read file.
+    refresh_cache: Optional[Callable[[Mapping[str, Any]], Optional[str]]] = None
 
 
 # --------------------------------------------------------------------------- report catalogue
