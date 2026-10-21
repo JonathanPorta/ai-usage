@@ -17,14 +17,18 @@ struct AddAccountView: View {
     @State private var draft: AccountDraft
     /// Whether the user has finished with a field, so empty-field hints wait for them.
     @State private var touched: Bool
+    /// This form's own submission: its result never comes from the shared banner.
+    @State private var submission: AccountSubmission
     private let folderCheck: (URL?) -> Bool
 
     init(report: Report, open: Bool = false, draft: AccountDraft = AccountDraft(), touched: Bool = false,
+         failure: String? = nil,
          folderCheck: @escaping (URL?) -> Bool = { AccountDraft.folderHasClaudeConfig($0) }) {
         self.report = report
         _open = State(initialValue: open)
         _draft = State(initialValue: draft)
         _touched = State(initialValue: touched)
+        _submission = State(initialValue: AccountSubmission(failure: failure))
         self.folderCheck = folderCheck
     }
 
@@ -33,6 +37,7 @@ struct AddAccountView: View {
         draft.problems(taken: taken, folderHasClaudeConfig: folderCheck(draft.folder))
     }
     private var saving: Bool {
+        if submission.inFlight || store.isAddingAccount { return true }
         if case .running = store.action { return true }
         return false
     }
@@ -46,8 +51,7 @@ struct AddAccountView: View {
             Button {
                 draft = AccountDraft()
                 touched = false
-                // An earlier, unrelated failure must not read as this form's.
-                if case .failed = store.action { store.dismissAction() }
+                submission = AccountSubmission()
                 open = true
             } label: { Label("Add Claude account…", systemImage: Symbols.add) }
                 .buttonStyle(.link).font(.auBody)
@@ -94,7 +98,7 @@ struct AddAccountView: View {
                     .font(.auCaption).foregroundStyle(T.Color.danger.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if case let .failed(reason) = store.action {
+            if let reason = submission.failure {
                 Label("Not added: \(reason)", systemImage: Symbols.failure)
                     .font(.auCaption).foregroundStyle(T.Color.danger.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -108,7 +112,7 @@ struct AddAccountView: View {
                 Button("Cancel") { open = false }.controlSize(.small).disabled(saving)
                 Button("Add account", action: submit)
                     .controlSize(.small).buttonStyle(.borderedProminent)
-                    .disabled(!problems.isEmpty || store.isActing)
+                    .disabled(!problems.isEmpty || store.isActing || saving)
             }
             Text("Its monthly price can be entered here after it is added.")
                 .font(.auCaption).foregroundStyle(T.Color.muted.color)
@@ -151,9 +155,11 @@ struct AddAccountView: View {
 
     private func submit() {
         touched = true
-        guard problems.isEmpty, let request = draft.request else { return }
+        guard problems.isEmpty, let request = draft.request, submission.begin() else { return }
         Task {
-            if await store.addAccount(request) { open = false }
+            // Closes only on its own save; a failure keeps the draft as typed.
+            let result = await store.addAccount(request)
+            if submission.finish(result) { open = false }
         }
     }
 }

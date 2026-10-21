@@ -56,6 +56,7 @@ Each provider module defines `PLUGIN = ProviderPlugin(...)`.
 | `report`, `report_order` | The report's catalogue entry (`ProviderDef` with its `SourceDef`s) and its position in the report's provider list. |
 | `instance_settings(explicit)` | Optional (phase 2). Present only on a plugin that allows added accounts: returns an added instance's complete settings, or raises `ValueError`. A plugin with an `integration` never has it. |
 | `instance_only_settings` | Settings only an added instance may set; the built-in rejects them (Claude: `config_dir`). |
+| `refresh_dir(settings)` | Optional. The folder an account's own refresh writes to, as `(setting name or "(description)", path)`, or `None` when the account never refreshes. No two accounts may share it or nest one inside another, whatever their read paths say (Claude: `config_dir`, or `~/.claude` for the default account). |
 
 **Rules for provider modules:**
 - Importing a module only defines things. It starts no process, reads or writes no file, and collects nothing. A test checks this with an audit hook.
@@ -165,8 +166,10 @@ kept, and re-enabling resumes without recounting).
 - Claude requires a non-empty `config_dir`, either absolute or starting with `~`. A relative folder is rejected, because the daemon has no working directory to resolve it against. `providers.claude.config_dir` is also rejected: the built-in account keeps `~/.claude` and `~/.claude.json`.
 - Path roles are checked across every account, as resolved paths, so two accounts can't read the same transcripts or usage cache, even through a symlink. Claude's `usage_cache_file` is a path role for every account, the default included.
 - One account's folder can't sit inside another account's folder for the same role, for example inside `~/.claude/projects`, because transcripts are found recursively.
+- No two accounts may refresh the same folder, or one inside another's: an added account's `config_dir`, or `~/.claude` for the default account. This holds even when explicit settings move every read path apart, because `/usage` would refresh one account's login while the other read a cache nothing refreshes. Identity is compared resolved, so a symlink alias counts as the same folder; `claude` is still run with the folder as named. An account that never runs `claude` (disabled, or with `subscription_usage: false`) isn't compared, so disabling one resolves a collision, and enabling it again is refused while the collision remains.
 - The config file itself can't be any account's path. This is checked before the write, so a refused `instance add` leaves the file unchanged.
 - `instance add` refuses a plugin whose module currently fails to load.
+- `instance add` saves the folder itself: `~` and environment variables are expanded when the command runs, and symlinks are kept as named. A process without the caller's environment, such as launchd's, then reads the same folder. A folder naming an unset variable is refused.
 
 ### A Claude account's paths and `/usage`
 - **Paths:** from its own `config_dir`, with `~` expanded but symlinks kept as named, because Claude Code keys an account's login to its folder name: `<dir>/projects`, `<dir>/stats-cache.json` and `<dir>/.claude.json`. Explicit `settings` apply after those. Nothing falls back to `~/.claude`.

@@ -240,6 +240,62 @@ class InstanceConfigTests(unittest.TestCase):
         self.rejects(self.config([self.az()], usage_cache_file=str(shared)),
                      "path role collision: providers.claude.usage_cache_file and instances.claude-az.usage_cache_file")
 
+    def second(self, config_dir: str) -> dict[str, Any]:
+        """Another account whose read paths are all its own, so only the refreshed folder can collide."""
+        own = self.root / "second"
+        own.mkdir(exist_ok=True)
+        return self.az(id="claude-two", label="Two", settings={
+            "config_dir": config_dir, "projects_dir": str(own / "projects"),
+            "stats_file": str(own / "stats-cache.json"), "usage_cache_file": str(own / ".claude.json")})
+
+    def test_two_accounts_refreshing_the_same_folder_are_rejected_despite_separate_read_paths(self) -> None:
+        # Review finding: the second account's `/usage` would refresh the first account's
+        # login while it read its own, never-refreshed cache.
+        self.rejects(self.config([self.az(), self.second(str(self.home / "az"))]),
+                     f"refresh folder collision: instances.claude-az.config_dir and "
+                     f"instances.claude-two.config_dir both resolve to {self.home / 'az'}")
+
+    def test_an_account_refreshing_the_default_accounts_folder_is_rejected(self) -> None:
+        (self.home / ".claude").mkdir()
+        self.rejects(self.config([self.second("~/.claude")]),
+                     f"refresh folder collision: providers.claude (Claude Code's default folder) and "
+                     f"instances.claude-two.config_dir both resolve to {self.home / '.claude'}")
+        self.rejects(self.config([self.second("~")]),
+                     "refresh folder overlap: providers.claude (Claude Code's default folder)")
+
+    def test_a_refresh_folder_reached_through_a_symlink_alias_is_rejected(self) -> None:
+        (self.home / "link").symlink_to(self.home / "az")
+        self.rejects(self.config([self.az(), self.second("~/link")]),
+                     "refresh folder collision: instances.claude-az.config_dir and instances.claude-two.config_dir")
+        (self.home / "default-link").symlink_to(self.home / ".claude", target_is_directory=True)
+        (self.home / ".claude").mkdir()
+        self.rejects(self.config([self.second("~/default-link")]),
+                     "refresh folder collision: providers.claude (Claude Code's default folder)")
+
+    def test_a_refresh_folder_inside_another_accounts_is_rejected(self) -> None:
+        (self.home / "az" / "inner").mkdir()
+        self.rejects(self.config([self.az(), self.second(str(self.home / "az" / "inner"))]),
+                     "refresh folder overlap: instances.claude-two.config_dir")
+
+    def test_an_account_that_never_refreshes_may_share_a_folder(self) -> None:
+        # Disabled, or with plan limits off, it never runs `claude`; its read paths are still checked.
+        for off in ({"enabled": False}, {"subscription_usage": False}):
+            with self.subTest(off):
+                second = self.second(str(self.home / "az"))
+                second["settings"].update(off)
+                self.load(self.config([self.az(), second]))
+
+    def test_separate_refresh_folders_and_an_accounts_own_paths_are_accepted(self) -> None:
+        (self.home / "two").mkdir()
+        (self.home / ".claude").mkdir()
+        config = self.load(self.config([self.az(), self.az(id="claude-two", label="Two",
+                                                            settings={"config_dir": "~/two"})]))
+        self.assertEqual([a.id for a in SERVICE.accounts(config)][-2:], ["claude-az", "claude-two"])
+        # Its read paths inside its own folder, or moved elsewhere, are its own business.
+        self.load(self.config([self.az(settings={"config_dir": str(self.home / "az"),
+                                                 "projects_dir": str(self.home / "az" / "projects")})]))
+        self.load(self.config([self.second(str(self.home / "two"))]))
+
     def test_the_default_accounts_usage_cache_is_a_checked_path_role(self) -> None:
         (self.root / "a-directory").mkdir()
         self.rejects(self.config([], usage_cache_file=str(self.root / "a-directory")),
@@ -479,6 +535,8 @@ class InstanceCommandTests(unittest.TestCase):
         self.account = self.case.home / "claude-az"
         self.account.mkdir()
         (self.account / ".claude.json").write_text("{}", encoding="utf-8")
+        # Saved as the absolute folder, "~" expanded and symlinks kept (review finding).
+        self.saved = {**AZ, "settings": {"config_dir": str(self.account)}}
         self.config = self.case.root / "config.json"
         self.case.run("install", "--no-start", "--config", str(self.config))
         os.chmod(self.config, 0o640)
@@ -493,14 +551,14 @@ class InstanceCommandTests(unittest.TestCase):
     def test_add_list_disable_and_enable(self) -> None:
         before = json.loads(self.config.read_text(encoding="utf-8"))
         added = json.loads(self.add().stdout)
-        self.assertEqual(added, AZ)
+        self.assertEqual(added, self.saved)
         after = json.loads(self.config.read_text(encoding="utf-8"))
         self.assertEqual({k: v for k, v in after.items() if k != "instances"}, before, "other keys are kept")
-        self.assertEqual(after["instances"], [AZ], "the price is left unset")
+        self.assertEqual(after["instances"], [self.saved], "the price is left unset")
         self.assertEqual(oct(self.config.stat().st_mode & 0o777), oct(0o640), "the mode is kept")
         listed = json.loads(self.cli("instance", "list").stdout)
         self.assertEqual(listed, [{"id": "claude-az", "plugin": "claude", "label": "Claude (az)", "enabled": True,
-                                   "settings": {"config_dir": "~/claude-az"}}])
+                                   "settings": {"config_dir": str(self.account)}}])
         self.assertEqual(json.loads(self.cli("instance", "disable", "claude-az").stdout), {"id": "claude-az", "enabled": False})
         self.assertFalse(json.loads(self.cli("instance", "list").stdout)[0]["enabled"])
         self.cli("instance", "enable", "claude-az")
@@ -587,13 +645,13 @@ class InstanceCommandTests(unittest.TestCase):
         self.case.run("instance", "add", "--plugin", "claude", "--id", "claude-az", "--label", "Claude (az)",
                       "--config-dir", "~/claude-az", "--config", str(link))
         self.assertTrue(link.is_symlink())
-        self.assertEqual(json.loads(self.config.read_text(encoding="utf-8"))["instances"], [AZ])
+        self.assertEqual(json.loads(self.config.read_text(encoding="utf-8"))["instances"], [self.saved])
 
     def test_configure_sets_an_instances_price_and_install_keeps_the_instances(self) -> None:
         self.add()
         self.cli("configure", "--set", "instances.claude-az.monthly_subscription_usd=20")
         config = json.loads(self.config.read_text(encoding="utf-8"))
-        self.assertEqual(config["instances"][0]["settings"], {"config_dir": "~/claude-az", "monthly_subscription_usd": 20})
+        self.assertEqual(config["instances"][0]["settings"], {"config_dir": str(self.account), "monthly_subscription_usd": 20})
         result = self.cli("configure", "--set", "instances.claude-az.monthly_subscription_usd=-1", check=False)
         self.assertIn("must be a non-negative number or null", result.stderr)
         state = self.case.home / ".ai-usage" / "state.json"
@@ -602,6 +660,101 @@ class InstanceCommandTests(unittest.TestCase):
         self.case.run("install", "--no-start", "--config", str(self.config))
         self.case.run("uninstall", "--config", str(self.config))
         self.assertEqual((self.config.read_bytes(), state.read_bytes()), before)
+
+    def fake_claude(self) -> Path:
+        """A `claude` that records that it ran and fails, so no real account is ever touched."""
+        runs = self.case.root / "claude-runs.log"
+        (self.case.bin / "claude").write_text(f"#!/bin/sh\necho ran >> '{runs}'\nexit 1\n", encoding="utf-8")
+        os.chmod(self.case.bin / "claude", 0o755)
+        return runs
+
+    def run_with(self, environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([sys.executable, str(SCRIPT), *arguments, "--config", str(self.config)],
+                              text=True, capture_output=True, env=environment, timeout=60, check=False)
+
+    def test_a_folder_named_through_a_variable_is_saved_as_the_folder_itself(self) -> None:
+        # Review finding: the expression was saved, and a process without the variable
+        # (launchd's) could not load the config at all.
+        self.fake_claude()
+        caller = {**self.case.environment(), "AI_USAGE_TEST_ACCOUNT_DIR": str(self.account)}
+        added = self.run_with(caller, "instance", "add", "--plugin", "claude", "--id", "claude-az",
+                              "--label", "Claude (az)", "--config-dir", "$AI_USAGE_TEST_ACCOUNT_DIR")
+        self.assertEqual(added.returncode, 0, added.stderr)
+        self.assertEqual(json.loads(self.config.read_text(encoding="utf-8"))["instances"], [self.saved])
+
+        launchd = self.case.environment()
+        self.assertNotIn("AI_USAGE_TEST_ACCOUNT_DIR", launchd)
+        for arguments in (["instance", "list"], ["doctor", "--json"], ["once"],
+                          ["instance", "disable", "claude-az"], ["once"]):
+            with self.subTest(arguments):
+                result = self.run_with(launchd, *arguments)
+                # `once` exits 2 for the fake claude's failed refresh, which is a row, not a load failure.
+                self.assertEqual(result.returncode, 2 if arguments == ["once"] else 0, result.stdout + result.stderr)
+                self.assertNotIn("config", result.stderr.lower(), result.stderr)
+        usage_csv = SERVICE.expand_path(json.loads(self.config.read_text(encoding="utf-8"))["paths"]["usage_csv"]
+                                        .replace("~", str(self.case.home), 1))
+        with usage_csv.open(encoding="utf-8") as handle:
+            providers = {row["provider"] for row in csv.DictReader(handle)}
+        self.assertIn("claude-az", providers, "the account was collected without the variable")
+
+    def test_a_folder_naming_an_unset_variable_is_refused_unchanged(self) -> None:
+        before = self.config.read_bytes()
+        for folder in ("$AI_USAGE_TEST_UNSET_DIR", "${AI_USAGE_TEST_UNSET_DIR}/a", "~/claude-az/$AI_USAGE_TEST_UNSET_DIR"):
+            with self.subTest(folder):
+                result = self.cli("instance", "add", "--plugin", "claude", "--id", "claude-az", "--label", "AZ",
+                                  "--config-dir", folder, check=False)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("config_dir names an environment variable that isn't set: $AI_USAGE_TEST_UNSET_DIR",
+                              result.stderr)
+                self.assertEqual(self.config.read_bytes(), before)
+
+    def test_a_folder_with_a_literal_dollar_sign_is_accepted(self) -> None:
+        folder = self.case.home / "acct$1"
+        folder.mkdir()
+        self.cli("instance", "add", "--plugin", "claude", "--id", "claude-az", "--label", "AZ",
+                 "--config-dir", str(folder))
+        saved = json.loads(self.config.read_text(encoding="utf-8"))["instances"][0]["settings"]["config_dir"]
+        self.assertEqual(saved, str(folder))
+        self.cli("instance", "list")
+
+    def test_a_symlinked_folder_is_saved_by_the_name_it_was_given(self) -> None:
+        link = self.case.home / "az-link"
+        link.symlink_to(self.account)
+        self.cli("instance", "add", "--plugin", "claude", "--id", "claude-az", "--label", "Claude (az)",
+                 "--config-dir", "~/az-link")
+        saved = json.loads(self.config.read_text(encoding="utf-8"))["instances"][0]["settings"]["config_dir"]
+        self.assertEqual(saved, str(link))
+
+    def test_an_account_refreshing_the_folder_of_another_is_refused_before_collection(self) -> None:
+        # Hand-written: the second account moves every read path away, so only its
+        # refreshed folder is shared (review finding).
+        runs = self.fake_claude()
+        self.add()
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        own = self.case.root / "two"
+        config["instances"].append({"id": "claude-two", "plugin": "claude", "label": "Two", "settings": {
+            "config_dir": str(self.account), "projects_dir": str(own / "projects"),
+            "stats_file": str(own / "stats-cache.json"), "usage_cache_file": str(own / ".claude.json")}})
+        self.config.write_text(json.dumps(config), encoding="utf-8")
+        before = self.config.read_bytes()
+        for arguments in (["once"], ["doctor", "--json"]):
+            with self.subTest(arguments):
+                result = self.cli(*arguments, check=False)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("refresh folder collision: instances.claude-az.config_dir and "
+                              "instances.claude-two.config_dir", result.stderr)
+                self.assertIn("give one its own folder or disable it", result.stderr)
+                self.assertEqual(self.config.read_bytes(), before)
+        self.assertFalse(runs.exists(), "nothing was refreshed")
+        # A disabled account never refreshes, so disabling one resolves it; enabling it again is refused.
+        self.cli("instance", "disable", "claude-two")
+        self.assertEqual(self.cli("once", check=False).returncode, 2, "collects, with the fake claude's error row")
+        self.assertEqual(runs.read_text(encoding="utf-8").count("ran"), 2, "the default account and claude-az, once each")
+        disabled = self.config.read_bytes()
+        result = self.cli("instance", "enable", "claude-two", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("refresh folder collision", result.stderr)
+        self.assertEqual(self.config.read_bytes(), disabled)
 
 
 if __name__ == "__main__":

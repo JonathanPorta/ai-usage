@@ -137,3 +137,40 @@ public struct AccountRequest: Equatable, Sendable {
          "--config", configPath]
     }
 }
+
+/// What one add-account submission ended as, kept by that submission alone: the shared
+/// action banner can be changed or dismissed by other actions while it finishes.
+public enum AccountSaveResult: Equatable, Sendable {
+    case saved
+    case failed(String)
+    /// Not started: another submission or action was still running.
+    case busy
+}
+
+/// The add-account form's submission: busy for the submission's whole lifetime, and
+/// closed only by a save. A failure keeps the form, and its draft, as they were.
+public struct AccountSubmission: Equatable, Sendable {
+    public private(set) var inFlight = false
+    public private(set) var failure: String?
+
+    public init(failure: String? = nil) { self.failure = failure }
+
+    /// False while a submission is already in flight.
+    public mutating func begin() -> Bool {
+        guard !inFlight else { return false }
+        inFlight = true
+        failure = nil
+        return true
+    }
+
+    /// True when the form should close.
+    public mutating func finish(_ result: AccountSaveResult) -> Bool {
+        inFlight = false
+        switch result {
+        case .saved: return true
+        case let .failed(reason): failure = reason
+        case .busy: failure = "Another change is still being saved. Try again when it finishes."
+        }
+        return false
+    }
+}

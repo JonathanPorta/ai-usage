@@ -131,3 +131,18 @@ How the work differed from the plan above. None of it changes an acceptance crit
 
   Each fix has a regression test that failed before it.
 - **AC-10** is pending: the owner checks `claude` and `claude-az` on their Mac after the merge and an approved reinstall.
+
+## Corrective work after the merge (2026-10-20)
+
+An independent review after #11 merged found three defects. They are fixed on `jp/b/fix-account-isolation-findings`. Each regression failed before its fix and passes after it. No AC changes.
+- [x] C1 Refresh-folder collisions hidden by read-path overrides <- AC-1, AC-5
+  - The plugin hook `refresh_dir` and `validate_refresh_dirs` cover equal and nested folders, symlink aliases, and the default account's `~/.claude`.
+  - Accounts that never refresh aren't compared.
+- [x] C2 `instance add` saves the expanded absolute folder <- AC-2
+  - Symlinks are kept; unset variables are refused.
+  - With the variable absent, list, `doctor`, `once` and disable all work.
+- [x] C3 The add-account result is the operation's own <- AC-8
+  - `AccountSaveResult`, `isAddingAccount` and `AccountSubmission`.
+  - XCTests use a held refresh with other actions running in between.
+  - Renders are unchanged.
+- [ ] Owner: merge the corrective PR. Then the reinstall and AC-10, per `procedure-reinstall-ac10.md`.
