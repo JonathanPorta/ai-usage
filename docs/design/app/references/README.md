@@ -7,7 +7,7 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 
 | Item | Value |
 | --- | --- |
-| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts 2026-10-20 (below) |
+| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts and single-account Settings 2026-10-20 (below) |
 | Checksums | `SHA256SUMS` (identical to the package's `SHA256SUMS.txt`) |
 | Command | `make app-snapshot` (`AIUsage --snapshot .sandbox/snapshots/fixture`) |
 | Data | Committed synthetic fixture `macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json`, evaluated at 2026-09-29T16:40:00Z, `TZ=America/Denver` |
@@ -61,10 +61,22 @@ https://github.com/JonathanPorta/ai-usage/pull/12#issuecomment-6308344030.
 | Rendered at | `dc5371d`; byte-identical at the merge commit `315c43e` |
 | Toolchain | macOS 27.0.1, Swift 6.4 |
 
-On macOS 27.0.1 the earlier 50 baselines (rendered on 26.6.1) no longer match byte for byte,
-so `make app-snapshot-check` fails on them there. They are not re-rendered here. Re-baselining
-them needs its own review, and so does the single-account `popover-settings`, which now shows
-"Add Claude account…".
+On macOS 27.0.1 the earlier baselines (rendered on 26.6.1) no longer match byte for byte,
+so `make app-snapshot-check` fails on them there. They are not re-rendered here; re-baselining
+them needs its own review.
+
+## Single-account Settings (accepted 2026-10-20)
+
+Accepted by the owner (Jonathan) on 2026-10-20 ("The comparison page for the single account
+settings looks good. I approve.") from the review page
+https://claude.ai/artifact/S4U3uXPvAtABiau8aAwpWS, which showed it beside the 2026-10-10 baseline.
+
+| Item | Value |
+| --- | --- |
+| Replaced (2) | `popover-settings`, light and dark: "Add Claude account…" at the end of Providers |
+| Data | The committed fixture `report-fixture.json` |
+| Rendered at | `315c43e` (main after #11); byte-identical on the corrective branch at `47afaa3` |
+| Toolchain | macOS 27.0.1, Swift 6.4 |
 
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 
