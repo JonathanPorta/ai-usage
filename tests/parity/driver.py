@@ -22,6 +22,7 @@ import calendar
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -572,14 +573,110 @@ INTENTIONAL_CHANGES = {
     "report.collector.capabilities.instances": "added: true when the installed collector is 2.3.0 or newer",
     "report.providers[*].type": "added: the provider's canonical type, its id for a built-in",
     "doctor_json.stdout[*].type": "added: the same type on every doctor --json entry",
+    # The stale-quota correction (tasks/phase-2/fix-stale-quota-reporting.md):
+    "csv[claude].usage_source_age_seconds": "added: one freshness row before each transaction's Claude /usage rows",
+    "once.stdout.appended_rows": "one more row per transaction that has Claude /usage rows",
+    "report.collector.csv_rows": "the CSV's row count, with those rows",
+    "report.providers[claude].quota.*measured_at": "when Claude Code fetched the limits, not when they were collected",
+    "report.providers[claude].quota.windows[*].becomes_stale_*": "from the fetch time when that ages the reading out first",
+    "report.providers[claude] failed refresh": "a kept cache after a failed /usage refresh is stale (failed), "
+                                               "its source failed with the error, and the collection lists it",
 }
+
+
+# The stale-quota correction (tasks/phase-2/fix-stale-quota-reporting.md) adds one
+# freshness row before each transaction's Claude /usage rows: how long before the
+# collection Claude Code fetched them, which the scenario's cache fixes.
+CLAUDE_USAGE_AGE_SECONDS = {"all_providers": 60, "provider_errors": 2 * HOUR, "claude_usage_refresh": 0}
+
+
+def add_claude_usage_age(rows: list[dict[str, Any]], age: float, skip: int) -> list[dict[str, Any]]:
+    """`rows` with the age row added to every transaction after the first `skip`."""
+    out: list[dict[str, Any]] = []
+    transaction, added = -1, False
+    for row in rows:
+        if row["transaction_index"] == "0":
+            transaction, added, index = transaction + 1, False, 0
+        if (transaction >= skip and not added and row["category"] == "quota"
+                and row["source"] in ("claude-usage-command", "claude-usage-cache")):
+            out.append({**row, "category": "freshness", "metric": "usage_source_age_seconds", "scope": "",
+                        "value": str(int(age)), "unit": "seconds", "window_seconds": "", "resets_at": "",
+                        "message": ""})
+            added = True
+        out.append(row)
+    for row in out:
+        if row["transaction_index"] == "0" and row["category"] != "freshness":
+            index = 0
+        row["transaction_index"] = str(index)
+        index += 1
+    return out
+
+
+def shift(value: Optional[str], seconds: float) -> Optional[str]:
+    return iso(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")) - seconds) if value else value
+
+
+def correct_claude_quota(report: dict[str, Any], age: float, refresh_error: Optional[str],
+                         carried: bool = False) -> None:
+    """Claude's limits dated by when they were fetched, `age` seconds before the
+    collection; with `refresh_error`, the kept cache is a failed read, not a current one.
+    `carried`: earlier rows came from a collector that recorded no age, so their
+    readings keep their collection time beside the newer, fetch-dated ones."""
+    names = [provider["id"] for provider in report["providers"]]
+    provider = report["providers"][names.index("claude")]
+    quota = provider["quota"]
+    quota["measured_at"] = shift(quota["measured_at"], age)
+    for window in quota["windows"]:
+        window["measured_at"] = shift(window["measured_at"], age)
+        dated = [{**reading, "t": shift(reading["t"], age)} for reading in window["readings"]]
+        if carried and age:
+            dated = sorted(window["readings"] + dated, key=lambda reading: reading["t"])
+        window["readings"] = dated
+        if window["becomes_stale_cause"] == "not_collected" and age > 0:
+            # The fetch, not the collection, now ages it out first.
+            window["becomes_stale_at"] = shift(window["becomes_stale_at"], age)
+            window["becomes_stale_cause"] = "source_old"
+        if refresh_error:
+            window.update(status="stale", stale_cause="failed", collected_at=None,
+                          becomes_stale_at=None, becomes_stale_cause=None, limit=None)
+    source = next(source for source in provider["sources"] if source["id"] == "subscription-usage")
+    source["measured_at"] = shift(source["measured_at"], age)
+    if not refresh_error:
+        return
+    quota.update(status="stale", stale_cause="failed", collected_at=None)
+    source.update(status="failed", error=refresh_error, last_read_at=None)
+    collection = report["collection"]
+    before = set(names[:names.index("claude")])
+    at = sum(failure["provider"] in before for failure in collection["failures"])
+    collection["failures"].insert(at, {"at": collection["last_attempt_at"], "auth": False, "kind": "quota",
+                                       "message": refresh_error, "provider": "claude",
+                                       "source": "subscription-usage"})
+    collection["summary"]["providers_updated"] -= 1
+    collection["summary"]["providers_partly"] += 1
 
 
 def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
     """The golden document for `name` with INTENTIONAL_CHANGES applied to the results
     of steps `changed_from` onward (the ones this tree runs in a carry-forward)."""
     document = json.loads(golden_path(name).read_text(encoding="utf-8"))
+    earlier = [result["csv"] for result in document["results"][:changed_from] if result.get("csv")]
+    written = sum(row["transaction_index"] == "0" for row in earlier[-1]) if earlier else 0
+    latest_csv: list[dict[str, Any]] = earlier[-1] if earlier else []
     for result in document["results"][changed_from:]:
+        if result.get("csv") and name in CLAUDE_USAGE_AGE_SECONDS:
+            result["csv"] = add_claude_usage_age(result["csv"], CLAUDE_USAGE_AGE_SECONDS[name], written)
+        if result.get("csv"):
+            latest_csv = result["csv"]
+        report = result.get("report") if result["op"] == "report" else None
+        if report and name in CLAUDE_USAGE_AGE_SECONDS:
+            report["collector"]["csv_rows"] = len(latest_csv)
+            start = max(index for index, row in enumerate(latest_csv) if row["transaction_index"] == "0")
+            errors = [row["message"] for row in latest_csv[start:] if row["metric"] == "subscription_usage_query"]
+            correct_claude_quota(report, CLAUDE_USAGE_AGE_SECONDS[name], errors[-1] if errors else None,
+                                 carried=written > 0)
+        if result["op"] == "once" and name in CLAUDE_USAGE_AGE_SECONDS:
+            result["stdout"] = re.sub(r"Appended (\d+) rows", lambda m: f"Appended {int(m.group(1)) + 1} rows",
+                                      result["stdout"])
         report = result.get("report") if result["op"] == "report" else None
         if report:
             collector = report["collector"]

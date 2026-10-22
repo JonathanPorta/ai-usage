@@ -1033,7 +1033,24 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
 def claude_usage_rows(
     collected_at: str, cache: Mapping[str, Any], source: str, status: str, message: str = ""
 ) -> list[dict[str, Any]]:
-    return [
+    # The limits were measured when Claude Code fetched them, not when they were
+    # collected: the age row lets the report date them (negative when the
+    # refresh fetched them after the collection started).
+    collected = parse_iso_timestamp(collected_at)
+    seconds = round(collected - cache["fetched_at_ms"] / 1000, 3) if collected is not None else 0.0
+    age = [
+        metric_row(
+            collected_at,
+            "claude",
+            "freshness",
+            "usage_source_age_seconds",
+            value=int(seconds) if seconds.is_integer() else seconds,
+            unit="seconds",
+            source=source,
+            status=status,
+        )
+    ] if collected is not None else []
+    return age + [
         metric_row(
             collected_at,
             "claude",

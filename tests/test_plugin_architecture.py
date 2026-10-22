@@ -158,7 +158,7 @@ class FailureIsolationTests(unittest.TestCase):
             return driver.run_scenario(src, "all_providers")
 
     def assert_others_unchanged(self, observed: dict[str, Any], broken: str) -> list[dict[str, Any]]:
-        golden = json.loads(driver.golden_path("all_providers").read_text(encoding="utf-8"))
+        golden = driver.expected("all_providers")  # the golden file with its declared changes
         broken_rows: list[dict[str, Any]] = []
         self.assertEqual([r["op"] for r in observed["results"]], [r["op"] for r in golden["results"]])
         for expected, actual in zip(golden["results"], observed["results"]):
@@ -316,7 +316,8 @@ class VerbatimMoveTests(unittest.TestCase):
             nodes = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "claude_usage_rows"]
             self.assertEqual(len(nodes), 2)
             return self.normalized(nodes[-1])
-        self.assertEqual(last((PACKAGE / "claude.py").read_text(encoding="utf-8")), last(baseline))
+        # Changed on purpose by tasks/phase-2/fix-stale-quota-reporting.md: it adds the readings' age row.
+        self.assertNotEqual(last((PACKAGE / "claude.py").read_text(encoding="utf-8")), last(baseline))
 
 
 if __name__ == "__main__":

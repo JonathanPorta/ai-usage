@@ -2859,10 +2859,13 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
         self.write_cache(self.now_ms - 60_000)
         rows = self.collect(self.fake_claude(refresh=True))
         self.assertEqual(self.runs(), [])
+        age = round(CLAUDE.parse_iso_timestamp("2026-10-17T09:00:00Z") - (self.now_ms - 60_000) / 1000, 3)
         self.assertEqual(
             [(r["metric"], r["scope"], r["value"], r["window_seconds"], r["resets_at"], r["source"], r["status"])
              for r in rows],
-            [("used_percent", "session", 8, 18000, "2026-10-17T10:10:00.157608Z", "claude-usage-cache", "ok"),
+            [("usage_source_age_seconds", "", int(age) if age.is_integer() else age, "", "",
+              "claude-usage-cache", "ok"),
+             ("used_percent", "session", 8, 18000, "2026-10-17T10:10:00.157608Z", "claude-usage-cache", "ok"),
              ("used_percent", "weekly", 85, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok"),
              ("used_percent", "weekly:Fable", 0, 604800, "2026-10-20T13:00:00Z", "claude-usage-cache", "ok")])
 
@@ -2889,7 +2892,7 @@ class ClaudeSubscriptionUsageTests(unittest.TestCase):
             self.assertEqual(run["env"].get(key), value)
         self.assertFalse([k for k in run["env"] if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE"))])
         self.assertEqual({(r["source"], r["status"]) for r in rows}, {("claude-usage-command", "ok")})
-        self.assertEqual(len(rows), 3)
+        self.assertEqual([r["metric"] for r in rows], ["usage_source_age_seconds"] + ["used_percent"] * 3)
         document = json.loads(self.cache.read_text(encoding="utf-8"))
         self.assertEqual(document["unrelated"], {"keep": True}, "the collector never writes Claude Code's config")
 
