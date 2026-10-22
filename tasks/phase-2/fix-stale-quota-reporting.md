@@ -24,6 +24,7 @@ This behavior predates the plugin work: the `provider_errors` parity golden file
 | Report: failure (`ai_usage_report.py`) | For a quota source, a read that returns an error and only `stale` fallback rows is a failure. Other sources, such as the daily stats cache, keep their rule. The source is `failed` with the error, `last_read_at` is unchanged, and the collection lists the failure (`partial`). The values stay visible; their windows are `stale` with cause `failed`. |
 | Report: measurement time | A reading is dated by its fetch time. Ages are kept per (provider id, transaction), so two accounts collected in one transaction never share them. The latest reading is chosen by collection order, not by measurement time. |
 | Older rows | Rows written before the age row existed keep their collection time. The exception is a kept fallback (`claude-usage-cache`, `stale`), whose measurement time is unknown: its value is shown with `measured_at: null`, and it is left out of `readings`. No time is invented for it. Such a window is never current, and its reset counts as passed once due. |
+| Report: kept readings | A Claude reading kept after a failed refresh stays a fallback, dated or not. Until a good read replaces it, its window is never current: `failed` while that failure is the latest attempt, `source_old` after an attempt that read no limits, which is not a new failure. |
 | Report: bounds | A measurement time is never after the report's `now`, or more than two minutes after its collection, so a skewed `fetchedAtMs` can't keep a reading current. |
 
 The report schema is unchanged: no new keys, and `measured_at` was already nullable in the app's model.
@@ -48,6 +49,7 @@ The carry-forward runs, where an older collector's rows are read by this one, ke
 | Two accounts in one collection, only the default's refresh fails: the default is stale/failed, `claude-az` is current, one failure | both `current` |
 | A kept fallback written by an older collector: value shown, `measured_at: null`, not plotted, failure listed | `current`, measured at the collection |
 | An undated kept reading after a later attempt that read no limits: stale (`source_old`), never current | `current` |
+| A dated kept reading (fetched 11:10, kept at 11:30) after an 11:45 attempt with subscription usage off: stays stale (`source_old`), source `stale`, no new failure. A good 11:50 read then makes it current and clears the error. | `current`, `stale_cause: null` (the window disagreed with its stale source) |
 | An undated kept reading whose reset is due: `reset_passed` | not passed |
 | An old daily stats cache with a read error stays `stale`, and the collection `success` (a guard) | passes; fails with the first draft's rule for every source |
 
@@ -55,7 +57,9 @@ Mutation checks:
 - keying ages by transaction alone, so that the two accounts share them, fails the two-account test;
 - applying the fallback rule to every source fails the stats-cache guard.
 
-Independent review: no blocking issues. It raised five findings, all fixed above: the rule's scope, undated readings shown as current, `reset_passed` for undated readings, unbounded ages, and the parity transform reading errors from the whole CSV. A sixth predates this work and is left as it is: `last_success_at` counts an attempt whose only Claude quota rows are a fallback. The provider is still `partly`, and the failure is listed.
+Independent review: no blocking issues. It raised five findings, all fixed above: the rule's scope, undated readings shown as current, `reset_passed` for undated readings, unbounded ages, and the parity transform reading errors from the whole CSV. A second review at `24ed38f` found that a *dated* kept reading became current after a later attempt that read no limits. The report had dropped the rows' own stale status. Fixed, with the regression above.
+
+A sixth finding from the first review predates this work and is left as it is: `last_success_at` counts an attempt whose only Claude quota rows are a fallback. The provider is still `partly`, and the failure is listed.
 
 App: the app was built and rendered offscreen from an isolated sandbox that reproduces the timeout, using its existing states. The renders are in the session scratchpad and are not committed. They show:
 - the overview's "Claude Code quota check failed" notice with the timeout message;

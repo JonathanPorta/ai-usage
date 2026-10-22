@@ -145,6 +145,37 @@ class StaleQuotaReportingTests(unittest.TestCase):
         self.assertEqual((window["status"], window["stale_cause"], window["measured_at"], window["percent"],
                           window["becomes_stale_at"], window["limit"]), ("stale", "source_old", None, 45, None, None))
 
+    def test_a_dated_fallback_stays_stale_after_a_later_attempt_reads_no_limits_until_a_good_read(self) -> None:
+        # 11:00 a good read; 11:30 the refresh fails and keeps the reading fetched at 11:10;
+        # 11:45 subscription usage is turned off, so that collection reads no limits.
+        good = dated(KEPT_SESSION(40), "2026-08-21T11:00:00Z", 0, status="ok", source="claude-usage-command")
+        failed = [{**REFRESH_TIMED_OUT, "collected_at": "2026-08-21T11:30:00Z"},
+                  *dated(KEPT_SESSION(45), "2026-08-21T11:30:00Z", 1200)]
+        off = row("quota", "personal_subscription_quota", source="config", status="disabled",
+                  message="subscription usage disabled in config; nothing was read or run",
+                  collected_at="2026-08-21T11:45:00Z")
+        report = report_from_rows([good, failed, [off]])
+        claude = provider(report, "claude")
+        window = claude["quota"]["windows"][0]
+        source = next(s for s in claude["sources"] if s["id"] == "subscription-usage")
+        self.assertEqual((window["status"], window["stale_cause"], window["measured_at"], window["percent"],
+                          window["becomes_stale_at"], window["limit"]),
+                         ("stale", "source_old", "2026-08-21T11:10:00Z", 45, None, None),
+                         "the kept reading is still the one the failed refresh left")
+        self.assertEqual((claude["quota"]["status"], source["status"]), ("stale", "stale"),
+                         "the window and its source agree")
+        self.assertEqual(report["collection"]["failures"], [], "turning collection off is not a new failure")
+
+        # Turned back on, a good read clears it.
+        recovered = dated(KEPT_SESSION(50), "2026-08-21T11:50:00Z", 0, status="ok", source="claude-usage-command")
+        report = report_from_rows([good, failed, [off], recovered])
+        claude = provider(report, "claude")
+        window = claude["quota"]["windows"][0]
+        source = next(s for s in claude["sources"] if s["id"] == "subscription-usage")
+        self.assertEqual((window["status"], window["stale_cause"], window["measured_at"], window["percent"]),
+                         ("current", None, "2026-08-21T11:50:00Z", 50))
+        self.assertEqual((source["status"], source["error"]), ("ok", None))
+
     def test_an_undated_reading_whose_reset_is_due_has_passed_it(self) -> None:
         # Kept at 11:45 with a reset at 11:30: whenever it was measured, that was before the reset.
         kept = {**KEPT_SESSION(90), "collected_at": "2026-08-21T11:45:00Z", "resets_at": "2026-08-21T11:30:00Z"}
@@ -178,8 +209,17 @@ def KEPT_SESSION(percent: int) -> dict[str, str]:
                source="claude-usage-cache", status="stale", message="last reading Claude Code cached; the refresh failed")
 
 
+def dated(reading: dict[str, str], collected_at: str, age: int, **fields: str) -> list[dict[str, str]]:
+    """`reading` collected at `collected_at`, preceded by the age row this collector writes."""
+    reading = {**reading, "collected_at": collected_at, **fields}
+    if reading["status"] == "ok":
+        reading["message"] = ""
+    return [row("freshness", "usage_source_age_seconds", value=str(age), unit="seconds", source=reading["source"],
+                status=reading["status"], collected_at=collected_at), reading]
+
+
 def report_from_rows(transactions: list[list[dict[str, str]]]) -> dict[str, Any]:
-    """The report for a CSV written by a collector that recorded no reading ages."""
+    """The report for a CSV holding `transactions`, each a list of rows."""
 
     def plan(box: driver.Sandbox) -> list[dict[str, Any]]:
         buffer = io.StringIO()

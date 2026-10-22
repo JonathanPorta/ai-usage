@@ -658,8 +658,10 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
                 known = False
             percent = 100.0 - value if derived else value
             resets = parse_ts(row.resets)
+            # A Claude /usage reading kept after a failed refresh stays a fallback, dated or not.
+            fallback = row.source in CLAUDE_USAGE_SOURCES and row.status == "stale"
             readings[round(t)] = {"t": t, "percent": round(max(0.0, min(100.0, percent)), 1), "resets_at": resets,
-                                  "known": known, "order": (row.ts, order)}
+                                  "known": known, "fallback": fallback, "order": (row.ts, order)}
         ordered = [readings[k] for k in sorted(readings)]
         if not ordered:
             continue
@@ -697,8 +699,10 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
             cause = "source_old"
         elif reset_passed:
             cause = "reset_passed"
-        elif not last["known"]:
-            cause = "source_old"  # Undated: it can't be shown as current.
+        elif last["fallback"]:
+            # Kept after a failed refresh: only a new good read makes it current,
+            # not a later attempt that read no limits.
+            cause = "source_old"
         status = "stale" if cause else "current"
         # When a current reading will turn stale with no new data, so a cached
         # report re-evaluated later can never show it as fresh.
