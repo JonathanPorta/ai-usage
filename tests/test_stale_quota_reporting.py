@@ -166,15 +166,18 @@ class StaleQuotaReportingTests(unittest.TestCase):
                          "the window and its source agree")
         self.assertEqual(report["collection"]["failures"], [], "turning collection off is not a new failure")
 
-        # Turned back on, a good read clears it.
-        recovered = dated(KEPT_SESSION(50), "2026-08-21T11:50:00Z", 0, status="ok", source="claude-usage-command")
-        report = report_from_rows([good, failed, [off], recovered])
-        claude = provider(report, "claude")
-        window = claude["quota"]["windows"][0]
-        source = next(s for s in claude["sources"] if s["id"] == "subscription-usage")
-        self.assertEqual((window["status"], window["stale_cause"], window["measured_at"], window["percent"]),
-                         ("current", None, "2026-08-21T11:50:00Z", 50))
-        self.assertEqual((source["status"], source["error"]), ("ok", None))
+        # Turned back on, a good read clears it: a refresh, or a cache read of a newer fetch.
+        for via, age, measured in (("claude-usage-command", 0, "2026-08-21T11:50:00Z"),
+                                   ("claude-usage-cache", 120, "2026-08-21T11:48:00Z")):
+            with self.subTest(via=via):
+                recovered = dated(KEPT_SESSION(50), "2026-08-21T11:50:00Z", age, status="ok", source=via)
+                report = report_from_rows([good, failed, [off], recovered])
+                claude = provider(report, "claude")
+                window = claude["quota"]["windows"][0]
+                source = next(s for s in claude["sources"] if s["id"] == "subscription-usage")
+                self.assertEqual((window["status"], window["stale_cause"], window["measured_at"], window["percent"]),
+                                 ("current", None, measured, 50))
+                self.assertEqual((source["status"], source["error"]), ("ok", None))
 
     def test_an_undated_reading_whose_reset_is_due_has_passed_it(self) -> None:
         # Kept at 11:45 with a reset at 11:30: whenever it was measured, that was before the reset.
