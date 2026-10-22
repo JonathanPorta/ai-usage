@@ -124,13 +124,20 @@ out = subprocess.run([sys.executable, "ai_usage_report.py", "--config", os.path.
 for p in json.loads(out)["providers"]:
     if p.get("type") == "claude":
         print(p["id"], p["name"], p["quota"]["status"],
-              [(w["short"], w["percent"], w["status"]) for w in p["quota"]["windows"]])
+              [(w["short"], w["percent"], w["status"], w["stale_cause"], w["measured_at"])
+               for w in p["quota"]["windows"]])
 EOF
 ```
 
 Compare each line with Claude Code's own `/usage` in that account:
 - `env -u CLAUDE_CONFIG_DIR claude`, then `/usage`, for `claude`;
-- `CLAUDE_CONFIG_DIR=~/.claude-az claude`, then `/usage`, for `claude-az`.
+- `CLAUDE_CONFIG_DIR="$HOME/.claude-az" command claude`, then `/usage`, for `claude-az`.
+
+`command` matters: a shell alias for `claude` that runs `env -u CLAUDE_CONFIG_DIR claude` would otherwise drop the variable and open the default account. Neither command signs out or changes a login.
+
+Compare against a report generated at about the same time, and use each window's `status` and `measured_at`:
+- a `current` window is compared directly, allowing for usage since `measured_at`;
+- a `stale` window is not compared until a later collection reads a fresh value.
 
 **Expect:** each account's session and weekly percentages match its own `/usage`, not the other's.
 

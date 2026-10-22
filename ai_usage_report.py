@@ -55,6 +55,10 @@ TOKEN_METRICS = {
 }
 SUMMED_KINDS = {"event_total", "delta"}
 NON_FATAL_ERROR_METRICS = {"session_log_parse_errors", "event_parse_errors", "rotation_data_loss"}
+# Claude Code's /usage readings; each carries its measured age in a freshness row.
+CLAUDE_USAGE_SOURCES = ("claude-usage-command", "claude-usage-cache")
+# A refresh may fetch after its collection began; the collector allows two minutes.
+FETCH_AFTER_COLLECTION_SECONDS = 120
 AUTH_PATTERN = re.compile(r"auth|sign.?in|log.?in|401|403|unauthori[sz]ed|credential", re.IGNORECASE)
 
 
@@ -371,7 +375,8 @@ def evaluate_attempt(state: ProviderState, attempt: Attempt) -> Optional[str]:
             continue
         attempted += 1
         succeeded = bool(data_rows) if definition.needs_rows else not errors or bool(data_rows)
-        if errors and not data_rows:
+        if errors and (not data_rows or (definition.role == "quota" and all(r.status == "stale" for r in data_rows))):
+            # Nothing, or for a quota source only the last reading kept as a fallback: the read failed.
             succeeded = False
         if succeeded:
             source.last_read_at = at
@@ -616,7 +621,7 @@ def early_resets(ordered: list[dict[str, Any]], window_seconds: Optional[float],
     return found
 
 
-def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[str, float], *,
+def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tuple[str, str], float], *,
                   now: float, stale_after: float) -> list[dict[str, Any]]:
     definition = state.definition
     quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
@@ -637,28 +642,43 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
         # Claude Code's own /usage says "% used", so its limits are shown the same way.
         basis = "used" if definition.type in ("grok", "claude") else "remaining"
         readings: dict[float, dict[str, Any]] = {}
-        for row in group:
+        for order, row in enumerate(group):
             value = number(row.value)
             if value is None or row.ts is None:
                 continue
             t = row.ts
-            if row.source == "grok-unified-log" and row.tx in freshness_rows:
-                t = row.ts - freshness_rows[row.tx]
+            known = True
+            age = freshness_rows.get((definition.id, row.tx))
+            if age is not None and row.source in ("grok-unified-log", *CLAUDE_USAGE_SOURCES):
+                # Never after now, nor long after its collection (a clock skew or corrupt fetch time).
+                t = min(row.ts - age, row.ts + FETCH_AFTER_COLLECTION_SECONDS, now)
+            elif row.source == "claude-usage-cache" and row.status == "stale":
+                # A fallback kept by a collector that did not record its age: it
+                # was measured at some unknown time before it was collected.
+                known = False
             percent = 100.0 - value if derived else value
             resets = parse_ts(row.resets)
-            readings[round(t)] = {"t": t, "percent": round(max(0.0, min(100.0, percent)), 1), "resets_at": resets}
+            # A Claude /usage reading kept after a failed refresh stays a fallback, dated or not.
+            fallback = row.source in CLAUDE_USAGE_SOURCES and row.status == "stale"
+            readings[round(t)] = {"t": t, "percent": round(max(0.0, min(100.0, percent)), 1), "resets_at": resets,
+                                  "known": known, "fallback": fallback, "order": (row.ts, order)}
         ordered = [readings[k] for k in sorted(readings)]
         if not ordered:
             continue
-        last = ordered[-1]
+        # The latest collected reading: an older collector's row may be dated
+        # later than a newer one's, by its collection time.
+        last = max(ordered, key=lambda r: r["order"])
         keep_from = now - keep_seconds(ranges)
-        kept = [r for r in ordered if r["t"] >= keep_from] or [last]
+        dated = [r for r in ordered if r["known"]]
+        kept = [r for r in dated if r["t"] >= keep_from] or dated[-1:]
         resets = {r["resets_at"] for r in ordered if r["resets_at"] and ordered[0]["t"] < r["resets_at"] <= now}
         resets.update(early_resets(ordered, window_seconds, used_basis=basis == "used"))
         resets = collapse_jitter(sorted(r for r in resets if r <= now))
+        # `measured_at` is no later than `last["t"]`; it is reported only when known.
         measured_at = last["t"]
         resets_at = last["resets_at"]
-        reset_passed = bool(resets_at is not None and measured_at < resets_at <= now)
+        # A reading predates its own reset, so an undated one has passed it once that is due.
+        reset_passed = bool(resets_at is not None and (measured_at < resets_at or not last["known"]) and resets_at <= now)
         omitted = (
             definition.quota == "polled"
             and state.latest_quota_scopes is not None
@@ -679,6 +699,10 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
             cause = "source_old"
         elif reset_passed:
             cause = "reset_passed"
+        elif last["fallback"]:
+            # Kept after a failed refresh: only a new good read makes it current,
+            # not a later attempt that read no limits.
+            cause = "source_old"
         status = "stale" if cause else "current"
         # When a current reading will turn stale with no new data, so a cached
         # report re-evaluated later can never show it as fresh.
@@ -705,7 +729,7 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[st
             "derived": derived,
             "percent": clean(last["percent"]),
             "window_seconds": clean(window_seconds),
-            "measured_at": iso(measured_at),
+            "measured_at": iso(measured_at) if last["known"] else None,
             "collected_at": iso(collected_at),
             "resets_at": iso(resets_at),
             "reset_passed": reset_passed,
@@ -743,7 +767,7 @@ def quota_summary(definition: ProviderDef, state: ProviderState, windows: list[d
     summary["status"] = statuses[0] if len(statuses) == 1 else "mixed"
     stale = next((w for w in active if w["status"] == "stale"), None)
     summary["stale_cause"] = stale["stale_cause"] if stale else None
-    summary["measured_at"] = max(w["measured_at"] for w in active if w["measured_at"])
+    summary["measured_at"] = max((w["measured_at"] for w in active if w["measured_at"]), default=None)
     return summary
 
 
@@ -979,15 +1003,18 @@ def build_report(
         "next_scheduled_at": iso(next_scheduled),
     }
 
-    freshness_rows: dict[str, float] = {}
+    # Seconds between when a reading was measured and when it was collected, per
+    # (provider, transaction): accounts collected together keep their own.
+    freshness_rows: dict[tuple[str, str], float] = {}
     loss_dates: dict[str, set[str]] = {}
     for attempt in attempts:
         for pid, rows in attempt.rows.items():
             for row in rows:
-                if row.metric == "billing_source_age_seconds" and row.source == "grok-unified-log":
+                if (row.metric == "billing_source_age_seconds" and row.source == "grok-unified-log") or (
+                        row.metric == "usage_source_age_seconds" and row.source in CLAUDE_USAGE_SOURCES):
                     age = number(row.value)
                     if age is not None:
-                        freshness_rows[row.tx] = age
+                        freshness_rows[(pid, row.tx)] = age
                 elif row.metric == "rotation_data_loss" and row.ts is not None:
                     loss_dates.setdefault(pid, set()).add(local_date(row.ts))
 
@@ -1039,7 +1066,7 @@ def build_report(
                        and r.ts <= now and number(r.value) is not None]
             if billing:
                 latest_bill = max(billing, key=lambda r: r.ts)
-                measured = latest_bill.ts - freshness_rows.get(latest_bill.tx, 0.0) if latest_bill.source == "grok-unified-log" else latest_bill.ts
+                measured = latest_bill.ts - freshness_rows.get((definition.id, latest_bill.tx), 0.0) if latest_bill.source == "grok-unified-log" else latest_bill.ts
                 costs["reported"] = {
                     "amount_usd": clean((number(latest_bill.value) or 0) / 100.0),
                     "basis": "On-demand usage reported by xAI billing",

@@ -248,7 +248,8 @@ provider's own total. Cache tokens are never included in `total`.
   "derived": true,             // true when converted (100 − used)
   "percent": 84,               // null when no reading
   "window_seconds": 604800,
-  "measured_at": "…", "collected_at": "…",
+  "measured_at": "…",          // when the provider measured it; null when unknown (see rule 6)
+  "collected_at": "…",
   "resets_at": "…",
   "reset_passed": false,       // measured_at < resets_at <= now
   "status": "current",         // current | stale | none
@@ -292,6 +293,7 @@ window's freshness is evaluated on its own.
    - `monthly_rate` takes the latest value in the month.
    - `interval_total` is diagnostics only.
 2. A failed source keeps its previous measurements and `last_read_at`, and is marked `failed` with the attempt's error. Because failures come from the latest attempt, a successful usage read never refreshes a failed quota source.
+   - For a quota source, a read that fails but returns the last reading as a fallback (rows marked `stale`) is also a failure. For example, Claude Code's cached `/usage` limits are kept when the refresh times out. The values stay visible; while that failure is the latest attempt, their windows are `stale` with cause `failed`. Afterwards, until a good read replaces it, the kept reading stays `stale` (usually `source_old`; `reset_passed`, `not_collected` or `failed` when those apply): a later attempt that reads no limits, such as one with subscription usage turned off, does not make it current.
 3. A disabled provider (`availability/enabled = false`) keeps its cached data. Its sources become `off`, and its usage and quota age normally.
 4. Collector-level failures (`collection cycle failed` in the log after the latest transaction) set `last_attempt_result: failed` and change no measurement.
    - **What counts as an attempt:** a CSV transaction with at least one check-time row (any row except event usage rows, which carry their event time). A check that finds nothing writes no transaction; its `collection completed rows=0` log line still counts as the attempt.
@@ -301,6 +303,10 @@ window's freshness is evaluated on its own.
    - `not_collected`, when there has been no successful quota read within `stale_after`;
    - `source_old`, when the reading is older than its threshold or the window was omitted;
    - `reset_passed`.
+6. A reading is dated by when its provider measured it, if the collector recorded that. A `freshness` row in the same transaction gives the reading's age at collection: `billing_source_age_seconds` for Grok, and `usage_source_age_seconds` for each Claude account (from Claude Code's `fetchedAtMs`).
+   - Ages are kept per provider id, so accounts collected together never share them.
+   - Claude rows written before this row existed are dated by their collection time. The exception is a kept fallback (`claude-usage-cache`, `stale`), whose measurement time is unknown: its window shows the value with `measured_at: null`, and it is left out of `readings`. Such a window is never `current` (`source_old` when nothing stronger applies), and once its `resets_at` is due, `reset_passed` is true.
+   - A measurement time is never later than the report's `now`, or more than two minutes after its collection.
 
 ## Acceptance commands
 
