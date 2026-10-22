@@ -25,11 +25,18 @@ struct SettingsRequest: Equatable {
 enum ProviderSettingsRoute {
     static func open(_ providerId: String, navigation: Navigation) {
         navigation.settingsRequest = SettingsRequest(providerId: providerId)
-        statusItemButton()?.performClick(nil)
+        StatusItem.toggle()
     }
+}
 
-    /// The MenuBarExtra's status-item button, found among this app's windows.
-    private static func statusItemButton() -> NSStatusBarButton? {
+/// The MenuBarExtra's status item. Clicking its button is the one way to show
+/// or hide the popover that keeps SwiftUI's own presentation state in step.
+@MainActor
+enum StatusItem {
+    static func toggle() { button()?.performClick(nil) }
+
+    /// The status-item button, found among this app's windows.
+    private static func button() -> NSStatusBarButton? {
         for window in NSApp.windows where String(describing: type(of: window)).contains("StatusBar") {
             if let button = find(in: window.contentView) { return button }
         }

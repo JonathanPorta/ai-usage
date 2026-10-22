@@ -105,6 +105,8 @@ struct PopoverRoot: View {
     }
 
     private func showHistory(_ providerId: String?) {
+        // History opens in its own window, so the popover closes behind it.
+        StatusItem.toggle()
         navigation.historyRequest = HistoryRequest(providerId: providerId)
         openWindow(id: HistoryView.windowId)
         NSApp.activate(ignoringOtherApps: true)

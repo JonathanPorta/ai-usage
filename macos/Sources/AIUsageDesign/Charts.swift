@@ -61,12 +61,13 @@ public struct DayBarChart: View {
             }
             .frame(height: plotHeight + 1)
             axis
-            Text(readout)
-                .font(style == .mini ? .auCaption : .auBody)
-                .foregroundStyle(T.Color.muted.color)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
+            // Sized to the tallest text it can show, so hovering a day never
+            // changes the chart's height and reflows the card around it.
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(readouts.enumerated()), id: \.offset) { _, text in caption(text).hidden() }
+                caption(readout)
+            }
+            .accessibilityHidden(true)
         }
         .focusable()
         .focused($focused)
@@ -109,6 +110,21 @@ public struct DayBarChart: View {
             return Presentation.readout(provider, day: days[selected], asOf: provider.today?.asOf, today: today)
         }
         return Presentation.chartCaption(provider, days: days)
+    }
+
+    /// Every text the readout can show: the caption and each day's readout.
+    private var readouts: [String] {
+        [Presentation.chartCaption(provider, days: days)]
+            + days.map { Presentation.readout(provider, day: $0, asOf: provider.today?.asOf, today: today) }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(style == .mini ? .auCaption : .auBody)
+            .foregroundStyle(T.Color.muted.color)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
