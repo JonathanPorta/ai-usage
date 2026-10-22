@@ -7,7 +7,7 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 
 | Item | Value |
 | --- | --- |
-| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts and single-account Settings 2026-10-20 (below) |
+| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts and single-account Settings 2026-10-20, chart readout spacing 2026-10-22 (below) |
 | Checksums | `SHA256SUMS` (identical to the package's `SHA256SUMS.txt`) |
 | Command | `make app-snapshot` (`AIUsage --snapshot .sandbox/snapshots/fixture`) |
 | Data | Committed synthetic fixture `macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json`, evaluated at 2026-09-29T16:40:00Z, `TZ=America/Denver` |
@@ -77,6 +77,35 @@ https://claude.ai/artifact/S4U3uXPvAtABiau8aAwpWS, which showed it beside the 20
 | Data | The committed fixture `report-fixture.json` |
 | Rendered at | `315c43e` (main after #11); byte-identical on the corrective branch at `47afaa3` |
 | Toolchain | macOS 27.0.1, Swift 6.4 |
+
+## Chart readout spacing (accepted 2026-10-22)
+
+Accepted by the owner (Jonathan) on 2026-10-22 ("I approve the reserved caption space shown in
+the review report and the corresponding eight visual-reference updates") from the review page
+https://claude.ai/artifact/QAJ7WSaXSmAmyDvdR9Le2P (PR #16). Each day chart now reserves the
+height of its longest readout, so hovering or selecting a day no longer changes the card's
+height; where a day's readout wraps, the chart has one blank line under its caption at rest.
+
+| Item | Value |
+| --- | --- |
+| Replaced (8) | `popover-overview`, `popover-overview-short`, `popover-overview-two-accounts`, `detail-grok-tokens`, light and dark |
+| Data | The committed fixtures `report-fixture.json` and `report-fixture-two-accounts.json` |
+| Rendered at | `11f6fcc` (the PR head, as reviewed); byte-identical at the merge commit `c8eac81` |
+| Toolchain | macOS 27.0.1, Swift 6.4 |
+| Unchanged | Every other render at `c8eac81` is byte-identical to `main` (`ebe2b71`) rendered on the same Mac |
+
+Interaction, checked in an isolated fixture app at `11f6fcc` (not a render):
+
+| Check | Result |
+| --- | --- |
+| Hover from rest onto a day whose readout wraps (Grok Build, 16 Oct) | Passed: the readout filled the reserved line; the lines below stayed at the same positions (accessibility frames and pixels) |
+| Hover between a wrapping and a short readout, across bars | Not verified |
+| Keyboard selection (←/→) | Not verified |
+| "Open history" and "Open in history window" close the popover and bring History forward, including when it is already open; the provider is selected | Not verified |
+| The popover opens normally afterwards | Not verified |
+
+The automation available could not move the pointer or deliver keys to the popover. The owner
+accepted merging with these checks unverified; they are not recorded as passed.
 
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 
