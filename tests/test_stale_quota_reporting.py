@@ -29,9 +29,12 @@ config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.environ["HOME"]
 if os.path.exists(os.path.join(config_dir, "hang")):
     time.sleep(60)
 cache = os.path.join(config_dir, ".claude.json")
-document = json.load(open(cache))
-document["cachedUsageUtilization"]["fetchedAtMs"] = {(FIXED - 30) * 1000!r}
-json.dump(document, open(cache, "w"))
+# With a `reuse` file it answers from its cache without fetching, as Claude Code
+# does while its reading is under an hour old.
+if not os.path.exists(os.path.join(config_dir, "reuse")):
+    document = json.load(open(cache))
+    document["cachedUsageUtilization"]["fetchedAtMs"] = {(FIXED - 30) * 1000!r}
+    json.dump(document, open(cache, "w"))
 print(json.dumps({{"type": "result", "subtype": "success", "is_error": False, "result": "usage"}}))
 """
 
@@ -42,13 +45,19 @@ def cache(fetched_at: float, session_percent: int) -> str:
     return json.dumps(document)
 
 
-def report_after_one_collection(*, default_hangs: bool, az: bool = False) -> dict[str, Any]:
-    """Collect once with both caches two hours old, then report."""
+def report_after_one_collection(*, default_hangs: bool, az: bool = False, reuse_age: float = 0) -> dict[str, Any]:
+    """Collect once with both caches two hours old, then report.
+
+    With `reuse_age`, the default account's cache is that many seconds old and
+    `claude` answers from it without fetching.
+    """
 
     def plan(box: driver.Sandbox) -> list[dict[str, Any]]:
-        box.write("home/.claude.json", cache(FIXED - 2 * driver.HOUR, 8))
+        box.write("home/.claude.json", cache(FIXED - (reuse_age or 2 * driver.HOUR), 8))
         if default_hangs:
             box.write("home/hang", "")
+        if reuse_age:
+            box.write("home/reuse", "")
         box.write("home/.claude/stats-cache.json", driver.CLAUDE_STATS, mtime=FIXED - driver.HOUR)
         claude: dict[str, Any] = {"executable": box.python_executable("claude", FAKE_CLAUDE), "timeout_seconds": 5}
         instances = []
@@ -107,6 +116,25 @@ class StaleQuotaReportingTests(unittest.TestCase):
         })
         self.assertEqual((report["collection"]["last_attempt_result"], report["collection"]["failures"]),
                          ("success", []))
+
+    def test_a_reading_claude_code_reuses_within_the_hour_is_current_and_dated_by_its_fetch(self) -> None:
+        report = report_after_one_collection(default_hangs=False, reuse_age=34 * 60)
+        self.assertEqual(quota_freshness(provider(report, "claude")), {
+            "status": "current", "stale_cause": None, "measured_at": "2026-08-21T11:26:00Z",
+            "windows": [("current", None, "2026-08-21T11:26:00Z")],
+            "percents": {"5-hour": 8, "Weekly": 85, "Weekly · Fable": 4},
+            "source": ("ok", COLLECTED, "2026-08-21T11:26:00Z", None),
+        }, "Claude Code gives no newer reading within the hour, so this is not a failed refresh")
+        self.assertEqual((report["collection"]["last_attempt_result"], report["collection"]["failures"]),
+                         ("success", []))
+
+    def test_a_reading_claude_code_reuses_after_the_hour_is_still_a_failed_refresh(self) -> None:
+        report = report_after_one_collection(default_hangs=False, reuse_age=61 * 60)
+        no_fetch = "claude /usage did not fetch fresh usage; showing its older cached reading"
+        self.assertEqual(quota_freshness(provider(report, "claude"))["source"],
+                         ("failed", None, "2026-08-21T10:59:00Z", no_fetch))
+        self.assertEqual([(f["provider"], f["message"]) for f in report["collection"]["failures"]],
+                         [("claude", no_fetch)])
 
     def test_only_the_account_whose_refresh_failed_is_stale(self) -> None:
         report = report_after_one_collection(default_hangs=True, az=True)
