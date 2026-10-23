@@ -153,4 +153,5 @@ An independent review after #11 merged found three defects. They are fixed on `j
   - The backup is a locked snapshot that finishes an interrupted commit first, and rollback keeps newer data.
   - Step 8 waits, with a timeout, for a new collection by the service that includes both accounts.
   - `tests/test_ac10_procedure.py` runs every snippet against an isolated install, including the previous 2.2.0 collector for the snapshot.
-- [ ] Owner: merge #13. Then green main CI, the reinstall approval, and AC-10, per `procedure-reinstall-ac10.md`.
+- [x] Owner: merge #13, green main CI, and the reinstall approval (done 2026-10-21; corrections #15 and #16 installed 2026-10-22).
+- [ ] Owner: AC-10's three manual observations, per `session-state-provider-instances.md`.
