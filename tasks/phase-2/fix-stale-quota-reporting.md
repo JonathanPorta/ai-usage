@@ -77,3 +77,9 @@ AC-10 stays pending until:
 1. this correction is approved and installed (done: merged as `ebe2b71`, installed 2026-10-22);
 2. the owner compares each account's `/usage` with a report generated at about the same time;
 3. the owner confirms both accounts' cards in the app overview.
+
+## Follow-up: Claude Code's one-hour reuse (2026-10-23)
+
+Every "Collect now" since the reinstall reported both accounts' plan limits as failed ("claude /usage did not fetch fresh usage"), while the hourly collections refreshed. Each click came 33 to 57 minutes after the last fetch; the hourly runs come about 60½ minutes apart. Claude Code 2.1.309's own code answers `/usage` from `cachedUsageUtilization` while it is under an hour old (`fetchedAtMs`), without fetching, so no run within that hour can be fresher.
+
+Fix: a reading Claude Code returns unfetched, but fetched within the hour before the run, is kept as an `ok` reading from `claude-usage-cache`, dated by its fetch. Older than that, it is still the failed refresh above. `tests/test_stale_quota_reporting.py` covers both sides; the within-the-hour test failed before the fix. The parity golden (`provider_errors`, two hours old) is unchanged.

@@ -886,7 +886,9 @@ def collect_claude(
 # not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC (it classifies the usage fetch
 # as non-essential and silently replays the cache). Because Claude Code
 # answers from its cache when it cannot fetch, the exit status proves nothing:
-# freshness is decided by `fetchedAtMs` alone.
+# freshness is decided by `fetchedAtMs` alone. Claude Code (read from 2.1.309)
+# also answers from its cache, without fetching, while that reading is under an
+# hour old, so a run within the hour returns the newest reading it will give.
 CLAUDE_USAGE_ARGUMENTS = (
     "--safe-mode",
     "--restricted",
@@ -914,6 +916,7 @@ CLAUDE_USAGE_ENVIRONMENT = {
     "DISABLE_BUG_COMMAND": "1",
 }
 CLAUDE_USAGE_REFRESH_GRACE_MS = 120_000
+CLAUDE_USAGE_REUSE_MS = 3_600_000
 CLAUDE_USAGE_WINDOWS = {"session": ("session", 18000), "weekly_all": ("weekly", 604800)}
 
 
@@ -1129,6 +1132,10 @@ def collect_claude_subscription_usage(
     if not refreshed["same_account"]:
         return [error_row("Claude Code's cached usage belongs to another account than the one signed in")]
     if refreshed["fetched_at_ms"] < started_ms - CLAUDE_USAGE_REFRESH_GRACE_MS:
+        if started_ms - refreshed["fetched_at_ms"] <= CLAUDE_USAGE_REUSE_MS:
+            # Claude Code reused its reading from the last hour: not a failure,
+            # and still dated by when it was fetched.
+            return claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "ok")
         # Claude Code answered from its cache: offline, signed out, or blocked.
         return [error_row("claude /usage did not fetch fresh usage; showing its older cached reading")] + \
             claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "stale",
