@@ -17,7 +17,7 @@
 | AC-7 | Canonical type documented | 8.0 |
 | AC-8 | Settings accounts and "Add account…" states with renders | 6.0 |
 | AC-9 | 2.3.0, `instances` capability, older-collector visibility, decoding | 4.0, 5.0, 6.0 |
-| AC-10 | Owner's Mac check after merge and reinstall (pending) | 8.0 (recorded as pending) |
+| AC-10 | Owner's Mac check after merge and reinstall (accepted 2026-10-23) | 8.0 (recorded as pending) |
 | AC-11 | Validation, CI, docs, phase gate | 7.0, 8.0 |
 
 ## Relevant Files
@@ -130,7 +130,7 @@ How the work differed from the plan above. None of it changes an acceptance crit
   - `CLAUDE_CONFIG_DIR` was symlink-resolved, which Claude Code may tie to the login; it's now kept as named.
 
   Each fix has a regression test that failed before it.
-- **AC-10** is pending: the owner checks `claude` and `claude-az` on their Mac after the merge and an approved reinstall.
+- **AC-10** accepted by the owner on 2026-10-23 after checking `claude` and `claude-az` on their Mac (`session-state-provider-instances.md`).
 
 ## Corrective work after the merge (2026-10-20)
 
@@ -154,4 +154,4 @@ An independent review after #11 merged found three defects. They are fixed on `j
   - Step 8 waits, with a timeout, for a new collection by the service that includes both accounts.
   - `tests/test_ac10_procedure.py` runs every snippet against an isolated install, including the previous 2.2.0 collector for the snapshot.
 - [x] Owner: merge #13, green main CI, and the reinstall approval (done 2026-10-21; corrections #15 and #16 installed 2026-10-22).
-- [ ] Owner: AC-10's three manual observations, per `session-state-provider-instances.md`.
+- [x] Owner: AC-10's three manual observations, per `session-state-provider-instances.md` (accepted 2026-10-23).

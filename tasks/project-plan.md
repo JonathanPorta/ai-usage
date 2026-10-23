@@ -3,7 +3,7 @@
 Status: brief and phases from the owner's decisions 1A–7B (2026-10-19). Phase 1 approved and
 merged as `1b60b5f` (#10, 2026-10-20). Phase 2's PRD and acceptance criteria approved on
 2026-10-20 ([PRD](phase-2/prd-provider-instances.md)); implemented, merged (#11 to #17) and installed.
-Its operational acceptance (AC-10) is pending the owner's manual observations
+Its operational acceptance (AC-10) was accepted by the owner on 2026-10-23
 ([session state](phase-2/session-state-provider-instances.md)).
 Phases 3–4 are not yet PRD'd. Each gets its own PRD and
 acceptance-criteria gate, and this plan does not widen their scope.

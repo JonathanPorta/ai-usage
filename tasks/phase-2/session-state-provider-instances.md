@@ -1,7 +1,7 @@
 ## Session State: provider-instances
-Last updated: 2026-10-23
+Last updated: 2026-10-23 (AC-10 accepted)
 
-**Status: phases 1 and 2 are implemented, merged and installed. Phase 2's operational acceptance (AC-10) is pending the owner's three manual observations below.**
+**Status: phases 1 and 2 are implemented, merged and installed. Phase 2 is operationally accepted: the owner accepted AC-10 on 2026-10-23.**
 
 ### Current Position
 | Part | State | Evidence |
@@ -14,13 +14,18 @@ Last updated: 2026-10-23
 | Chart hover and History | **Merged and installed.** #16 (`c8eac81`): each day chart reserves its tallest readout, so hovering doesn't reflow the card; opening History closes the popover. The installed app was replaced with a separate build of `c8eac81` on 2026-10-22 at 09:14 local (owner approved); the running executable's sha256 `498113e6…` matches that build. The collector, config and history were left alone. Rollback: `~/.ai-usage/app-rollback-pre-c8eac81-20261022091439`. | Main CI run 39802132773 green; Proofglass `ai-usage-macos` and overall (`job_01M5J2HS60KHRZCYNJRSH5RYJ1`). |
 | Chart spacing visuals | **Approved and merged.** The eight replaced renders are in #17 (`3989efa`). | Owner approval, 2026-10-22; decision record on #17; `docs/design/app/references/README.md`. |
 | #16 interaction checks | **Waived by the owner** (2026-10-22), except one that passed: hovering from rest onto a day whose readout wraps kept the card's height. Not verified: hover between a wrapping and a short readout, keyboard selection, both History buttons closing the popover and bringing History forward (including when already open) with the provider selected, and the popover reopening. | `docs/design/app/references/README.md#chart-readout-spacing-accepted-2026-10-22`. |
-| AC-10 | **Pending the owner's manual observations.** Steps 1–5, 7 and 8 were run at the reinstall; step 8's isolation passed (both accounts collected by the installed service in one collection). Nothing below is recorded as passed. | Step 8 is recorded precisely in `fix-stale-quota-reporting.md`. |
+| AC-10 | **Accepted by the owner** (2026-10-23, "Accept ac-10"). Steps 1–5, 7 and 8 were run at the reinstall; step 8's isolation passed (both accounts collected by the installed service in one collection); the owner's three observations are below. | Step 8 is recorded precisely in `fix-stale-quota-reporting.md`; the observations come from the owner's screenshots, 2026-10-23. |
 
-### AC-10: outstanding owner observations
-Right after a "Collect now" in the app:
-1. `env -u CLAUDE_CONFIG_DIR claude`, then `/usage`: matches the "Claude Code" detail screen. **Pending.**
-2. `CLAUDE_CONFIG_DIR="$HOME/.claude-az" command claude`, then `/usage`: matches the "Claude (az)" detail screen. **Pending.**
-3. The overview shows both the "Claude Code" and "Claude (az)" cards, each with its own limits. **Pending.**
+### AC-10: owner observations (2026-10-23)
+Compared against the installed service's 05:19–05:20 local collection, which refreshed both accounts.
+
+| Check | `/usage` (owner's run) | App | Result |
+| --- | --- | --- | --- |
+| 1. Default account (`claude`) | 8% session, 4% weekly, 4% weekly Fable; resets 8:59am and Oct 27 6:59am | "Claude Code": 8%, 4%, 4%; resets in 3 h and Tue 07:00; measured 05:19 | Matches |
+| 2. `claude-az` | 5% session, 51% weekly, 0% weekly Fable; resets 9:09am and Oct 24 8:59pm | "Claude (az)": 3%, 50%, 0%; resets in 3 h and Sat 21:00; measured 05:20 | Matches; the session and weekly figures are 2 and 1 points higher because an agent session signed in to `claude-az` kept running after 05:20 |
+| 3. Overview | — | Both "Claude Code" and "Claude (az)" cards, each with its own limits | Passed |
+
+The owner ran `claude` and a `claude-az` shell alias rather than the procedure's alias-safe commands; the distinct limits and reset times identify each account. An earlier `/usage` in the default session showed 7% session use before the 8% shown at the comparison.
 
 - **Validation review mode:** auto-proceed (owner, 2026-10-20).
 - **Blocked:** no.
@@ -39,8 +44,8 @@ Right after a "Collect now" in the app:
 5. **AC-10 procedure** (second review): step 4's parsing, a coherent locked backup, and step 8's false pass on an earlier foreground collection. Each snippet is now tested.
 
 ### What's Next
-1. The owner's three AC-10 observations above; then record each result here (step 9 of `procedure-reinstall-ac10.md`). Only then is phase 2 operationally accepted.
-2. Not yet: a release, phase 3 or phase 4.
+1. #19 (Claude Code's one-hour reuse of its `/usage` reading): owner approved merging and installing it, 2026-10-23.
+2. Not yet: a release, phase 3 or phase 4. Each needs its own approval.
 
 ### Incident: the live app rebuilt for test renders
 While working on #15, a test build was made with `make app-build`, which writes to `macos/build/AI Usage.app`, the owner's running app. The rebuilt app's report code then read rows from the older installed collector, which recorded no fetch times, so the owner saw "last reading —". It cleared when the collector was reinstalled from `ebe2b71`, matching both halves. Since then:
