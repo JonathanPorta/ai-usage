@@ -74,6 +74,6 @@ App: the app was built and rendered offscreen from an isolated sandbox that repr
 - **Known limitation, recorded separately:** the 2.2.0 collector hit the same timeout at 06:07 and 07:08 UTC before the reinstall, and refreshed successfully on other hours. The timeout is intermittent, predates 2.3.0, and is not an account-isolation failure.
 
 AC-10 stays pending until:
-1. this correction is approved and installed;
+1. this correction is approved and installed (done: merged as `ebe2b71`, installed 2026-10-22);
 2. the owner compares each account's `/usage` with a report generated at about the same time;
 3. the owner confirms both accounts' cards in the app overview.
