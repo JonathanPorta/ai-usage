@@ -107,6 +107,22 @@ jobs:
           CAPACITY_JQ: >-
             .admitted == false and (.reason|type) == "string" and ((.reason|startswith("no eligible supervisor online")) or (.reason|startswith("no lane can be offloaded now"))) and (.lanes|type) == "array" and (.lanes|all(type == "object")) and ([.lanes[] | select(.profile == "ai-usage-macos@1")] as $m | ($m|length) == 1 and ($m[0].offloaded|type) == "array" and ($m[0].offloaded|length) == 0 and ($m[0].reason|type) == "string" and ($m[0].reason|startswith("hosted: ")))
           # END CAPACITY_JQ
+          # Only recognized values of these fields reach the public log and the
+          # job's notices: anything else becomes "unrecognized". No admission id,
+          # check run id or free-text reason, which can name a supervisor, a
+          # ruleset or a wait. Diagnostics stay behind ProofGlass's authenticated access.
+          # BEGIN SUMMARY_JQ
+          SUMMARY_JQ: >-
+            def known($values): if . == null then null elif (type == "string" and (. as $v | $values | index([$v]))) then . else "unrecognized" end;
+            def count: if type == "array" then length elif . == null then null else "unrecognized" end;
+            {mode: (.mode|known(["displace", "shadow", "off"])), admitted: (.admitted|if type == "boolean" or . == null then . else "unrecognized" end),
+            verdict: (.overall|if type == "object" then (.name|known(["proofglass / pr-gate", "proofglass / overall"])) elif . == null then null else "unrecognized" end),
+            offloaded: (.offloaded|count),
+            lanes: (.lanes|if type == "array" then map(if type == "object" then {profile: (.profile|known(["ai-usage-macos@1"])), mode: (.mode|known(["displace", "shadow", "off"])), offloaded: (.offloaded|count)} else "unrecognized" end) elif . == null then [] else "unrecognized" end)}
+          # END SUMMARY_JQ
+          # The capacity cause, named by its pinned phrase alone.
+          CAPACITY_CAUSE_JQ: >-
+            if (.reason|startswith("no eligible supervisor online")) then "no eligible supervisor online" else "no lane can be offloaded now" end
         run: |
           set -euo pipefail
           routed=false; macos=false; hosted=false; reason=""
@@ -139,17 +155,19 @@ jobs:
           else
             reason="could not obtain an OIDC token"
           fi
-          echo "proof glass answer: ${answer:-<none>}"
+          summary=""
+          if [ -n "$answer" ]; then summary="$(echo "$answer" | jq -c "${SUMMARY_JQ}")"; fi
+          echo "proof glass answer (summary): ${summary:-<none>}"
           if [ -n "$answer" ] && echo "$answer" | jq -e '.admitted == true' >/dev/null; then routed=true; fi
           if [ -n "$answer" ] && echo "$answer" | jq -e --arg expected "${expected}" "${DISPLACED_JQ}" >/dev/null; then
             macos=true
           elif [ -n "$answer" ] && echo "$answer" | jq -e "${CAPACITY_JQ}" >/dev/null && [ "${HOSTED_FALLBACK}" != "off" ]; then
             hosted=true
-            reason="$(echo "$answer" | jq -r '"no ProofGlass Mac builder is available (\(.reason))"')"
+            reason="no ProofGlass Mac builder is available ($(echo "$answer" | jq -r "${CAPACITY_CAUSE_JQ}"))"
           elif [ -n "$answer" ] && echo "$answer" | jq -e "${CAPACITY_JQ}" >/dev/null; then
-            reason="$(echo "$answer" | jq -r '"no ProofGlass Mac builder is available (\(.reason)) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off, interim: fails closed)"')"
+            reason="no ProofGlass Mac builder is available ($(echo "$answer" | jq -r "${CAPACITY_CAUSE_JQ}")) and the hosted fallback is off (MACOS_HOSTED_FALLBACK=off, interim: fails closed)"
           elif [ -n "$answer" ]; then
-            reason="$(echo "$answer" | jq -r '"ProofGlass did not displace the ai-usage-macos@1 lane and the cause is not missing capacity, so it is not run hosted (mode: \(.mode // "none"); \(.reason // "no reason given"))"')"
+            reason="ProofGlass did not displace the ai-usage-macos@1 lane and the cause is not missing capacity, so it is not run hosted (answer: ${summary}; the reason is in ProofGlass)"
           fi
           {
             echo "routed=${routed}"
