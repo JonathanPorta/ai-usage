@@ -2327,6 +2327,60 @@ for line in sys.stdin:
             with self.subTest(name):
                 self.assertFalse(capacity(body))
 
+    def test_route_answer_reaches_the_log_only_as_an_allowlisted_summary(self) -> None:
+        jq = shutil.which("jq")
+        if jq is None:
+            self.skipTest("jq is not installed")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = re.search(r"# BEGIN SUMMARY_JQ\n\s*SUMMARY_JQ: >-\n(.*?)\n\s*# END SUMMARY_JQ", workflow, re.S)
+        self.assertIsNotNone(block)
+        program = " ".join(line.strip() for line in block.group(1).splitlines())
+        # Synthetic canaries, in omitted fields and in every retained one.
+        canaries = ("adm-canary-7f3c", "sup-example-01", "ruleset-canary-1111", "/Users/example", "check-canary-9999")
+
+        def summary(body: object) -> dict:
+            result = subprocess.run([jq, "-c", program], input=json.dumps(body), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for value in canaries:
+                self.assertNotIn(value, result.stdout)
+            return json.loads(result.stdout)
+
+        lane = {"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": [{"job": "check-canary-9999"}],
+                "reason": "displaced to sup-example-01"}
+        displaced = {"mode": "displace", "admitted": True, "admission_id": "adm-canary-7f3c",
+                     "offloaded": [{"supervisor": "sup-example-01"}], "reason": "admitted on sup-example-01",
+                     "lanes": [lane], "overall": {"check_run_id": 9999, "name": "proofglass / pr-gate"}}
+        self.assertEqual(summary(displaced), {
+            "mode": "displace", "admitted": True, "verdict": "proofglass / pr-gate", "offloaded": 1,
+            "lanes": [{"profile": "ai-usage-macos@1", "mode": "displace", "offloaded": 1}]})
+        denied = {"mode": "off", "admitted": False, "offloaded": [],
+                  "reason": "ruleset-canary-1111 bypass evidence unavailable at /Users/example"}
+        self.assertEqual(summary(denied), {"mode": "off", "admitted": False, "verdict": None, "offloaded": 0, "lanes": []})
+        canary_in_kept_fields = {
+            "mode": "sup-example-01", "admitted": "/Users/example", "offloaded": "check-canary-9999",
+            "overall": {"name": "proofglass / sup-example-01"},
+            "lanes": [{"profile": "sup-example-01", "mode": "/Users/example", "offloaded": "adm-canary-7f3c"},
+                      "ruleset-canary-1111"]}
+        self.assertEqual(summary(canary_in_kept_fields), {
+            "mode": "unrecognized", "admitted": "unrecognized", "verdict": "unrecognized", "offloaded": "unrecognized",
+            "lanes": [{"profile": "unrecognized", "mode": "unrecognized", "offloaded": "unrecognized"}, "unrecognized"]})
+        self.assertEqual(summary({"lanes": "sup-example-01", "overall": "sup-example-01"}),
+                         {"mode": None, "admitted": None, "verdict": "unrecognized", "offloaded": None, "lanes": "unrecognized"})
+
+        route = workflow[workflow.index("Ask ProofGlass which lanes are displaced"):workflow.index("# ---- Lightweight hosted checks")]
+        for line in route.splitlines():
+            if "$answer" in line or "${answer}" in line:
+                with self.subTest(line=line.strip()):
+                    self.assertRegex(line, r'echo "\$answer" \| jq|answer="\$\(echo "\$body"|\[ -n "\$answer" \]',
+                                     "the raw answer is only tested or piped into jq, never printed")
+        self.assertNotIn("\\(.", route, "no field of the answer is interpolated into a notice or warning")
+        cause = re.search(r"CAPACITY_CAUSE_JQ: >-\n\s*(.*?)\n", workflow).group(1)
+        for reason, expected in (
+                ("no eligible supervisor online (ai-usage-macos@1: sup-example-01 paused)", "no eligible supervisor online"),
+                ("no lane can be offloaded now (ai-usage-macos@1: predicted wait 17m on sup-example-01)", "no lane can be offloaded now")):
+            result = subprocess.run([jq, "-r", cause], input=json.dumps({"reason": reason}), capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), expected)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
