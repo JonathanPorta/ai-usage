@@ -279,9 +279,12 @@ or installs third-party code. The project plan's phase-3 exit asks for three thi
   kept as it was.
 
 ### Bounds, cleanup and failure (all-or-nothing per plugin)
-- **Output limits:** stdout is read with a 1 MiB cap and stderr with a 64 KiB cap. Passing a
-  cap is a failure; the collector stops reading, kills the process group, and doesn't buffer
-  more.
+- **Output limits:**
+  - **stdout** is read with a 1 MiB cap. Passing it is a failure: the collector stops
+    reading, kills the process group, and doesn't buffer more.
+  - **stderr** is drained and discarded as it arrives, so a chatty plugin can't block on a
+    full pipe. Any amount of stderr is allowed and never fails a run. The collector keeps only
+    a running byte count, never the bytes.
 - **Timeout:** the deadline covers the whole run, from start to exit, including writing
   stdin and reading output. At the deadline the collector kills the process group.
 - **Cleanup:** after every run, whatever its result, the collector calls
@@ -306,8 +309,12 @@ or installs third-party code. The project plan's phase-3 exit asks for three thi
   - **State:** the plugin's state stays as it was, so its checkpoints don't advance.
   - **Other providers:** their rows and state are unchanged.
 - **Diagnostics:**
-  - stderr never reaches the CSV, the report or the app. Up to its last 4 KiB is written to
-    `collector.log` (0600), with the reason.
+  - **No stderr content is stored anywhere:** not in the CSV, the report, the app, state or
+    `collector.log`. That keeps the promise that the collector never stores or logs
+    credentials, even when a plugin prints one by mistake.
+  - `collector.log` records only the plugin id, the reason class, the exit status or signal,
+    the duration, and the stderr byte count.
+  - To debug, the owner runs the plugin by hand, or the plugin writes its own log file.
   - A response's own `status: "error"` rows are the plugin's chosen, user-facing messages.
 
 ### Enablement, identity and lifecycle
@@ -425,9 +432,11 @@ real `~/.ai-usage`, any real plugin, credential or log.
   - `chatty` writes 5 MiB to stdout. The collector stops reading at 1 MiB, kills it, and
     records `wrote more than 1 MiB to stdout`. Its peak memory stays bounded: a test asserts
     the buffered bytes never exceed the cap plus one read chunk.
-  - A plugin writing 1 MiB to stderr and a valid response succeeds.
-  - At most 4 KiB of its stderr reaches `collector.log`, and none reaches the CSV or the
-    report.
+  - A plugin writing 1 MiB to stderr and a valid response succeeds. Its rows are kept, and
+    `collector.log` records its stderr byte count (1048576).
+  - A plugin printing a credential-shaped marker (`AIU-TEST-SECRET-<random>`) to stderr is
+    run in two cases: once with a valid response and once failing. In neither case does the
+    marker appear in `collector.log`, the CSV, `state.json` or the report (byte search).
   - A response over 2,000 rows, or with a `state` over 256 KiB, is refused as invalid.
 - **AC-7 Process cleanup.**
   - `forker` starts a background child in its process group that would outlive it, then
@@ -511,6 +520,6 @@ real `~/.ai-usage`, any real plugin, credential or log.
 No other decision is open. Settled decisions 1A–7B and the phase-2 decisions aren't reopened.
 The packet's engineering choices are reviewable as part of the one approval:
 - the protocol shape;
-- the limits (1 MiB, 64 KiB, 2,000 rows, 256 KiB, 1–120 s);
+- the limits (1 MiB stdout, stderr discarded, a 64 KiB manifest, 2,000 rows, 256 KiB state, 1–120 s);
 - the minimal environment;
 - appending external providers last.
