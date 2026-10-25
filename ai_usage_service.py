@@ -45,6 +45,7 @@ if _COLLECTOR_DIR not in sys.path:
     sys.path.append(_COLLECTOR_DIR)  # after the standard library, never ahead of it
 
 import ai_usage_plugins  # noqa: E402
+from ai_usage_plugins import external  # noqa: E402
 from ai_usage_plugins.base import CollectContext, ProviderPlugin  # noqa: E402
 from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fixtures use them)
     COMMON_EXECUTABLE_DIRS,
@@ -81,7 +82,7 @@ from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fi
 )
 
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
 TEST_SERVICE_LABEL_PREFIX = f"{PRODUCTION_SERVICE_LABEL}.test."
 
@@ -211,6 +212,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
     if not isinstance(providers, Mapping):
         raise ValueError("providers must be an object")
     validate_instances(config)
+    validate_external_entries(config)
     validate_configured_paths(config)
 
 
@@ -220,15 +222,20 @@ def validate_config(config: Mapping[str, Any]) -> None:
 INSTANCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 INSTANCE_KEYS = ("id", "plugin", "label", "settings")
 INSTANCES_MIN_VERSION = (2, 3, 0)
+# External plugins (phase 3) are collected by 2.4.0 and newer.
+EXTERNAL_PLUGINS_MIN_VERSION = (2, 4, 0)
 
 
 class Account:
-    """One provider the collector reads: a plugin's built-in instance or an added one."""
+    """One provider the collector reads: a plugin's built-in instance, an added one, or an
+    external plugin (phase 3), whose id is its folder name and also its type."""
 
-    def __init__(self, account_id: str, plugin_id: str, label: Optional[str] = None) -> None:
+    def __init__(self, account_id: str, plugin_id: str, label: Optional[str] = None,
+                 external: bool = False) -> None:
         self.id = account_id
         self.type = plugin_id
         self.label = label
+        self.external = external
 
     @property
     def added(self) -> bool:
@@ -287,15 +294,77 @@ def validate_instances(config: Mapping[str, Any]) -> None:
             raise ValueError(f"{where}.settings: {error}") from error
 
 
-def accounts(config: Mapping[str, Any]) -> list[Account]:
-    """Every provider to collect, in order: the built-ins, then added instances as configured."""
+def configured_external_ids(config: Mapping[str, Any]) -> list[str]:
+    """`providers` keys that name an external plugin: any valid id that isn't a built-in's."""
+    providers = config.get("providers", {})
+    return [name for name in (providers if isinstance(providers, Mapping) else {})
+            if name not in ai_usage_plugins.BUNDLED and external.ID_PATTERN.match(name)]
+
+
+def validate_external_entries(config: Mapping[str, Any]) -> None:
+    instance_ids = {entry.get("id") for entry in configured_instances(config)}
+    for name in configured_external_ids(config):
+        where = f"providers.{name}"
+        entry = config["providers"][name]
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"{where} must be an object")
+        if name in instance_ids:
+            raise ValueError(f"{where}: the id is an added account's")
+        if "enabled" in entry and not isinstance(entry["enabled"], bool):
+            raise ValueError(f"{where}.enabled must be true or false")
+        timeout = entry.get("timeout_seconds")
+        if timeout is not None and (not external.is_int(timeout) or not 1 <= timeout <= external.TIMEOUT_MAX):
+            raise ValueError(f"{where}.timeout_seconds must be an integer from 1 to {external.TIMEOUT_MAX}")
+        price = entry.get("monthly_subscription_usd")
+        if price is not None and (not external.is_number(price) or price < 0):
+            raise ValueError(f"{where}.monthly_subscription_usd must be a non-negative number or null")
+
+
+def discover_external(config: Mapping[str, Any]) -> external.Discovery:
+    """The plugin folders under ~/.ai-usage/plugins, scanned now. Runs nothing."""
+    reserved = set(ai_usage_plugins.BUNDLED) | {str(entry.get("id")) for entry in configured_instances(config)}
+    return external.discover(reserved)
+
+
+def external_problem(discovery: external.Discovery, name: str) -> Optional[str]:
+    """Why a configured external id can't run, or None when its folder is valid."""
+    if name in discovery.plugins:
+        return None
+    if name in discovery.invalid:
+        return f"plugin is invalid: {discovery.invalid[name]}"
+    if "" in discovery.invalid:
+        return f"plugin is invalid: {discovery.invalid['']}"
+    return "plugin folder not found"
+
+
+def accounts(config: Mapping[str, Any], discovery: Optional[external.Discovery] = None) -> list[Account]:
+    """Every provider, in order: the built-ins, then added instances as configured, then
+    external plugins (discovered or configured) in byte order of their ids."""
     found = [Account(name, name) for name in provider_names()]
     for entry in configured_instances(config):
         found.append(Account(str(entry["id"]), str(entry["plugin"]), str(entry["label"])))
+    discovery = discover_external(config) if discovery is None else discovery
+    names = set(discovery.ids()) | set(configured_external_ids(config))
+    for name in sorted(names, key=lambda value: value.encode("utf-8")):
+        found.append(Account(name, name, external=True))
     return found
 
 
-def account_settings(config: Mapping[str, Any], account: Account) -> Mapping[str, Any]:
+def external_configured(config: Mapping[str, Any], name: str) -> bool:
+    providers = config.get("providers", {})
+    return isinstance(providers, Mapping) and name in providers
+
+
+def account_settings(config: Mapping[str, Any], account: Account,
+                     discovery: Optional[external.Discovery] = None) -> Mapping[str, Any]:
+    if account.external:
+        # Off unless the owner's config turns it on: neither discovery nor a manifest can.
+        discovery = discover_external(config) if discovery is None else discovery
+        plugin = discovery.plugins.get(account.id)
+        own = provider_config(config, account.id)
+        merged = {**(plugin.default_settings if plugin else {}), **own}
+        merged["enabled"] = own.get("enabled") is True
+        return merged
     if not account.added:
         return provider_config(config, account.id)
     entry = next(e for e in configured_instances(config) if e.get("id") == account.id)
@@ -892,16 +961,19 @@ def collect_snapshot(
     progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[dict[str, Any]]:
     collected_at = iso_utc(utc_now())
-    every = accounts(config)
+    discovery = discover_external(config)
+    # An external id with no `providers` entry has never been configured: it writes nothing.
+    every = [account for account in accounts(config, discovery)
+             if not account.external or external_configured(config, account.id)]
 
     rows: list[dict[str, Any]] = []
     enabled = [
         account.id for account in every
-        if account_settings(config, account).get("enabled", True) is True
+        if account_settings(config, account, discovery).get("enabled", True) is True
     ]
     for account in every:
         name = account.id
-        settings = account_settings(config, account)
+        settings = account_settings(config, account, discovery)
         if progress is not None and name in enabled:
             progress(name, enabled.index(name) + 1, len(enabled))
         if settings.get("enabled", True) is not True:
@@ -918,6 +990,10 @@ def collect_snapshot(
                     message="provider disabled in config; no discovery or command was run",
                 )
             )
+            continue
+        if account.external:
+            rows.extend(collect_external(name, discovery, settings, collected_at, include_history, state))
+            add_subscription_cost(rows, collected_at, name, settings, state)
             continue
         try:
             plugin = PLUGINS.get(account.type)
@@ -951,12 +1027,69 @@ def collect_snapshot(
     return rows
 
 
+def collect_external(
+    name: str,
+    discovery: external.Discovery,
+    settings: Mapping[str, Any],
+    collected_at: str,
+    include_history: bool,
+    state: MutableMapping[str, Any],
+) -> list[dict[str, Any]]:
+    """One enabled external plugin's rows: its response's, or one failure row.
+
+    Its checkpoint lives in state["instances"][name] and changes only on success.
+    The log names the reason, exit, duration and stderr size, never any output."""
+    def failure(reason: str) -> list[dict[str, Any]]:
+        return [metric_row(collected_at, name, "collection", "unexpected_error",
+                           source=external.FAILURE_SOURCE, status="error", message=reason)]
+
+    problem = external_problem(discovery, name)
+    if problem is not None:
+        LOGGER.warning("external plugin %s not run: %s", name, problem)
+        return failure(problem)
+    plugin = discovery.plugins[name]
+    account_state = state.setdefault("instances", {}).setdefault(name, {})
+    try:
+        outcome = external.collect(
+            plugin, settings, account_state, collected_at=collected_at, include_history=include_history,
+            version=VERSION, local_today=datetime_module.datetime.now().date())
+    except external.PluginFailure as error:
+        info = getattr(error, "info", external.RunInfo())
+        LOGGER.warning("external plugin %s failed: %s exit=%s duration=%.1fs stderr_bytes=%d",
+                       name, error, info.exit, info.duration, info.stderr_bytes)
+        return failure(str(error))
+    except Exception as error:  # a collector bug; its message could hold plugin output
+        LOGGER.warning("external plugin %s failed unexpectedly (%s)", name, type(error).__name__)
+        return failure(f"failed unexpectedly ({type(error).__name__})")
+    if outcome.state is not None:
+        account_state.clear()
+        account_state.update(outcome.state)
+    info = outcome.info
+    LOGGER.info("external plugin %s collected rows=%d exit=%s duration=%.1fs stderr_bytes=%d",
+                name, len(outcome.rows), info.exit, info.duration, info.stderr_bytes)
+    return outcome.rows
+
+
 def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     results: dict[str, dict[str, Any]] = {}
-    for account in accounts(config):
+    discovery = discover_external(config)
+    for account in accounts(config, discovery):
         name = account.id
-        settings = account_settings(config, account)
+        settings = account_settings(config, account, discovery)
         enabled = settings.get("enabled", True) is True
+        if account.external:
+            plugin = discovery.plugins.get(name)
+            results[name] = {
+                "enabled": enabled,
+                "configured": external_configured(config, name),
+                "detected": plugin is not None,
+                "executable": str(plugin.executable) if plugin else None,
+                "directory": str(external.plugins_root() / name),
+                "external": True,
+                "type": name,
+                **({"plugin_error": external_problem(discovery, name)} if plugin is None else {}),
+            }
+            continue
         plugin = PLUGINS.get(account.type)
         identity = {"type": account.type, **({"label": account.label} if account.added else {})}
         if plugin is None:
@@ -1004,6 +1137,16 @@ def print_doctor(config: Mapping[str, Any], as_json: bool = False) -> None:
     for name, result in results.items():
         if result.get("load_error"):
             print(f"  {name:13} could not be loaded — {result['load_error']}")
+            continue
+        if result.get("external"):
+            if result.get("plugin_error"):
+                print(f"  {name:13} local plugin, {result['plugin_error']}")
+            elif not result["configured"]:
+                print(f"  {name:13} local plugin, not turned on (`plugin enable {name}`)")
+            elif not result["enabled"]:
+                print(f"  {name:13} local plugin, disabled")
+            else:
+                print(f"  {name:13} local plugin, enabled — {result['executable']}")
             continue
         if not result["enabled"]:
             print(f"  {name:13} disabled")
@@ -1887,6 +2030,8 @@ def stop_service() -> dict[str, Any]:
 
 
 CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}
+# An external plugin's timeout can also be lowered (never raised past its manifest's).
+CONFIGURABLE_EXTERNAL_KEYS = CONFIGURABLE_PROVIDER_KEYS | {"timeout_seconds"}
 
 
 _VERSION_LINE = re.compile(r'^VERSION = "([0-9]+)\.([0-9]+)\.([0-9]+)"', re.MULTILINE)
@@ -1927,6 +2072,18 @@ def require_instance_support() -> None:
         )
 
 
+def require_external_support() -> None:
+    """Refuse to enable a local plugin the installed collector would never run."""
+    version = installed_collector_version(installed_collector_script())
+    if version is None or version < EXTERNAL_PLUGINS_MIN_VERSION:
+        installed = ".".join(map(str, version)) if version else "none found"
+        minimum = ".".join(map(str, EXTERNAL_PLUGINS_MIN_VERSION))
+        raise RuntimeError(
+            f"local plugins need the installed collector {minimum} or newer (installed: {installed}); "
+            "reinstall it first with `python3 ai_usage_service.py install`"
+        )
+
+
 def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
     if "=" not in assignment:
         raise ValueError(f"expected KEY=JSON_VALUE, got {assignment!r}")
@@ -1939,6 +2096,12 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
     if parts in (["poll_paused"], ["poll_interval_seconds"]):
         return parts, value
     if (
+        len(parts) == 3 and parts[0] == "providers" and parts[1] not in ai_usage_plugins.BUNDLED
+        and external.ID_PATTERN.match(parts[1]) and parts[2] in CONFIGURABLE_EXTERNAL_KEYS
+    ):
+        if parts[2] == "timeout_seconds" and (not external.is_int(value) or value < 1):
+            raise ValueError(f"{key} must be a positive integer")
+    elif not (
         len(parts) == 3
         and (
             (parts[0] == "providers" and parts[1] in ai_usage_plugins.BUNDLED)
@@ -1946,6 +2109,8 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
         )
         and parts[2] in CONFIGURABLE_PROVIDER_KEYS
     ):
+        raise ValueError(f"{key} is not a setting the menu app may change")
+    if parts[2:] and parts[2] in CONFIGURABLE_PROVIDER_KEYS:
         if parts[2] == "enabled" and not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false")
         if parts[2] == "monthly_subscription_usd" and value is not None and (
@@ -1953,8 +2118,35 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
             or not math.isfinite(value) or value < 0
         ):
             raise ValueError(f"{key} must be a non-negative number or null")
-        return parts, value
-    raise ValueError(f"{key} is not a setting the menu app may change")
+    return parts, value
+
+
+def check_external_assignments(config_path: Path, parsed: list[tuple[list[str], Any]]) -> None:
+    """The checks every path that changes an external plugin's settings shares.
+
+    Turning one on needs a valid plugin folder now and an installed collector that
+    runs plugins. Turning one off, or pricing it, works for any id that is discovered
+    or already configured, even with its folder missing or invalid."""
+    changes = [(parts[1], parts[2], value) for parts, value in parsed
+               if parts[0] == "providers" and parts[1] not in ai_usage_plugins.BUNDLED]
+    if not changes:
+        return
+    config = load_config(config_path)
+    discovery = discover_external(config)
+    for name, key, value in changes:
+        plugin = discovery.plugins.get(name)
+        known = name in discovery.ids() or external_configured(config, name)
+        if not known:
+            # Neither discovered nor configured: refused as before local plugins existed.
+            raise ValueError(f"providers.{name}.{key} is not a setting the menu app may change")
+        if key == "enabled" and value is True or key == "timeout_seconds":
+            if plugin is None:
+                raise ValueError(f"{name} can't be turned on: {external_problem(discovery, name)}")
+            if key == "timeout_seconds" and value > plugin.timeout_seconds:
+                raise ValueError(f"providers.{name}.timeout_seconds can't exceed the plugin's own "
+                                 f"{plugin.timeout_seconds}")
+    if any(key == "enabled" and value is True for _name, key, value in changes):
+        require_external_support()
 
 
 def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
@@ -1967,6 +2159,7 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
         raise ValueError("no settings given")
     if any(parts[0] == "instances" and parts[2] == "enabled" and value is True for parts, value in parsed):
         require_instance_support()
+    check_external_assignments(config_path, parsed)
 
     def apply(updated: dict[str, Any]) -> None:
         for parts, value in parsed:
@@ -2063,6 +2256,50 @@ def list_instances(config_path: Path) -> list[dict[str, Any]]:
          "settings": dict(next(e for e in configured_instances(config) if e["id"] == account.id).get("settings", {}))}
         for account in accounts(config) if account.added
     ]
+
+
+def list_plugins(config_path: Path) -> dict[str, Any]:
+    """Every local plugin folder and configured id, valid or not. Runs nothing."""
+    config = load_config(config_path)
+    discovery = discover_external(config)
+    plugins = []
+    for account in accounts(config, discovery):
+        if not account.external:
+            continue
+        plugin = discovery.plugins.get(account.id)
+        settings = account_settings(config, account, discovery)
+        entry: dict[str, Any] = {
+            "id": account.id,
+            "status": "valid" if plugin else ("invalid" if account.id in discovery.invalid or "" in discovery.invalid
+                                              else "missing"),
+            "configured": external_configured(config, account.id),
+            "enabled": settings.get("enabled") is True,
+        }
+        if plugin is not None:
+            entry.update(name=plugin.report.name, executable=str(plugin.executable),
+                         timeout_seconds=external.effective_timeout(plugin, settings),
+                         usage=plugin.usage, quota=plugin.quota)
+        else:
+            entry["reason"] = external_problem(discovery, account.id)
+        plugins.append(entry)
+    unlisted = {name: reason for name, reason in discovery.invalid.items() if name and name not in discovery.ids()}
+    return {
+        "plugins_dir": str(external.plugins_root()),
+        "problem": discovery.invalid.get(""),
+        "plugins": plugins,
+        # Folders whose names can't be plugin ids.
+        "other_folders": unlisted,
+    }
+
+
+def set_plugin_enabled(config_path: Path, plugin_id: str, enabled: bool) -> dict[str, Any]:
+    if plugin_id in ai_usage_plugins.BUNDLED or not external.ID_PATTERN.match(plugin_id):
+        raise ValueError(f"{plugin_id!r} is not a local plugin id")
+    config = load_config(config_path)
+    if plugin_id not in discover_external(config).ids() and not external_configured(config, plugin_id):
+        raise ValueError(f"no local plugin with id {plugin_id!r} in {external.plugins_root()}")
+    configure(config_path, [f"providers.{plugin_id}.enabled={json.dumps(enabled)}"])
+    return {"id": plugin_id, "enabled": enabled}
 
 
 def set_instance_enabled(config_path: Path, instance_id: str, enabled: bool) -> dict[str, Any]:
@@ -2426,6 +2663,20 @@ def run_daemon(config_path: Path) -> int:
     return 0
 
 
+PLUGIN_HELP = """\
+A local plugin is an executable plus a plugin.json manifest in
+~/.ai-usage/plugins/<id>/ (folders 0700, files 0600, the executable 0700).
+It is off until you enable it, and then runs once per poll.
+
+A local plugin is trusted local code: it runs as you, with your permissions.
+The collector's timeout, output limits, process cleanup and response checks
+isolate faults. They are not a security sandbox. Install only plugins you
+wrote or trust as much as the collector.
+
+Valid rows and state are stored in usage.csv and state.json: keep credentials
+out of them. stderr is discarded. See docs/PLUGINS.md."""
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Collect AI usage without generating model traffic."
@@ -2493,8 +2744,24 @@ def build_parser() -> argparse.ArgumentParser:
     configure_parser.add_argument(
         "--set", action="append", default=[], metavar="KEY=JSON",
         help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd, "
-        "instances.<id>.enabled|monthly_subscription_usd",
+        "instances.<id>.enabled|monthly_subscription_usd, "
+        "providers.<local plugin>.enabled|monthly_subscription_usd|timeout_seconds",
     )
+    plugin_parser = subparsers.add_parser(
+        "plugin",
+        help="local plugins in ~/.ai-usage/plugins/<id>/ (trusted local code; not a sandbox)",
+        description=PLUGIN_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    plugin_commands = plugin_parser.add_subparsers(dest="plugin_command", required=True)
+    plugin_list = plugin_commands.add_parser("list", help="print every plugin folder and its state as JSON (runs nothing)")
+    add_config_argument(plugin_list)
+    for verb in ("enable", "disable"):
+        toggle = plugin_commands.add_parser(
+            verb, help=f"{verb} a local plugin" + (" (it then runs on every poll)" if verb == "enable" else
+                                                   " (its config, state and history are kept)"))
+        add_config_argument(toggle)
+        toggle.add_argument("plugin_id", metavar="ID")
     instance_parser = subparsers.add_parser(
         "instance", help="added accounts of a provider (for example a second Claude login)"
     )
@@ -2564,6 +2831,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             else:
                 print(json.dumps(set_instance_enabled(arguments.config, arguments.instance_id,
                                                       arguments.instance_command == "enable")))
+            return 0
+        if arguments.command == "plugin":
+            if arguments.plugin_command == "list":
+                print(json.dumps(list_plugins(arguments.config)))
+            else:
+                print(json.dumps(set_plugin_enabled(arguments.config, arguments.plugin_id,
+                                                    arguments.plugin_command == "enable")))
             return 0
         if arguments.command == "version":
             print(VERSION)

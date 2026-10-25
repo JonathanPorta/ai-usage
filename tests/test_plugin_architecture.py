@@ -88,8 +88,8 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_check_catches_a_reintroduced_provider_branch(self) -> None:
         source = (REPO / "ai_usage_service.py").read_text(encoding="utf-8")
         mutated = source.replace(
-            "        name = account.id\n        settings = account_settings(config, account)\n",
-            "        name = account.id\n        settings = account_settings(config, account)\n"
+            "        name = account.id\n        settings = account_settings(config, account, discovery)\n",
+            "        name = account.id\n        settings = account_settings(config, account, discovery)\n"
             "        if name == \"claude\":\n            pass\n", 1)
         self.assertNotEqual(mutated, source)
         self.assertEqual(provider_literals(mutated), {"collect_snapshot": ["claude"]})

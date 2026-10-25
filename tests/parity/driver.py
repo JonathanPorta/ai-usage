@@ -563,14 +563,16 @@ def golden_path(name: str) -> Path:
     return GOLDEN / f"{name}.json"
 
 
-# Phase 2 (tasks/phase-2/prd-provider-instances.md) changes the output on purpose, in
-# exactly these places and nothing else. expected() applies them to the unchanged
-# golden files; the observed output is never normalized for them.
-VERSION = "2.3.0"
+# Phases 2 and 3 (tasks/phase-2/prd-provider-instances.md, tasks/phase-3/prd-private-plugins.md)
+# change the output on purpose, in exactly these places and nothing else. expected() applies
+# them to the unchanged golden files; the observed output is never normalized for them.
+VERSION = "2.4.0"
 INTENTIONAL_CHANGES = {
     "report.collector.version": f"the collector version, {VERSION}",
     "report.collector.installed_version": f"{VERSION} when the golden file has one (the installed collector is this tree)",
     "report.collector.capabilities.instances": "added: true when the installed collector is 2.3.0 or newer",
+    "report.collector.capabilities.external_plugins": "added (phase 3): true when the installed collector is "
+                                                      "2.4.0 or newer",
     "report.providers[*].type": "added: the provider's canonical type, its id for a built-in",
     "doctor_json.stdout[*].type": "added: the same type on every doctor --json entry",
     # The stale-quota correction (tasks/phase-2/fix-stale-quota-reporting.md):
@@ -684,6 +686,7 @@ def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
             if collector["installed_version"] == "2.2.0":
                 collector["installed_version"] = VERSION
             collector["capabilities"]["instances"] = collector["installed_version"] is not None
+            collector["capabilities"]["external_plugins"] = collector["installed_version"] is not None
             for provider in report["providers"]:
                 provider["type"] = provider["id"]
         if result["op"] == "doctor_json" and result.get("return") == 0:

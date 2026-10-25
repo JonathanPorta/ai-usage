@@ -4,19 +4,20 @@
   "timezone": "America/Denver",
   "today": "2026-09-29",
   "collector": {
-    "version": "2.3.0",
+    "version": "2.4.0",
     "config_path": "/sandbox/config.json",
     "usage_csv": "/sandbox/data/usage.csv",
     "log_file": "/sandbox/data/collector.log",
     "interval_seconds": 3600,
     "csv_rows": 9259,
-    "installed_version": "2.3.0",
+    "installed_version": "2.4.0",
     "capabilities": {
       "pause": true,
       "progress": true,
       "service_control": true,
       "settings": true,
-      "instances": true
+      "instances": true,
+      "external_plugins": true
     }
   },
   "thresholds": {

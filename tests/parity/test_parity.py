@@ -75,6 +75,7 @@ class ParityTests(unittest.TestCase):
             "csv[claude].usage_source_age_seconds",
             "doctor_json.stdout[*].type",
             "once.stdout.appended_rows",
+            "report.collector.capabilities.external_plugins",
             "report.collector.capabilities.instances",
             "report.collector.csv_rows",
             "report.collector.installed_version",
@@ -89,6 +90,7 @@ class ParityTests(unittest.TestCase):
         report = next(r for r in expected["results"] if r["op"] == "report")["report"]
         self.assertEqual([p["type"] for p in report["providers"]], [p["id"] for p in report["providers"]])
         self.assertIs(report["collector"]["capabilities"]["instances"], True)
+        self.assertIs(report["collector"]["capabilities"]["external_plugins"], True)
         doctor = json.loads(next(r for r in expected["results"] if r["op"] == "doctor_json")["stdout"])
         self.assertEqual({key: entry["type"] for key, entry in doctor.items()}, {key: key for key in doctor})
 
