@@ -289,13 +289,16 @@ What the collector does guards against **mistakes and faults**, not hostile code
 | --- | --- |
 | `executable` | A relative path inside the folder; no `..`, no absolute path |
 | `timeout_seconds` | 1–120, default 30. `providers.<id>.timeout_seconds` may lower it, never raise it |
-| `default_settings` | A flat object of JSON scalars, sent under the owner's `providers.<id>` values. It may not contain `enabled`, `timeout_seconds` or `monthly_subscription_usd`, so a manifest can never turn execution on |
+| `default_settings` | A flat object of JSON scalars, sent under the owner's `providers.<id>` values. It may not contain `enabled`, `timeout_seconds` or `monthly_subscription_usd`, so a manifest can never turn execution on. An integer must be within ±2^53 |
 | `report.usage` | `daily_total` (per-day totals, shown like Codex's), `events` (input/output events, shown like Claude's), or `none` |
 | `report.quota` | `used` (percent used, like Claude Code and Grok), `remaining` (percent remaining, like Antigravity), or `none` |
-| `report.sources` | 1–4 sources: `id` (`^[a-z][a-z0-9_]{0,31}$`), `role` (`usage` or `quota`), `label`, `kind`, and a unique `csv_source`. A usage or quota profile other than `none` needs a source of that role |
+| `report.sources` | 1–4 sources: `id` (`^[a-z][a-z0-9_]{0,31}$`), `role` (`usage` or `quota`), `label`, `kind`, and a unique `csv_source`. A usage or quota profile other than `none` needs a source of that role. Each quota source keeps its own status: one source failing never makes another's windows stale. When two quota sources report the same `scope`, the windows' ids become `<source id>-<scope>` |
 
 Unknown keys are refused at every level, so a newer manifest fails clearly
-instead of being half-read.
+instead of being half-read. Every string must be valid Unicode (a lone surrogate escape such as
+`\ud800` is refused). A folder named for a built-in provider or an added account is invalid,
+is listed under `other_folders`, and never becomes a second account with that id. Any
+unexpected error while checking a folder makes only that folder invalid.
 
 ### Protocol 1
 
@@ -334,7 +337,7 @@ never passes credentials to it.
 | Row kind | Keys | Rules | Written as |
 | --- | --- | --- | --- |
 | Daily total (`usage: daily_total`) | `category: "usage"`, `metric: "daily_tokens"`, `period_start`, `value`, `source` | `period_start` is the Mac's local date the total covers, at most one day ahead. `value` ≥ 0. A later row for the same date replaces it | `period_total`, `scope` = the date, `unit: tokens`, `collected_at` = the poll time |
-| Event (`usage: events`) | `category: "usage"`, `metric` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`), `at`, `value`, `source`, optional `scope` | `at` is the UTC event time (`…Z`), at most 120 s after the poll. Events are **summed**: report each once, using `state` as the checkpoint. A `scope` of `<key>:<model>` adds the model to "models today" | `event_total`, `collected_at` = `at` |
+| Event (`usage: events`) | `category: "usage"`, `metric` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`), `at`, `value`, `source`, optional `scope` | `at` is the UTC event time (`…Z`), at most 120 s after the poll. Events are **summed**: report each once, using `state` as the checkpoint. A `scope` of `<key>:<model>` adds the model to "models today" | `event_total`, `collected_at` = `at`. The source's read is the poll: a successful run marks it read even with no new events |
 | Quota window (`quota: used` or `remaining`) | `category: "quota"`, `metric`, `scope`, `value`, `source`, optional `window_seconds`, `resets_at` | `metric` is `used_percent` for `used` and `remaining_percent` for `remaining`; the other one is refused, so a percent used can't show as remaining. `value` 0–100. 18000 s shows as "5-hour", 604800 s as "Weekly" | `snapshot`, `unit: percent`, measured at the poll time |
 | Not found | `category: "availability"`, `metric: "detected"`, `value: false`, `message` | The plugin found nothing to read | `status: missing` |
 | Source error | `category: "collection"`, `metric: "plugin_error"`, `source`, `message` | That source failed, or needs sign-in when the message says so | `metric: <source id>_error`, `status: error` |
@@ -342,6 +345,9 @@ never passes credentials to it.
 - A row may contain only its kind's keys; `provider`, `collected_at`, `record_kind`, `unit`
   and `status` are the collector's. `source` must be a declared `csv_source` of the row's role.
 - `message` is at most 500 characters, with no control characters. At most 2,000 rows.
+- Numbers are finite, and integers within ±2^53. Every string, in rows and in `state`, keys
+  included, must be valid Unicode: a lone surrogate escape (`\ud800`) fails the run
+  (`returned a string that is not valid Unicode`) before anything is written.
 - `state` is optional, a JSON object of at most 256 KiB. It is kept in
   `state["instances"][<id>]` and sent back on the next poll; without it the state is kept.
 - A successful run with no availability row also gets one `availability/detected` row

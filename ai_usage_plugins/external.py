@@ -45,6 +45,8 @@ MAX_ROWS = 2000
 MAX_SOURCES = 4
 MESSAGE_MAX = 500
 TEXT_MAX = 256
+# The largest integer a number field may hold: beyond it, float conversion overflows.
+INTEGER_MAX = 2 ** 53
 LABEL_MAX = 64
 TIMEOUT_DEFAULT = 30
 TIMEOUT_MAX = 120
@@ -94,6 +96,16 @@ def has_control_characters(text: str) -> bool:
     return any(unicodedata.category(character) == "Cc" for character in text)
 
 
+def encodes_as_utf8(value: Any) -> bool:
+    """False when a decoded JSON value holds a lone surrogate (an escape such as \\ud800),
+    which no UTF-8 file can store."""
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 # --------------------------------------------------------------------------- discovery
 
 @dataclass(frozen=True)
@@ -115,9 +127,13 @@ class Discovery:
     plugins: dict[str, ExternalPlugin]
     # Folder name -> reason. "plugins" itself is keyed "" when the folder can't be used.
     invalid: dict[str, str]
+    # Built-in and added-account ids: a folder with one of these names is invalid and is
+    # never a plugin id, so it can't add a second account under an existing id.
+    reserved: frozenset[str] = frozenset()
 
     def ids(self) -> list[str]:
-        return sorted(set(self.plugins) | {name for name in self.invalid if ID_PATTERN.match(name)},
+        return sorted(set(self.plugins) | {name for name in self.invalid
+                                           if ID_PATTERN.match(name) and name not in self.reserved},
                       key=lambda name: name.encode("utf-8"))
 
 
@@ -185,19 +201,20 @@ def discover(reserved: set[str], root: Optional[Path] = None, checker: Optional[
     checker = checker or Checker()
     plugins: dict[str, ExternalPlugin] = {}
     invalid: dict[str, str] = {}
+    held = frozenset(reserved)
     try:
         checker.lstat(root)
     except FileNotFoundError:
-        return Discovery(plugins, invalid)
+        return Discovery(plugins, invalid, held)
     except OSError as error:
-        return Discovery(plugins, {"": f"plugins can't be read ({errno_name(error)})"})
+        return Discovery(plugins, {"": f"plugins can't be read ({errno_name(error)})"}, held)
     try:
         checker.owner_only(root, "plugins", "directory", "0700")
         names = os.listdir(root)
     except ManifestError as error:
-        return Discovery(plugins, {"": str(error)})
+        return Discovery(plugins, {"": str(error)}, held)
     except OSError as error:
-        return Discovery(plugins, {"": f"plugins can't be listed ({errno_name(error)})"})
+        return Discovery(plugins, {"": f"plugins can't be listed ({errno_name(error)})"}, held)
     for name in sorted(names, key=lambda value: value.encode("utf-8", "surrogateescape")):
         if name.startswith("."):
             continue
@@ -207,7 +224,9 @@ def discover(reserved: set[str], root: Optional[Path] = None, checker: Optional[
             invalid[name] = str(error)
         except OSError as error:  # a file changed or vanished while it was checked
             invalid[name] = f"plugins/{name} changed while it was checked ({errno_name(error)})"
-    return Discovery(plugins, invalid)
+        except Exception as error:  # a checker bug: one folder can't stop collection
+            invalid[name] = f"plugins/{name} could not be checked ({type(error).__name__})"
+    return Discovery(plugins, invalid, held)
 
 
 def load_plugin(root: Path, name: str, reserved: set[str], checker: Checker) -> ExternalPlugin:
@@ -268,11 +287,14 @@ def read_manifest(path: Path, label: str) -> Any:
     except UnicodeDecodeError:
         raise ManifestError(f"{label} is not UTF-8") from None
     try:
-        return json.loads(text, parse_constant=reject_constant)
+        manifest = json.loads(text, parse_constant=reject_constant)
     except json.JSONDecodeError as error:
         raise ManifestError(f"{label} is not valid JSON at line {error.lineno} column {error.colno}") from None
     except (ValueError, RecursionError):
         raise ManifestError(f"{label} is not valid JSON") from None
+    if not encodes_as_utf8(manifest):
+        raise ManifestError(f"{label} holds a string that is not valid Unicode")
+    return manifest
 
 
 def reject_constant(_name: str) -> Any:
@@ -284,8 +306,12 @@ def is_int(value: Any) -> bool:
 
 
 def is_number(value: Any) -> bool:
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value))
+    """A finite JSON number, with integers no larger than INTEGER_MAX (never raises)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return -INTEGER_MAX <= value <= INTEGER_MAX
+    return isinstance(value, float) and math.isfinite(value)
 
 
 def text_field(container: Mapping[str, Any], key: str, where: str, maximum: int) -> str:
@@ -368,9 +394,12 @@ def validate_manifest(manifest: Any, name: str, label: str) -> dict[str, Any]:
             raise ManifestError(f"{at}.role has no profile: report.{role} is none")
         seen_ids.add(source_id)
         seen_csv.add(csv_source)
+        # Event rows carry their event time, so they never count as a check's rows: an
+        # event source's read succeeds when the plugin reports no error for it.
         definitions.append(SourceDef(
             source_id, role, text_field(source, "label", at, LABEL_MAX), text_field(source, "kind", at, 128),
-            [csv_source], needs_rows=True, error_metrics=[f"{source_id}_error", "unexpected_error"]))
+            [csv_source], needs_rows=not (role == "usage" and usage == "events"),
+            error_metrics=[f"{source_id}_error", "unexpected_error"]))
     for role, profile in (("usage", usage), ("quota", quota)):
         if profile != "none" and not any(source.role == role for source in definitions):
             raise ManifestError(f"{where}.sources needs a {role} source for report.{role}")
@@ -566,6 +595,9 @@ def parse_response(data: bytes) -> Any:
         raise PluginFailure("returned invalid JSON") from None
     if text[end:].strip():
         raise PluginFailure("returned more than one JSON value")
+    if not encodes_as_utf8(value):
+        # A lone surrogate would break the CSV and the state file after the journal is written.
+        raise PluginFailure("returned a string that is not valid Unicode")
     return value
 
 

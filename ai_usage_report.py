@@ -633,8 +633,14 @@ def early_resets(ordered: list[dict[str, Any]], window_seconds: Optional[float],
 def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tuple[str, str], float], *,
                   now: float, stale_after: float) -> list[dict[str, Any]]:
     definition = state.definition
-    quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
-    groups: dict[str, list[Row]] = {}
+    quota_sources = [s for s in state.sources.values() if s.definition.role in ("quota", "both")]
+    first_quota_source = quota_sources[0] if quota_sources else None
+
+    def source_of(row: Row) -> Optional[SourceState]:
+        # A local plugin can declare several quota sources: each window follows its own.
+        return next((s for s in quota_sources if row.source in s.definition.csv_sources), first_quota_source)
+
+    groups: dict[tuple[Optional[str], str], list[Row]] = {}
     for row in rows:
         if definition.quota_basis is not None and row.metric != f"{definition.quota_basis}_percent":
             continue
@@ -644,9 +650,12 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
             continue
         if definition.type == "antigravity" and row.metric != "remaining_percent":
             continue
-        groups.setdefault(row.scope, []).append(row)
+        owner = source_of(row)
+        groups.setdefault((owner.definition.id if owner else None, row.scope), []).append(row)
+    shared_scopes = {scope for scope in {key[1] for key in groups} if sum(key[1] == scope for key in groups) > 1}
     windows: list[dict[str, Any]] = []
-    for scope, group in groups.items():
+    for (owner_id, scope), group in groups.items():
+        quota_source = state.sources[owner_id] if owner_id is not None else None
         window_seconds = next((number(r.window) for r in reversed(group) if number(r.window)), None)
         label, short, ranges = window_identity(definition.type, scope, window_seconds)
         derived = definition.type == "codex"
@@ -733,7 +742,7 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
             elif remaining <= LOW_REMAINING_PERCENT:
                 limit = "low"
         windows.append({
-            "id": scope or "default",
+            "id": (f"{owner_id}-{scope}" if scope in shared_scopes else scope) or "default",
             "label": label,
             "short": short,
             "basis": basis,
@@ -761,11 +770,12 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
 
 
 def quota_summary(definition: ProviderDef, state: ProviderState, windows: list[dict[str, Any]]) -> dict[str, Any]:
-    quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
+    read_at = [s.last_read_at for s in state.sources.values()
+               if s.definition.role in ("quota", "both") and s.last_read_at is not None]
     active = [w for w in windows if not w["retired"]]
     summary: dict[str, Any] = {
         "status": "none", "stale_cause": None, "measured_at": None,
-        "collected_at": iso(quota_source.last_read_at) if quota_source else None,
+        "collected_at": iso(max(read_at)) if read_at else None,
         "note": definition.quota_note, "windows": windows,
     }
     if definition.quota == "unsupported":

@@ -120,6 +120,9 @@ enum SnapshotRenderer {
             return copy
         }
         try shoot("popover-overview-local-plugin", width, nil, store(local), AnyView(PopoverRoot(screenHeight: 1200)))
+        // The whole list, down to the Example card that the capped popover scrolls to.
+        try shoot("popover-overview-local-plugin-full", width, nil, store(local),
+                  AnyView(PopoverRoot(screenHeight: 2400, uncapped: true)))
         try shoot("detail-example-tokens", width, nil, store(local),
                   AnyView(PopoverRoot(initialScreen: .detail("example"), screenHeight: 1000)))
         try shoot("detail-example-quota", width, nil, store(local),

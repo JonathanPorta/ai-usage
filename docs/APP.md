@@ -117,7 +117,8 @@ writes PNGs of these screens in light and dark, then exits:
 - the overview at 420 pt, and in a 700 pt-tall screen;
 - every provider detail, in Tokens and Quota;
 - History in Tokens and Quota;
-- from the synthetic local-plugin fixture: the overview, the plugin's detail, and Settings
+- from the synthetic local-plugin fixture: the overview (as the popover shows it, and the whole
+  list with its height cap lifted, down to the plugin's card), the plugin's detail, and Settings
   when it is on, not turned on yet, and with a collector that predates local plugins.
 
 It needs no screen-recording permission. `--live` renders the live report

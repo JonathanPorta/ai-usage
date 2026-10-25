@@ -1277,6 +1277,159 @@ class TrustStatementTests(unittest.TestCase):
                 self.assertIn(self.STATEMENT, self.plain(text))
 
 
+class ReviewedDefectTests(unittest.TestCase):
+    """Regressions for the five defects the separate review reproduced at b45d338."""
+
+    def setUp(self) -> None:
+        self.box = Box(self)
+
+    def plugin_list(self) -> dict[str, Any]:
+        result = self.box.cli("plugin", "list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_a_lone_surrogate_is_refused_and_never_poisons_the_csv_or_the_journal(self) -> None:
+        # "\\ud800" is a valid JSON escape that no UTF-8 file can store.
+        surrogate = "\\ud800"
+        cases = {
+            "message": f'{{"protocol": 1, "rows": [{{"category": "collection", "metric": "plugin_error", '
+                       f'"source": "example-limits", "message": "{surrogate}"}}]}}',
+            "state": f'{{"protocol": 1, "rows": [], "state": {{"cursor": "{surrogate}"}}}}',
+            "key": f'{{"protocol": 1, "rows": [], "state": {{"{surrogate}": 1}}}}',
+        }
+        for case, response in cases.items():
+            with self.subTest(case):
+                box = Box(self)
+                box.plugin("example", defaults={"response": response})
+                box.enable("example")
+                result = box.once()
+                # 2: the poll completed and recorded an error row (1 would be a crash).
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(Path(box.paths["state_file"] + ".pending").exists())
+                self.assertEqual([r["message"] for r in failure_rows(box.last_poll("example"))],
+                                 ["returned a string that is not valid Unicode"])
+                self.assertEqual(box.state().get("instances", {}).get("example", {}), {})
+                # Turned off, the next poll writes its marker and nothing is left to recover.
+                self.assertEqual(box.cli("plugin", "disable", "example").returncode, 0)
+                result = box.once()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([(r["metric"], r["status"]) for r in box.last_poll("example")],
+                                 [("enabled", "disabled")])
+
+    def test_an_oversized_integer_in_an_unconfigured_manifest_fails_only_that_folder(self) -> None:
+        self.box.plugin("big", defaults={"limit": 10 ** 400})
+        self.box.plugin("example", defaults={"response": json.dumps({"protocol": 1, "rows": [daily(7)]})})
+        self.box.enable("example")
+        result = self.box.once()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["value"] for r in self.box.last_poll("example") if r["category"] == "usage"], ["7"])
+        self.assertFalse(self.box.rows("big"))
+        listed = {entry["id"]: entry for entry in self.plugin_list()["plugins"]}
+        self.assertEqual(listed["big"]["status"], "invalid")
+        self.assertIn("default_settings values must be", listed["big"]["reason"])
+        # The same bound holds for a price in the owner's config: refused, not an overflow.
+        self.box.enable("example", monthly_subscription_usd=10 ** 400)
+        result = self.box.once()
+        self.assertNotIn("OverflowError", result.stderr)
+        self.assertIn("monthly_subscription_usd must be a non-negative number", result.stderr)
+
+    def test_a_folder_named_for_a_built_in_is_refused_and_never_becomes_a_second_account(self) -> None:
+        self.box.plugin("claude", defaults={"response": json.dumps({"protocol": 1, "rows": [daily(1, source="claude-usage")]})})
+        self.box.plugin("example", defaults={"response": json.dumps({"protocol": 1, "rows": [daily(7)]})})
+        self.box.enable("example")
+        result = self.box.once()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([(r["metric"], r["status"]) for r in self.box.last_poll("claude")],
+                         [("enabled", "disabled")])
+        self.assertFalse(self.box.runs("claude"))
+        self.assertEqual([r["value"] for r in self.box.last_poll("example") if r["category"] == "usage"], ["7"])
+        report = self.box.report()
+        claude = [p for p in report["providers"] if p["id"] == "claude"]
+        self.assertEqual(len(claude), 1)
+        self.assertNotIn("external", claude[0])
+        self.assertIn("a built-in provider's", report["collector"]["plugin_errors"]["plugins/claude"])
+        listed = self.plugin_list()
+        self.assertNotIn("claude", [entry["id"] for entry in listed["plugins"]])
+        self.assertIn("claude", listed["other_folders"])
+        self.assertNotIn("external", json.loads(self.box.cli("doctor", "--json").stdout)["claude"])
+
+    def test_collected_events_make_the_usage_source_current(self) -> None:
+        body = textwrap.dedent("""\
+            import json, sys, time
+            request = json.load(sys.stdin)
+            polls = request["state"].get("polls", 0)
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
+            batches = [(100, 50), (10, 5)]
+            rows = []
+            if polls < len(batches):
+                tokens_in, tokens_out = batches[polls]
+                rows += [{"category": "usage", "metric": "input_tokens", "at": now, "value": tokens_in,
+                          "source": "events-usage", "scope": f"e{polls}"},
+                         {"category": "usage", "metric": "output_tokens", "at": now, "value": tokens_out,
+                          "source": "events-usage", "scope": f"e{polls}"}]
+            print(json.dumps({"protocol": 1, "rows": rows, "state": {"polls": polls + 1}}))
+            """)
+        self.box.plugin("events", body, usage="events", quota="none")
+        self.box.enable("events")
+        # The third poll has no new events: a read that found nothing new is still a read.
+        for _ in range(3):
+            self.assertEqual(self.box.once().returncode, 0)
+        provider = self.box.provider(self.box.report(), "events")
+        self.assertEqual((provider["today"]["input"], provider["today"]["output"]), (110, 55))
+        usage = provider["usage"]
+        self.assertEqual((usage["status"], usage["stale_cause"]), ("current", None))
+        self.assertIsNotNone(usage["collected_at"])
+        self.assertIsNotNone(usage["measured_at"])
+        source = provider["sources"][0]
+        self.assertEqual(source["status"], "ok")
+        self.assertIsNotNone(source["last_read_at"])
+        self.assertIsNotNone(source["measured_at"])
+        today = next(day for day in provider["days"] if day["date"] == local_today().isoformat())
+        self.assertNotEqual(today["state"], "not_collected")
+
+    def test_an_event_source_error_still_fails_the_source(self) -> None:
+        response = json.dumps({"protocol": 1, "rows": [
+            {"category": "collection", "metric": "plugin_error", "source": "events-usage", "message": "offline"}]})
+        self.box.plugin("events", usage="events", quota="none", defaults={"response": response})
+        self.box.enable("events")
+        self.box.once()
+        provider = self.box.provider(self.box.report(), "events")
+        self.assertEqual((provider["sources"][0]["status"], provider["sources"][0]["error"]), ("failed", "offline"))
+
+    def test_each_quota_source_keeps_its_own_window_status(self) -> None:
+        def second(manifest: dict[str, Any]) -> None:
+            manifest["report"]["sources"].append({"id": "backup", "role": "quota", "label": "Backup limits",
+                                                  "kind": "Synthetic API", "csv_source": "two-backup"})
+
+        def respond(rows: list[dict[str, Any]]) -> None:
+            config = self.box.raw_config()
+            config["providers"]["two"]["response"] = json.dumps({"protocol": 1, "rows": rows})
+            self.box.config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        limits_error = {"category": "collection", "metric": "plugin_error", "source": "two-limits",
+                        "message": "upstream unavailable"}
+        self.box.plugin("two", usage="none", quota="used", edit=second)
+        self.box.enable("two")
+        # A failed first source next to a second source's fresh reading, in distinct windows.
+        respond([limits_error, quota_row(25, scope="daily", source="two-backup", window=86400)])
+        self.assertEqual(self.box.once().returncode, 2)
+        provider = self.box.provider(self.box.report(), "two")
+        self.assertEqual({s["id"]: s["status"] for s in provider["sources"]}, {"limits": "failed", "backup": "ok"})
+        windows = {w["id"]: w for w in provider["quota"]["windows"]}
+        self.assertEqual((windows["daily"]["percent"], windows["daily"]["status"], windows["daily"]["stale_cause"]),
+                         (25, "current", None))
+        # Both sources reporting the same window id, then the first failing: two windows, each its own.
+        respond([quota_row(40, source="two-limits"), quota_row(20, source="two-backup")])
+        self.assertEqual(self.box.once().returncode, 0)
+        respond([limits_error, quota_row(25, source="two-backup")])
+        self.assertEqual(self.box.once().returncode, 2)
+        provider = self.box.provider(self.box.report(), "two")
+        windows = {w["id"]: w for w in provider["quota"]["windows"]}
+        self.assertEqual((windows["backup-weekly"]["percent"], windows["backup-weekly"]["status"]), (25, "current"))
+        self.assertEqual((windows["limits-weekly"]["percent"], windows["limits-weekly"]["status"],
+                          windows["limits-weekly"]["stale_cause"]), (40, "stale", "failed"))
+
+
 class InProcessDiscoveryTests(unittest.TestCase):
     """The collector scans on every poll: a folder added between polls is collected
     by the next one in the same process (what the daemon does each cycle)."""
