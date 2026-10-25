@@ -46,7 +46,7 @@ into both scenes with `.environment(store)`.
 | Report unavailable (interpreter or config missing, unsupported schema) | `store.phase == .failed(…)` | A red notice with the exact reason and the command to fix it. Cached data stays visible if any exists. |
 | Healthy | Report statuses are all current | One quiet status line: "✓ Monitoring · Checked 2 min ago · next in 58 min" |
 | Collecting (Collect now in flight) | `store.collect == .running` | Status row "Checking providers…", a *Checking* tag on enabled cards, and Collect now disabled. Per-provider progress is a proposed capability and is not shown. |
-| Collect result | `store.lastCollectOutcome` | "Check complete", "Check partly complete" or "Check failed", with counts and skipped providers, until the next refresh |
+| Collect result | `store.lastCollectOutcome` | "Check complete", "Check partly complete" or "Check failed", with counts and skipped providers, until it is dismissed or a later check (such as the scheduled one) is in the report; it never hides that later check's problems |
 | Partial failure | Report `failures[]` and source status `failed` | The card keeps its cached values. A red source notice offers "Details" (opens provider detail with Sources expanded). |
 | Stale usage or quota window | Window and usage `status: stale` | Amber clock symbol plus the reading's age ("No reading since 08:38") |
 | Mixed quota freshness | `quota.status: mixed` | Card caption "Quota freshness mixed"; each cell carries its own state |

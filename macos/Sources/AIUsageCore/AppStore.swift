@@ -365,6 +365,12 @@ public final class AppStore {
 
     func apply(_ newReport: Report, cached: Bool) {
         snapshot = newReport
+        // A Collect now result describes one check. Once a later check (the scheduled one) is
+        // in the report, the result gives way, so it can never hide that check's problems.
+        if case let .finished(run) = collect, let latest = newReport.collection.lastAttemptAt,
+           latest > run.finishedAt {
+            collect = .idle
+        }
         isCachedReport = cached
         phase = .ready
         revision += 1
