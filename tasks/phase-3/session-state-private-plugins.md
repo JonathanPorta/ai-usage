@@ -41,6 +41,16 @@ until the owner performs it on the work laptop.**
    an empty folder for each module, and `ai_usage_fixtures.fixture_report` sets `HOME` to its
    sandbox while it builds.
 
+### Independent review of #23 (2026-10-24, at `f82cd8f`): changes requested, both fixed
+- **F1 (blocking):** a symlinked plugin under a folder others could write (non-sticky 0777)
+  could be swapped between discovery and launch. Discovery now refuses any folder on the
+  resolved paths of `plugin.json` and the executable that isn't root's or the uid's, or that
+  is group- or other-writable without the sticky bit. Test: a swap under a 0777 parent never
+  runs; a sticky 1777 parent is accepted.
+- **F2 (important):** a file vanishing between discovery's checks raised out of collection.
+  `discover` now turns any `OSError` into that plugin's invalid state. Test: the providers
+  before and after it collect normally.
+
 ### Phase-gate audit (rule 13), 2026-10-24
 - Rules: no LLM attribution (09); branch and PR conventions (10); Makefile surface (07); the
   PRD's ACs are unchanged and are referenced by number in the tests and the PR.

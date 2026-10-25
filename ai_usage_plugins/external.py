@@ -164,6 +164,20 @@ class Checker:
             raise ManifestError(
                 f"{where} must be owner-only ({needed}); it has group or other permissions")
 
+    def protected_ancestors(self, resolved: Path, label: str) -> None:
+        """Refuse `resolved` (a symlink-free path) unless no other user can rename or replace
+        any folder above it: each must be root's or the uid's, and not writable by group or
+        others unless it is sticky (as /tmp is), where others can't move what they don't own."""
+        for folder in reversed(resolved.parents):
+            try:
+                info = self.stat(folder)
+            except OSError as error:
+                raise ManifestError(f"{label}: {folder} can't be read ({errno_name(error)})") from None
+            if info.st_uid not in (0, self.uid):
+                raise ManifestError(f"{label}: {folder} is owned by another user")
+            if stat.S_IMODE(info.st_mode) & 0o022 and not info.st_mode & stat.S_ISVTX:
+                raise ManifestError(f"{label}: {folder} is writable by other users")
+
 
 def discover(reserved: set[str], root: Optional[Path] = None, checker: Optional[Checker] = None) -> Discovery:
     """Every plugin folder under `root`, valid or not. Runs nothing."""
@@ -191,6 +205,8 @@ def discover(reserved: set[str], root: Optional[Path] = None, checker: Optional[
             plugins[name] = load_plugin(root, name, reserved, checker)
         except ManifestError as error:
             invalid[name] = str(error)
+        except OSError as error:  # a file changed or vanished while it was checked
+            invalid[name] = f"plugins/{name} changed while it was checked ({errno_name(error)})"
     return Discovery(plugins, invalid)
 
 
@@ -204,6 +220,7 @@ def load_plugin(root: Path, name: str, reserved: set[str], checker: Checker) -> 
     checker.owner_only(directory, folder, "directory", "0700")
     manifest_path = directory / MANIFEST
     checker.owner_only(manifest_path, f"{folder}/{MANIFEST}", "file", "0600")
+    checker.protected_ancestors(manifest_path.resolve(strict=True), f"{folder}/{MANIFEST}")
     manifest = read_manifest(manifest_path, f"{folder}/{MANIFEST}")
     fields = validate_manifest(manifest, name, f"{folder}/{MANIFEST}")
     resolved_directory = directory.resolve()
@@ -224,6 +241,8 @@ def load_plugin(root: Path, name: str, reserved: set[str], checker: Checker) -> 
         raise ManifestError(f"{executable_label} resolves outside the plugin folder") from None
     if not stat.S_IMODE(checker.stat(candidate).st_mode) & stat.S_IXUSR:
         raise ManifestError(f"{executable_label} is not executable (it needs 0700)")
+    # The runner starts the resolved path: no other user may be able to swap any folder on it.
+    checker.protected_ancestors(resolved, executable_label)
     return ExternalPlugin(
         id=name,
         directory=resolved_directory,

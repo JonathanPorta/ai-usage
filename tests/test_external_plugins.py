@@ -437,6 +437,58 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("plugins/linked/plugin.json (its symlink target) must be owner-only (0600)",
                       self.discover().invalid["linked"])
 
+    def test_a_folder_others_can_write_above_a_linked_plugin_is_refused_and_a_swap_never_runs(self) -> None:
+        # Review F1: a symlinked plugin under a non-sticky 0777 folder could be swapped for
+        # another after discovery. Discovery refuses it, so neither copy ever runs.
+        shared = self.box.root / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        canary = self.box.root / "ran"
+        self.box.plugin("linked", f"open({str(canary)!r}, 'a').write('original\\n')\n")
+        shutil.move(str(self.box.plugins / "linked"), str(shared / "real"))
+        os.symlink(shared / "real", self.box.plugins / "linked")
+        found = self.discover()
+        self.assertEqual(found.invalid["linked"],
+                         f"plugins/linked/plugin.json: {shared} is writable by other users")
+        replacement = self.box.root / "replacement"
+        shutil.copytree(shared / "real", replacement)
+        (replacement / "collect").write_text(f"#!{sys.executable}\nopen({str(canary)!r}, 'a').write('swapped\\n')\n")
+        os.rename(shared / "real", self.box.root / "old")
+        os.rename(replacement, shared / "real")
+        self.box.enable("linked")
+        self.box.once()
+        self.assertFalse(canary.exists(), "neither the checked file nor its replacement may run")
+        self.assertIn("is writable by other users", failure_rows(self.box.rows("linked"))[0]["message"])
+        shared.chmod(0o1777)  # sticky, as /tmp: others can't move what they don't own
+        self.assertIn("linked", self.discover().plugins)
+
+    def test_a_file_vanishing_during_discovery_fails_only_that_plugin(self) -> None:
+        # Review F2: an executable removed between its checks is that plugin's problem only.
+        self.box.plugin("alpha", defaults={"response": json.dumps({"protocol": 1, "rows": [daily(1, source="alpha-usage")]})})
+        self.box.plugin("middle")
+        self.box.plugin("zulu", defaults={"response": json.dumps({"protocol": 1, "rows": [daily(2, source="zulu-usage")]})})
+        self.box.config({"alpha": {"enabled": True}, "middle": {"enabled": True}, "zulu": {"enabled": True}})
+        real_stat = os.stat
+        target = self.box.plugins / "middle" / "collect"
+
+        def vanishing(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+            # The owner check (lstat) passed; by the executable-bit check it is gone.
+            if Path(path) == target:
+                raise FileNotFoundError(2, "No such file or directory")
+            return real_stat(path, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, {"HOME": str(self.box.home)}):
+            import ai_usage_service as service
+
+            config = service.load_config(self.box.config_path)
+            with mock.patch.object(external.os, "stat", vanishing):
+                rows = service.collect_snapshot(config, include_history=False, state={})
+        by_provider = {row["provider"]: row for row in rows if row["category"] in ("usage", "collection")}
+        self.assertEqual(by_provider["alpha"]["value"], 1)
+        self.assertEqual(by_provider["zulu"]["value"], 2)
+        self.assertEqual(by_provider["middle"]["message"],
+                         "plugin is invalid: plugins/middle changed while it was checked (ENOENT)")
+
     def test_a_foreign_owner_is_refused_on_the_link_and_on_the_target(self) -> None:
         directory = self.box.plugin("example")
         link = self.box.plugins / "linked"

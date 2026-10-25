@@ -250,6 +250,12 @@ What the collector does guards against **mistakes and faults**, not hostile code
 - **Symlinks** are allowed for the plugin folder, `plugin.json` and the executable when the
   link itself is the uid's and its resolved target passes the same check. The resolved
   executable must lie inside the resolved plugin folder.
+- **No folder above them may be swapped by someone else:** every folder on the resolved paths
+  of `plugin.json` and the executable must be root's or the uid's, and not writable by group
+  or others unless it is sticky (as `/tmp` is). The runner starts that resolved path, so the
+  file it runs is the one that was checked.
+- A file that changes or vanishes while it is checked makes only that plugin invalid
+  ("changed while it was checked"); the poll goes on.
 - **Nothing is repaired:** a folder that fails is *invalid*, with a reason naming the path and
   the mode it needs. The collector never runs `chmod`, `chown` or any repair.
 - **Ids:** the folder name must match `^[a-z][a-z0-9_-]{0,31}$`, equal the manifest's `id`, and
