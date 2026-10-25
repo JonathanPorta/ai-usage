@@ -255,7 +255,7 @@ or installs third-party code. The project plan's phase-3 exit asks for three thi
     - `used`: windows are reported as percent used. Claude Code and Grok do this.
     - `remaining`: windows are reported as percent remaining. Antigravity does this.
     - `none`: quota is shown as unsupported.
-  - **`sources`:** one to four. Each has `id`, `role` (`usage` or `quota`), `label`, `kind` and
+  - **`sources`:** one to four. Each has `id` (`^[a-z][a-z0-9_]{0,31}$`), `role` (`usage` or `quota`), `label`, `kind` and
     a unique `csv_source` matching `^[a-z][a-z0-9-]{0,63}$`. A `usage` other than `none` needs
     one `usage` source, and a `quota` other than `none` needs one `quota` source.
   - `quota_note` is optional display text.
@@ -305,7 +305,7 @@ or installs third-party code. The project plan's phase-3 exit asks for three thi
   | Event (`usage: events`) | `category: "usage"`, `metric` (`input_tokens`, `output_tokens`, `cache_read_input_tokens` or `cache_creation_input_tokens`), `at`, `value`, `source`, optional `scope` | `at` is the event's UTC time (ISO 8601 with `Z`), no later than the poll time plus 120 s. `value` is a finite number ≥ 0. Event rows are **summed**, so a plugin must report each event once, using its `state` as the checkpoint. A `scope` of `<event key>:<model>` adds the model to "models today". | `record_kind: event_total`, `collected_at` = `at`, `period_start` = the date of `at`, `unit: tokens`, `status: ok` |
   | Quota window (`quota: used` or `remaining`) | `category: "quota"`, `metric`, `scope`, `value`, `source`, optional `window_seconds` and `resets_at` | `metric` must be `used_percent` for `quota: used` and `remaining_percent` for `quota: remaining`. The other one is refused, so a percent used can never display as a percent remaining. `scope` (`^[a-z0-9][a-z0-9_-]{0,63}$`) names the window. `value` is 0–100. `window_seconds` is a positive integer (18000 shows as "5-hour", 604800 as "Weekly"). `resets_at` is a UTC time. The reading counts as measured at the poll time. | `record_kind: snapshot`, `unit: percent`, `status: ok`, `collected_at` = the poll time |
   | Not found | `category: "availability"`, `metric: "detected"`, `value: false`, `message` | The plugin found nothing to read on this Mac. | `status: missing` |
-  | Source error | `category: "collection"`, `metric: "plugin_error"`, `source`, `message` | The plugin's own failure for one source. The report shows that source as failed, or as needing sign-in when the message says so. | `status: error` |
+  | Source error | `category: "collection"`, `metric: "plugin_error"`, `source`, `message` | The plugin's own failure for one source. The report shows that source, and only that source, as failed, or as needing sign-in when the message says so. | `metric: <source id>_error` (each source's own error metric, so one source's error doesn't fail the others), `status: error` |
 
   - `source` must be a declared `csv_source` whose `role` matches the row: `usage` rows to the
     usage source, `quota` rows to the quota source.
