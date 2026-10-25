@@ -263,7 +263,8 @@ public final class AppStore {
             run = CollectRun(outcome: .failed, message: message, finishedAt: clock())
         }
         await refresh()
-        collect = .finished(run)
+        // A check newer than this run may already be in the report the refresh read.
+        collect = Self.superseded(run, by: snapshot) ? .idle : .finished(run)
         return run
     }
 
@@ -363,14 +364,16 @@ public final class AppStore {
     /// the app uses it to plan notifications.
     public var onSnapshotChange: ((Report) -> Void)?
 
+    /// A Collect now result describes one check. Once a later check (the scheduled one) is
+    /// in the report, the result gives way, so it can never hide that check's problems.
+    static func superseded(_ run: CollectRun, by report: Report?) -> Bool {
+        guard let latest = report?.collection.lastAttemptAt else { return false }
+        return latest > run.finishedAt
+    }
+
     func apply(_ newReport: Report, cached: Bool) {
         snapshot = newReport
-        // A Collect now result describes one check. Once a later check (the scheduled one) is
-        // in the report, the result gives way, so it can never hide that check's problems.
-        if case let .finished(run) = collect, let latest = newReport.collection.lastAttemptAt,
-           latest > run.finishedAt {
-            collect = .idle
-        }
+        if case let .finished(run) = collect, Self.superseded(run, by: newReport) { collect = .idle }
         isCachedReport = cached
         phase = .ready
         revision += 1

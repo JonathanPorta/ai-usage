@@ -194,6 +194,21 @@ final class AppStoreTests: XCTestCase {
         XCTAssertFalse(Presentation.notices(try XCTUnwrap(store.report), now: store.now).isEmpty)
     }
 
+    /// The same, when the later check is already in the report Collect now's own refresh reads.
+    func testACheckNewerThanTheRunInItsOwnRefreshReplacesTheResult() async throws {
+        let base = try fixture()
+        var later = base
+        later.generatedAt = Date().addingTimeInterval(3600)
+        later.collection.lastAttemptAt = Date().addingTimeInterval(1800)
+        let store = AppStore(environment: environment(), reporter: SpyReporter([.success(base), .success(later)]),
+                             collector: SpyCollector())
+        await store.refresh()
+        let run = await store.collectNow()
+        XCTAssertEqual(run?.outcome, .complete)
+        if case .finished = store.collect { XCTFail("a check newer than the run must not be hidden by its result") }
+        XCTAssertFalse(Presentation.notices(try XCTUnwrap(store.report), now: store.now).isEmpty)
+    }
+
     func testOverlappingRefreshesCoalesceIntoOneFollowUpRun() async throws {
         let base = try fixture()
         let reporter = GatedReporter([bumped(base, minutes: 1), bumped(base, minutes: 2)])
