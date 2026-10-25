@@ -4,8 +4,9 @@ The collector reads each AI tool through a **provider plugin**. Phase 1 of the
 provider-plugin project (`tasks/project-plan.md`) moved the five built-in
 providers behind one interface and one registry. Their behavior did not change.
 Phase 2 added more than one instance of a provider: an added Claude account
-(see [Added accounts](#added-accounts-phase-2)). Phase 3 adds plugins that are
-not bundled; it doesn't exist yet.
+(see [Added accounts](#added-accounts-phase-2)). Phase 3 added local plugins
+that are not bundled: an executable plus a manifest in `~/.ai-usage/plugins/<id>/`
+(see [Local plugins](#local-plugins-phase-3)).
 
 ## Layout
 
@@ -14,6 +15,7 @@ ai_usage_plugins/
   __init__.py      the registry: BUNDLED, MODULES, load_plugins()
   base.py          the contract: ProviderPlugin, CollectContext, IntegrationSpec, ProviderDef, SourceDef
   support.py       helpers the collectors share (rows, paths, executable discovery, JSONL reading, process control)
+  external.py      local plugins (phase 3): discovery, permission checks, the manifest, the runner, response checks
   codex.py  claude.py  antigravity.py  gemini_cli.py  grok.py
 ```
 
@@ -205,9 +207,211 @@ It applies them to the golden side, and compares everything else exactly.
 Data written by the phase-1 squash commit (`tests/parity/PHASE1`) carries
 forward.
 
-## External plugins: phase 3, not implemented
+## Local plugins (phase 3)
 
-Plugins that are not bundled are not supported. That includes private
-plugins in `~/.ai-usage/plugins/<name>/`, an executable with a JSON manifest,
-and its stdout protocol. Nothing discovers, loads or installs third-party
-code. Phase 3 defines that protocol and its isolation.
+A **local plugin** is a private collector the owner drops into
+`~/.ai-usage/plugins/<id>/`: an executable plus a `plugin.json` manifest. It
+needs no change to this repository and no rebuild. It is never bundled,
+installed, uploaded or committed: the work laptop's plugin, its credentials,
+configuration and logs stay on that laptop. This repository holds the contract
+and synthetic test plugins only.
+
+### Trust model
+
+**A local plugin is trusted local code.** It runs as the owner's user, with the
+owner's permissions, the same as the collector itself. It can read and write
+anything the owner can.
+
+What the collector does guards against **mistakes and faults**, not hostile code:
+- the timeout, the output limits and the process-group cleanup keep a faulty plugin from
+  stalling the poll or leaving processes behind;
+- response validation keeps a buggy plugin from writing malformed rows or another provider's
+  data;
+- the owner-only permission checks catch a plugin folder that another user could read or
+  change.
+
+**None of this is a security sandbox.** A plugin is not confined by file-system, network or process restrictions. It can read files, open connections, spawn processes that escape its process group (for example with `setsid`), or change `~/.ai-usage` directly. Install only plugins you wrote or trust as much as the collector.
+
+### Folder, permissions and discovery
+
+```text
+~/.ai-usage/plugins/          0700
+  example/                    0700   the folder name is the plugin id (and its type)
+    plugin.json               0600   the manifest
+    collect                   0700   the executable the manifest names (any language, with a shebang)
+```
+
+- **Discovery** runs at the start of every poll, and whenever `doctor`, `plugin list` or the
+  report runs, so a new or changed plugin needs no daemon restart. It reads manifests and
+  stats files and **never runs a plugin**.
+- **Owner-only:** `plugins/`, each plugin folder and any folder on the way to the executable
+  must be the collector's uid's, with no group or other permission bits. `plugin.json` and the
+  executable must be regular files that are the uid's, with none either.
+- **Symlinks** are allowed for the plugin folder, `plugin.json` and the executable when the
+  link itself is the uid's and its resolved target passes the same check. The resolved
+  executable must lie inside the resolved plugin folder.
+- **No folder above them may be swapped by someone else:** every folder on the resolved paths
+  of `plugin.json` and the executable must be root's or the uid's, and not writable by group
+  or others unless it is sticky (as `/tmp` is). The runner starts that resolved path, so the
+  file it runs is the one that was checked.
+- A file that changes or vanishes while it is checked makes only that plugin invalid
+  ("changed while it was checked"); the poll goes on.
+- **Nothing is repaired:** a folder that fails is *invalid*, with a reason naming the path and
+  the mode it needs. The collector never runs `chmod`, `chown` or any repair.
+- **Ids:** the folder name must match `^[a-z][a-z0-9_-]{0,31}$`, equal the manifest's `id`, and
+  not be a built-in's or an added account's id.
+
+### Manifest (`plugin.json`, at most 64 KiB)
+
+```json
+{
+  "manifest_version": 1,
+  "protocol": 1,
+  "id": "example",
+  "executable": "collect",
+  "timeout_seconds": 30,
+  "default_settings": {"region": "eu"},
+  "report": {
+    "name": "Example",
+    "product": "Example Tool",
+    "usage": "daily_total",
+    "quota": "used",
+    "quota_note": null,
+    "sources": [
+      {"id": "usage", "role": "usage", "label": "Daily usage", "kind": "Example API, read-only", "csv_source": "example-usage"},
+      {"id": "limits", "role": "quota", "label": "Limits", "kind": "Example API, read-only", "csv_source": "example-limits"}
+    ]
+  }
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `executable` | A relative path inside the folder; no `..`, no absolute path |
+| `timeout_seconds` | 1–120, default 30. `providers.<id>.timeout_seconds` may lower it, never raise it |
+| `default_settings` | A flat object of JSON scalars, sent under the owner's `providers.<id>` values. It may not contain `enabled`, `timeout_seconds` or `monthly_subscription_usd`, so a manifest can never turn execution on. An integer must be within ±2^53 |
+| `report.usage` | `daily_total` (per-day totals, shown like Codex's), `events` (input/output events, shown like Claude's), or `none` |
+| `report.quota` | `used` (percent used, like Claude Code and Grok), `remaining` (percent remaining, like Antigravity), or `none` |
+| `report.sources` | 1–4 sources: `id` (`^[a-z][a-z0-9_]{0,31}$`), `role` (`usage` or `quota`), `label`, `kind`, and a unique `csv_source`. A usage or quota profile other than `none` needs a source of that role. Each quota source keeps its own status: one source failing never makes another's windows stale. When two quota sources report the same `scope`, the windows' ids become `<source id>-<scope>` |
+
+Unknown keys are refused at every level, so a newer manifest fails clearly
+instead of being half-read. Every string must be valid Unicode (a lone surrogate escape such as
+`\ud800` is refused). A folder named for a built-in provider or an added account is invalid,
+is listed under `other_folders`, and never becomes a second account with that id. Any
+unexpected error while checking a folder makes only that folder invalid.
+
+### Protocol 1
+
+The collector runs `<folder>/<executable> collect` in its own process group,
+with the plugin folder as its working directory, writes one JSON request to its
+stdin and reads one JSON object from its stdout.
+
+**Request:**
+```json
+{"protocol": 1, "collector_version": "2.4.0", "provider": "example",
+ "collected_at": "2026-10-23T12:00:00Z", "include_history": false,
+ "settings": {"region": "eu", "timeout_seconds": 30}, "state": {}}
+```
+
+**Environment:** only these variables, never the collector's whole environment:
+- `PATH`: the collector's executable-discovery folders, without the environment's own `PATH`;
+- `AI_USAGE_PLUGIN_DIR` (the resolved plugin folder) and `AI_USAGE_PROTOCOL=1`;
+- `HOME`, `USER`, `LOGNAME`, `TMPDIR` and `LANG`, copied when set. **These can differ between a
+  shell run (`once`) and the launchd service**, which has its own `TMPDIR` and usually no
+  `LANG`. A plugin must not depend on any other variable.
+
+A plugin reads its own credentials from wherever it keeps them. The collector
+never passes credentials to it.
+
+**Response:** exactly one JSON object, optionally followed by whitespace:
+```json
+{"protocol": 1,
+ "rows": [
+   {"category": "usage", "metric": "daily_tokens", "period_start": "2026-10-23", "value": 12345, "source": "example-usage"},
+   {"category": "quota", "metric": "used_percent", "scope": "weekly", "value": 42.5,
+    "window_seconds": 604800, "resets_at": "2026-10-27T07:00:00Z", "source": "example-limits"}
+ ],
+ "state": {"cursor": "abc"}}
+```
+
+| Row kind | Keys | Rules | Written as |
+| --- | --- | --- | --- |
+| Daily total (`usage: daily_total`) | `category: "usage"`, `metric: "daily_tokens"`, `period_start`, `value`, `source` | `period_start` is the Mac's local date the total covers, at most one day ahead. `value` ≥ 0. A later row for the same date replaces it | `period_total`, `scope` = the date, `unit: tokens`, `collected_at` = the poll time |
+| Event (`usage: events`) | `category: "usage"`, `metric` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`), `at`, `value`, `source`, optional `scope` | `at` is the UTC event time (`…Z`), at most 120 s after the poll. Events are **summed**: report each once, using `state` as the checkpoint. A `scope` of `<key>:<model>` adds the model to "models today" | `event_total`, `collected_at` = `at`. The source's read is the poll: a successful run marks it read even with no new events |
+| Quota window (`quota: used` or `remaining`) | `category: "quota"`, `metric`, `scope`, `value`, `source`, optional `window_seconds`, `resets_at` | `metric` is `used_percent` for `used` and `remaining_percent` for `remaining`; the other one is refused, so a percent used can't show as remaining. `value` 0–100. 18000 s shows as "5-hour", 604800 s as "Weekly" | `snapshot`, `unit: percent`, measured at the poll time |
+| Not found | `category: "availability"`, `metric: "detected"`, `value: false`, `message` | The plugin found nothing to read | `status: missing` |
+| Source error | `category: "collection"`, `metric: "plugin_error"`, `source`, `message` | That source failed, or needs sign-in when the message says so | `metric: <source id>_error`, `status: error` |
+
+- A row may contain only its kind's keys; `provider`, `collected_at`, `record_kind`, `unit`
+  and `status` are the collector's. `source` must be a declared `csv_source` of the row's role.
+- `message` is at most 500 characters, with no control characters. At most 2,000 rows.
+- Numbers are finite, and integers within ±2^53. Every string, in rows and in `state`, keys
+  included, must be valid Unicode: a lone surrogate escape (`\ud800`) fails the run
+  (`returned a string that is not valid Unicode`) before anything is written.
+- `state` is optional, a JSON object of at most 256 KiB. It is kept in
+  `state["instances"][<id>]` and sent back on the next poll; without it the state is kept.
+- A successful run with no availability row also gets one `availability/detected` row
+  ("the plugin ran"), so a quiet poll isn't shown as "not found".
+
+### Bounds, cleanup and failure
+
+- **One deadline** covers the whole run. At the deadline the process group is killed.
+- **stdout** is capped at 1 MiB; passing it kills the run. **stderr** is read in fixed chunks
+  and discarded; it never fails a run, and endless stderr hits the deadline.
+- **After the plugin exits** its pipes may stay open for at most 1 s (a child holding them
+  can't hold the poll). Then, after **every** run, the process group gets SIGTERM, then SIGKILL,
+  and the collector closes its pipe ends. A process that leaves the group (`setsid`) can
+  survive, but can't hold the poll.
+- **Success** needs exit status 0, the limits kept, and one valid protocol-1 response.
+  Killing leftover children doesn't turn success into failure.
+- **Anything else** writes exactly one `collection/unexpected_error` row (`source: "plugin"`)
+  with a fixed reason, keeps none of the response, and leaves the plugin's state unchanged:
+  `timed out after 30s`, `exited with status 3`, `was stopped by signal 9`,
+  `wrote more than 1 MiB to stdout`, `returned invalid JSON at line 1 column 5`,
+  `returned an invalid response at rows[4].status`, `could not be started (ENOENT)`.
+  The other providers are unaffected.
+
+### What is stored, and what isn't
+
+- **Stored:** a valid response's rows go to `usage.csv` (every string field, `message` and
+  `scope` included) and the report and app show them; a valid `state` goes to `state.json`.
+  **A plugin must keep credentials, tokens and other secrets out of its rows, messages,
+  scopes and state.** The collector doesn't inspect them for secrets.
+- **Never stored:** stderr (counted, then discarded), and anything from a rejected response.
+- **Diagnostics name things, never values:** a field path, a manifest key, a JSON position, an
+  exit status, a signal or an `errno` name. `collector.log` records the plugin id, the reason,
+  the exit, the duration and the stderr byte count, nothing more. To debug, run the plugin by
+  hand, or have it write its own log.
+
+### Enablement and lifecycle
+
+A plugin runs only when `config.json` has `providers.<id>.enabled: true`.
+Discovery, a manifest default or a missing key never turn it on.
+
+| Config for the id | Folder | Rows each poll |
+| --- | --- | --- |
+| No `providers.<id>` entry | Discovered | None. The report lists a valid one as `disabled`, "Not turned on" |
+| `providers.<id>` present, `enabled` not true | Valid, invalid or missing | The disabled marker row, as for a built-in |
+| `enabled: true` | Valid | Its rows, or one failure row |
+| `enabled: true` | Invalid | One `unexpected_error` row: `plugin is invalid: <reason>` |
+| `enabled: true` | Missing | One `unexpected_error` row: `plugin folder not found` |
+
+- **Turning it on** (`plugin enable`, `configure providers.<id>.enabled=true`, the app's
+  switch) needs a valid folder now and a LaunchAgent collector of 2.4.0 or newer. **Turning
+  it off** always works, even for a missing or invalid folder.
+- **Order:** built-ins, then added accounts, then local plugins by id.
+- **Removed folder:** its config, state and history are kept; restoring it resumes. Replacing
+  the files keeps the state. Renaming the folder makes a new provider.
+- **Invalid folders** are listed in `doctor`, `plugin list` and the report's
+  `collector.plugin_errors` (`plugins/<name>`, or `plugins` for the folder itself).
+- **Install and uninstall** never create, chmod, move or delete `~/.ai-usage/plugins/`, and the
+  app bundle never carries a `plugins/` folder (`scripts/check_app_bundle.py`).
+- **An older installed collector** (before 2.4.0) ignores local plugins. The report shows them
+  as `not_configured` with a reinstall note, and the app shows no switch.
+
+### Parity
+
+Phase 3 declares only `VERSION` 2.4.0 and `capabilities.external_plugins`
+(`tests/parity/driver.py`). Every scenario also runs with an empty plugins
+folder and with unconfigured and invalid plugins in it, and phase 2's data
+carries forward from `357bcee` (`tests/parity/PHASE2`).

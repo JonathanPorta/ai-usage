@@ -353,6 +353,39 @@ class InstallLifecycleTests(unittest.TestCase):
         self.assertIn(f"Preserved Antigravity statusLine (managed): {antigravity}", managed.stdout)
         self.assertIn(f"Preserved Gemini CLI telemetry (managed): {gemini}", managed.stdout)
 
+    def test_install_reinstall_and_uninstall_leave_the_local_plugins_folder_alone(self) -> None:
+        # Phase 3 AC-9: ~/.ai-usage/plugins is never created, changed, owned or removed.
+        plugins = self.root / "plugins"
+        plugins.mkdir(parents=True)
+        self.root.chmod(0o700)
+        plugins.chmod(0o700)
+        for name, protocol in (("valid", 1), ("invalid", 9)):
+            folder = plugins / name
+            folder.mkdir(mode=0o700)
+            manifest = {"manifest_version": 1, "protocol": protocol, "id": name, "executable": "collect",
+                        "report": {"name": name, "product": name, "usage": "daily_total", "quota": "none",
+                                   "sources": [{"id": "usage", "role": "usage", "label": "Usage", "kind": "Test",
+                                                "csv_source": f"{name}-usage"}]}}
+            (folder / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (folder / "plugin.json").chmod(0o600)
+            (folder / "collect").write_text(f"#!{sys.executable}\nraise SystemExit(79)\n", encoding="utf-8")
+            (folder / "collect").chmod(0o700)
+
+        def plugins_tree() -> dict[str, Any]:
+            return {key: value for key, value in tree_state(self.case.home).items()
+                    if key.startswith(".ai-usage/plugins")}
+
+        before = plugins_tree()
+        self.assertEqual(len(before), 7)
+        for command in ("install", "install", "uninstall"):
+            arguments = [command, "--config", str(self.config)] + (["--no-start"] if command == "install" else [])
+            self.case.run(*arguments)
+            self.assertEqual(plugins_tree(), before, f"{command} changed the plugins folder")
+            if command == "install":
+                owned = json.dumps(self.ownership())
+                self.assertNotIn(str(plugins), owned)
+        self.assertTrue(plugins.is_dir())
+
     def test_uninstall_removes_the_package_directory_once_empty(self) -> None:
         self.case.run("install", "--no-start", "--config", str(self.config))
         self.case.run("uninstall", "--config", str(self.config))

@@ -34,6 +34,10 @@ def fail(message: str) -> None:
 
 def main(app: Path) -> int:
     collector = app / "Contents" / "Resources" / "collector"
+    # Local plugins (~/.ai-usage/plugins) are private to one Mac and never shipped.
+    bundled_plugins = sorted(str(path.relative_to(app)) for path in collector.rglob("plugins") if path.is_dir())
+    if bundled_plugins:
+        fail(f"a local plugins folder is bundled: {bundled_plugins}")
     expected = {"ai_usage_report.py", "ai_usage_service.py"} | {
         f"ai_usage_plugins/{name}.py" for name in ai_usage_plugins.MODULES
     }

@@ -6,7 +6,9 @@ merged as `1b60b5f` (#10, 2026-10-20). Phase 2's PRD and acceptance criteria app
 Its operational acceptance (AC-10) was accepted by the owner on 2026-10-23
 ([session state](phase-2/session-state-provider-instances.md)).
 Phase 3's analysis, PRD and acceptance criteria were approved by the owner on 2026-10-24, with
-five corrections made in the PRD ([PRD](phase-3/prd-private-plugins.md)). Phase 4 is not yet PRD'd. Each gets its own PRD and
+five corrections made in the PRD ([PRD](phase-3/prd-private-plugins.md)). Its implementation is in
+review ([session state](phase-3/session-state-private-plugins.md)); merging, reinstalling and AC-13
+remain the owner's. Phase 4 is not yet PRD'd. Each gets its own PRD and
 acceptance-criteria gate, and this plan does not widen their scope.
 
 ## Project Brief

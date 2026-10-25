@@ -59,8 +59,15 @@ struct SettingsView: View {
         DispatchQueue.main.async { proxy.scrollTo("provider-\(focusProvider)", anchor: .top) }
     }
 
-    /// An added account also names what it is an account of, and its id.
-    private func subtitle(_ provider: Provider) -> String? {
+    /// An added account also names what it is an account of, and its id; a local
+    /// plugin says it is one, and its id.
+    private func subtitle(_ provider: Provider, report: Report) -> String? {
+        if provider.isLocalPlugin {
+            let state = report.collector.supportsLocalPlugins
+                ? (provider.setup == .disabled && !provider.enabled ? "off until you turn it on" : Presentation.setupText(provider))
+                : "the installed collector predates local plugins; reinstall it to collect this"
+            return (["Local plugin · \(provider.id)"] + [state].compactMap { $0 }).joined(separator: " · ")
+        }
         let setup = provider.setup != .disabled ? Presentation.setupText(provider) : nil
         guard provider.isAddedAccount else { return setup }
         return (["\(provider.product) account · \(provider.id)"] + [setup].compactMap { $0 }).joined(separator: " · ")
@@ -109,12 +116,24 @@ struct SettingsView: View {
         section("Providers") {
             ForEach(report.providers) { provider in
                 VStack(alignment: .leading, spacing: 4) {
-                    SwitchRow(isOn: Binding(
-                        get: { provider.enabled },
-                        set: { value in Task { await store.applySettings([.enabling(provider, value)]) } }
-                    ), title: provider.name,
-                       subtitle: subtitle(provider))
-                    .disabled(store.isActing)
+                    if !Presentation.showsToggle(provider, in: report) {
+                        // An older installed collector would never run it: nothing to turn on yet.
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(provider.name).font(.auBody)
+                            if let subtitle = subtitle(provider, report: report) {
+                                Text(subtitle).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                    } else {
+                        SwitchRow(isOn: Binding(
+                            get: { provider.enabled },
+                            set: { value in Task { await store.applySettings([.enabling(provider, value)]) } }
+                        ), title: provider.name,
+                           subtitle: subtitle(provider, report: report))
+                        .disabled(store.isActing)
+                    }
                     HStack(spacing: T.Space.s2) {
                         Text("Subscription $").font(.auCaption).foregroundStyle(T.Color.muted.color)
                         TextField("none", text: Binding(get: { prices[provider.id] ?? "" }, set: { prices[provider.id] = $0 }))

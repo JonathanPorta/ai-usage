@@ -57,7 +57,8 @@ check: ## Compile supported Python sources and run tests
 	$(PYTHON) -m py_compile ai_usage_service.py ai_usage_report.py ai_usage_fixtures.py \
 		test_ai_usage_service.py test_ai_usage_report.py macos/scripts/generate_design_tokens.py \
 		scripts/launchd_integration_check.py tests/parity/driver.py tests/parity/child.py tests/parity/test_parity.py \
-		tests/test_plugin_architecture.py tests/test_install_lifecycle.py scripts/check_app_bundle.py \
+		tests/test_plugin_architecture.py tests/test_install_lifecycle.py tests/test_external_plugins.py \
+		scripts/check_app_bundle.py \
 		ai_usage_plugins/*.py
 	$(MAKE) test
 

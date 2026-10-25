@@ -113,7 +113,8 @@ class SourceDef:
 class ProviderDef:
     def __init__(self, pid: str, name: str, product: str, *, mode: str, split: str,
                  record_kind: str, quota: str, sources: list[SourceDef],
-                 reported_note: Optional[str], quota_note: Optional[str] = None) -> None:
+                 reported_note: Optional[str], quota_note: Optional[str] = None,
+                 quota_basis: Optional[str] = None, external: bool = False) -> None:
         self.id = pid
         # The canonical type: the plugin id. It selects provider-specific behavior;
         # `id` (an added instance's own id) selects the provider's data.
@@ -127,6 +128,10 @@ class ProviderDef:
         self.sources = sources
         self.reported_note = reported_note
         self.quota_note = quota_note
+        # External plugins (phase 3) declare whether their windows are percent "used"
+        # or "remaining". None for the built-ins, whose report rules choose by type.
+        self.quota_basis = quota_basis
+        self.external = external
 
     def for_instance(self, instance_id: str, label: str) -> "ProviderDef":
         """This catalogue entry for an added instance: its own id and name, the same type."""

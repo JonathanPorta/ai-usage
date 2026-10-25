@@ -73,17 +73,26 @@ PROVIDERS = [
 ]
 
 
-def catalogue(config: Mapping[str, Any]) -> list[ProviderDef]:
-    """The built-ins in report order, then each added instance as configured.
+def catalogue(config: Mapping[str, Any], discovery: Optional[Any] = None) -> list[ProviderDef]:
+    """The built-ins in report order, then each added instance as configured, then
+    external plugins: each valid folder, and each configured id whose folder is
+    missing or invalid (so its failure shows on it).
 
     An instance's entry is its plugin's, with the instance's own id and label:
     rules select on `definition.type`, data lookups on `definition.id`.
     """
+    discovery = collector.discover_external(config) if discovery is None else discovery
     definitions = list(PROVIDERS)
-    for account in collector.accounts(config):
+    for account in collector.accounts(config, discovery):
         plugin = collector.PLUGINS.get(account.type)
         if account.added and plugin is not None:
             definitions.append(plugin.report.for_instance(account.id, account.label or account.id))
+        elif account.external:
+            external_plugin = discovery.plugins.get(account.id)
+            if external_plugin is not None:
+                definitions.append(external_plugin.report)
+            elif collector.external_configured(config, account.id):
+                definitions.append(collector.external.placeholder_report(account.id))
     return definitions
 
 
@@ -624,23 +633,34 @@ def early_resets(ordered: list[dict[str, Any]], window_seconds: Optional[float],
 def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tuple[str, str], float], *,
                   now: float, stale_after: float) -> list[dict[str, Any]]:
     definition = state.definition
-    quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
-    groups: dict[str, list[Row]] = {}
+    quota_sources = [s for s in state.sources.values() if s.definition.role in ("quota", "both")]
+    first_quota_source = quota_sources[0] if quota_sources else None
+
+    def source_of(row: Row) -> Optional[SourceState]:
+        # A local plugin can declare several quota sources: each window follows its own.
+        return next((s for s in quota_sources if row.source in s.definition.csv_sources), first_quota_source)
+
+    groups: dict[tuple[Optional[str], str], list[Row]] = {}
     for row in rows:
+        if definition.quota_basis is not None and row.metric != f"{definition.quota_basis}_percent":
+            continue
         if definition.type == "codex" and row.metric != "used_percent":
             continue
         if definition.type in ("grok", "claude") and row.metric != "used_percent":
             continue
         if definition.type == "antigravity" and row.metric != "remaining_percent":
             continue
-        groups.setdefault(row.scope, []).append(row)
+        owner = source_of(row)
+        groups.setdefault((owner.definition.id if owner else None, row.scope), []).append(row)
+    shared_scopes = {scope for scope in {key[1] for key in groups} if sum(key[1] == scope for key in groups) > 1}
     windows: list[dict[str, Any]] = []
-    for scope, group in groups.items():
+    for (owner_id, scope), group in groups.items():
+        quota_source = state.sources[owner_id] if owner_id is not None else None
         window_seconds = next((number(r.window) for r in reversed(group) if number(r.window)), None)
         label, short, ranges = window_identity(definition.type, scope, window_seconds)
         derived = definition.type == "codex"
         # Claude Code's own /usage says "% used", so its limits are shown the same way.
-        basis = "used" if definition.type in ("grok", "claude") else "remaining"
+        basis = definition.quota_basis or ("used" if definition.type in ("grok", "claude") else "remaining")
         readings: dict[float, dict[str, Any]] = {}
         for order, row in enumerate(group):
             value = number(row.value)
@@ -722,7 +742,7 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
             elif remaining <= LOW_REMAINING_PERCENT:
                 limit = "low"
         windows.append({
-            "id": scope or "default",
+            "id": (f"{owner_id}-{scope}" if scope in shared_scopes else scope) or "default",
             "label": label,
             "short": short,
             "basis": basis,
@@ -750,11 +770,12 @@ def build_windows(state: ProviderState, rows: list[Row], freshness_rows: dict[tu
 
 
 def quota_summary(definition: ProviderDef, state: ProviderState, windows: list[dict[str, Any]]) -> dict[str, Any]:
-    quota_source = next((s for s in state.sources.values() if s.definition.role in ("quota", "both")), None)
+    read_at = [s.last_read_at for s in state.sources.values()
+               if s.definition.role in ("quota", "both") and s.last_read_at is not None]
     active = [w for w in windows if not w["retired"]]
     summary: dict[str, Any] = {
         "status": "none", "stale_cause": None, "measured_at": None,
-        "collected_at": iso(quota_source.last_read_at) if quota_source else None,
+        "collected_at": iso(max(read_at)) if read_at else None,
         "note": definition.quota_note, "windows": windows,
     }
     if definition.quota == "unsupported":
@@ -845,10 +866,14 @@ def build_report(
         "settings": True,
         # Added accounts (`instances`) are collected by 2.3.0 and newer.
         "instances": installed_version is not None and installed_version >= collector.INSTANCES_MIN_VERSION,
+        # Local plugins (~/.ai-usage/plugins) are collected by 2.4.0 and newer.
+        "external_plugins": installed_version is not None
+        and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION,
     }
     pause_requested = config.get("poll_paused") is True
 
-    definitions = catalogue(config)
+    discovery = collector.discover_external(config)
+    definitions = catalogue(config, discovery)
     states = {p.id: ProviderState(p) for p in definitions}
     latest_results: dict[str, Optional[str]] = {}
     for attempt in scan.attempts:
@@ -878,6 +903,15 @@ def build_report(
 
     # Configured enablement wins for providers the latest attempt hasn't seen yet.
     for pid, state in states.items():
+        if state.definition.external and not collector.external_configured(config, pid):
+            # Discovered, never configured: off until the owner turns it on.
+            state.enabled = False
+            state.setup = "disabled"
+            state.setup_note = ("Not turned on. Turn it on in Settings, or run "
+                                f"`collector.py plugin enable {pid}`.")
+            for source in state.sources.values():
+                source.status = "off"
+            continue
         settings = collector.settings_for(config, pid)
         if settings.get("enabled", True) is not True and state.setup != "disabled":
             state.enabled = False
@@ -885,9 +919,20 @@ def build_report(
             state.setup_note = "Turned off in the collector config; cached values are kept."
             for source in state.sources.values():
                 source.status = "off"
+    added_ids = {account.id for account in collector.accounts(config, discovery) if account.added}
+    # An older installed collector ignores local plugins: say so instead of "not found".
+    if installed_version is not None and installed_version < collector.EXTERNAL_PLUGINS_MIN_VERSION:
+        for definition in definitions:
+            state = states[definition.id]
+            if definition.external and state.setup != "disabled":
+                state.setup = "not_configured"
+                state.setup_note = (
+                    f"Not collected: the installed collector ({'.'.join(map(str, installed_version))}) "
+                    "predates local plugins. Reinstall the collector to collect it."
+                )
     # An older installed collector ignores `instances`: say so instead of "not found".
     if installed_version is not None and installed_version < collector.INSTANCES_MIN_VERSION:
-        for definition in definitions[len(PROVIDERS):]:
+        for definition in [d for d in definitions if d.id in added_ids]:
             state = states[definition.id]
             if state.setup != "disabled":
                 state.setup = "not_configured"
@@ -1126,6 +1171,7 @@ def build_report(
 
         providers_out.append({
             "id": definition.id, "type": definition.type, "name": definition.name, "product": definition.product,
+            **({"external": True} if definition.external else {}),
             "enabled": state.enabled, "setup": state.setup, "setup_note": state.setup_note,
             "usage": {
                 "status": usage_status, "stale_cause": usage_cause,
@@ -1144,6 +1190,11 @@ def build_report(
             "notes": state.notes,
         })
 
+    # Bundled modules that failed to load, then local plugin folders that are invalid.
+    plugin_errors = {
+        **collector.PLUGIN_LOAD_ERRORS,
+        **{(f"plugins/{name}" if name else "plugins"): reason for name, reason in discovery.invalid.items()},
+    }
     return {
         "schema": REPORT_SCHEMA,
         "generated_at": iso(now),
@@ -1158,7 +1209,7 @@ def build_report(
             "csv_rows": scan.row_count,
             "installed_version": ".".join(str(part) for part in installed_version) if installed_version else None,
             "capabilities": capabilities,
-            **({"plugin_errors": dict(collector.PLUGIN_LOAD_ERRORS)} if collector.PLUGIN_LOAD_ERRORS else {}),
+            **({"plugin_errors": plugin_errors} if plugin_errors else {}),
         },
         "thresholds": {"stale_after_seconds": stale_after,
                        "grok_billing_stale_after_seconds": GROK_BILLING_STALE_SECONDS},
