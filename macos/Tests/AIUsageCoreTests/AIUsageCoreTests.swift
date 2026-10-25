@@ -171,6 +171,44 @@ final class AppStoreTests: XCTestCase {
         if case let .finished(result) = store.collect { XCTAssertEqual(result.outcome, .complete) } else { XCTFail("no result") }
     }
 
+    /// A Collect now result describes one check. A later scheduled check replaces it, so an
+    /// old "Check complete" can never hide that check's failures until the next click.
+    func testANewerCheckReplacesTheCollectResultSoItsFailuresShow() async throws {
+        let base = try fixture()
+        XCTAssertFalse(base.collection.failures.isEmpty, "the fixture's latest check has a failure")
+        var ownCheck = bumped(base, minutes: 1)
+        ownCheck.collection.failures = []
+        var later = base
+        later.generatedAt = Date().addingTimeInterval(3600)
+        later.collection.lastAttemptAt = Date().addingTimeInterval(1800)
+        let reporter = SpyReporter([.success(base), .success(ownCheck), .success(bumped(ownCheck, minutes: 1)), .success(later)])
+        let store = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector())
+        await store.refresh()
+        await store.collectNow()
+        // A re-read of the same check keeps the result.
+        await store.refresh()
+        guard case .finished = store.collect else { return XCTFail("the result of this check is kept") }
+        // The scheduled check after it replaces the result; its failure is the banner now.
+        await store.refresh()
+        if case .finished = store.collect { XCTFail("a newer check must replace the old Collect now result") }
+        XCTAssertFalse(Presentation.notices(try XCTUnwrap(store.report), now: store.now).isEmpty)
+    }
+
+    /// The same, when the later check is already in the report Collect now's own refresh reads.
+    func testACheckNewerThanTheRunInItsOwnRefreshReplacesTheResult() async throws {
+        let base = try fixture()
+        var later = base
+        later.generatedAt = Date().addingTimeInterval(3600)
+        later.collection.lastAttemptAt = Date().addingTimeInterval(1800)
+        let store = AppStore(environment: environment(), reporter: SpyReporter([.success(base), .success(later)]),
+                             collector: SpyCollector())
+        await store.refresh()
+        let run = await store.collectNow()
+        XCTAssertEqual(run?.outcome, .complete)
+        if case .finished = store.collect { XCTFail("a check newer than the run must not be hidden by its result") }
+        XCTAssertFalse(Presentation.notices(try XCTUnwrap(store.report), now: store.now).isEmpty)
+    }
+
     func testOverlappingRefreshesCoalesceIntoOneFollowUpRun() async throws {
         let base = try fixture()
         let reporter = GatedReporter([bumped(base, minutes: 1), bumped(base, minutes: 2)])
