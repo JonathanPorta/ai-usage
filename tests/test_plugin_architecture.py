@@ -29,6 +29,11 @@ import unittest
 from tests.parity import driver
 from tests.parity.test_parity import require_history
 
+from tests import isolation  # noqa: E402
+
+# Phase 3: in-process collection and reports never scan the developer's ~/.ai-usage/plugins.
+isolation.module_fixtures(globals())
+
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE = REPO / "ai_usage_plugins"
 PROVIDER_IDS = ("codex", "claude", "antigravity", "gemini_cli", "grok")

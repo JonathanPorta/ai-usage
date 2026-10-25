@@ -38,10 +38,14 @@ public struct CollectorInfo: Codable, Equatable, Sendable {
         public var settings: Bool
         /// The installed collector collects added accounts (`instances`, 2.3.0+). Absent before 2.3.0.
         public var instances: Bool?
+        /// The installed collector runs local plugins (`~/.ai-usage/plugins`, 2.4.0+). Absent before 2.4.0.
+        public var externalPlugins: Bool?
     }
 
     /// Whether Settings may offer "Add account…".
     public var supportsAddedAccounts: Bool { capabilities?.instances == true }
+    /// Whether Settings may turn a local plugin on or off.
+    public var supportsLocalPlugins: Bool { capabilities?.externalPlugins == true }
 }
 
 public struct Thresholds: Codable, Equatable, Sendable {
@@ -104,6 +108,8 @@ public struct Provider: Codable, Equatable, Identifiable, Sendable {
     /// The canonical type (the plugin id, e.g. `claude`). Absent in reports before 2.3.0,
     /// where every provider is a built-in whose type is its id.
     public var type: String?
+    /// A local plugin from `~/.ai-usage/plugins` (phase 3). Absent for built-ins and added accounts.
+    public var external: Bool?
     public var name: String
     public var product: String
     public var enabled: Bool
@@ -123,6 +129,8 @@ public struct Provider: Codable, Equatable, Identifiable, Sendable {
     public var canonicalType: String { type ?? id }
     /// An added account (config `instances`): its id is never a type, so it never equals its type.
     public var isAddedAccount: Bool { canonicalType != id }
+    /// A local plugin: trusted local code the owner installed, collected like a built-in.
+    public var isLocalPlugin: Bool { external == true }
     public var activeWindows: [QuotaWindow] { quota.windows.filter { !$0.retired } }
 }
 
@@ -365,6 +373,14 @@ public extension Report {
     /// The fixture with an added Claude account (`claude-az`, labeled "Claude (work)").
     static func twoAccountFixture() throws -> Report {
         guard let url = Bundle.module.url(forResource: "report-fixture-two-accounts", withExtension: "json", subdirectory: "fixtures") else {
+            throw ReportError.malformed("fixture resource missing")
+        }
+        return try decode(Data(contentsOf: url))
+    }
+
+    /// The fixture with a synthetic local plugin (`example`, "Example").
+    static func localPluginFixture() throws -> Report {
+        guard let url = Bundle.module.url(forResource: "report-fixture-local-plugin", withExtension: "json", subdirectory: "fixtures") else {
             throw ReportError.malformed("fixture resource missing")
         }
         return try decode(Data(contentsOf: url))

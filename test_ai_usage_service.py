@@ -68,6 +68,12 @@ def tearDownModule() -> None:
         _GUARD_DIR.cleanup()
 
 
+# Phase 3: in-process collection and reports never scan the developer's ~/.ai-usage/plugins.
+from tests import isolation  # noqa: E402
+
+isolation.module_fixtures(globals(), before=setUpModule, after=tearDownModule)
+
+
 class IsolatedHome:
     def __init__(self) -> None:
         self._temporary = tempfile.TemporaryDirectory(prefix="ai-usage-test-")

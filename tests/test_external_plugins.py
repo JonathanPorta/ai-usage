@@ -1202,6 +1202,29 @@ class VersionTests(unittest.TestCase):
                       True)
 
 
+class TrustStatementTests(unittest.TestCase):
+    """AC-12: the "not a security sandbox" statement, word for word, wherever plugins are explained."""
+
+    STATEMENT = ("None of this is a security sandbox. A plugin is not confined by file-system, network or "
+                 "process restrictions. It can read files, open connections, spawn processes that escape its "
+                 "process group (for example with `setsid`), or change `~/.ai-usage` directly. Install only "
+                 "plugins you wrote or trust as much as the collector.")
+
+    @staticmethod
+    def plain(text: str) -> str:
+        return " ".join(text.replace("**", "").replace("\n> ", "\n").split())
+
+    def test_the_docs_and_the_plugin_help_say_it_word_for_word(self) -> None:
+        help_text = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), "plugin", "--help"],
+                                   capture_output=True, text=True, timeout=60, check=True).stdout
+        sources = {"docs/PLUGINS.md": (REPO / "docs" / "PLUGINS.md").read_text(encoding="utf-8"),
+                   "docs/CLI.md": (REPO / "docs" / "CLI.md").read_text(encoding="utf-8"),
+                   "plugin --help": help_text}
+        for name, text in sources.items():
+            with self.subTest(name):
+                self.assertIn(self.STATEMENT, self.plain(text))
+
+
 class InProcessDiscoveryTests(unittest.TestCase):
     """The collector scans on every poll: a folder added between polls is collected
     by the next one in the same process (what the daemon does each cycle)."""

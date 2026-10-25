@@ -26,6 +26,11 @@ from tests.parity import driver
 from tests.parity.test_parity import require_history
 from tests.test_provider_instances import FAKE_CLAUDE, message, usage_cache
 
+from tests import isolation  # noqa: E402
+
+# Phase 3: in-process collection and reports never scan the developer's ~/.ai-usage/plugins.
+isolation.module_fixtures(globals())
+
 SERVICE = black_box.SERVICE
 REPO = black_box.SCRIPT.parent
 PROCEDURE = REPO / "tasks" / "phase-2" / "procedure-reinstall-ac10.md"

@@ -49,6 +49,9 @@ enum SnapshotRenderer {
                 try accountStates(width: popoverWidth) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
+                try localPluginStates(width: popoverWidth) { name, width, height, store, view in
+                    try shoot(name, width: width, height: height, store: store, view)
+                }
             }
             print("snapshot: wrote \(written.count) images to \(directory.path)")
             exit(0)
@@ -100,6 +103,44 @@ enum SnapshotRenderer {
         let refusal = "added accounts need the installed collector 2.3.0 or newer (installed: 2.2.0); reinstall it first with `python3 ai_usage_service.py install`"
         try shoot("add-account-failed", width, nil, store(.failed(refusal)),
                   form(AddAccountView(report: two, open: true, draft: ready, touched: true, failure: refusal, folderCheck: { _ in true })))
+    }
+
+    /// A synthetic local plugin ("Example", from the local-plugin fixture): the overview,
+    /// its detail, and Settings when on, when not turned on yet, and with an installed
+    /// collector that predates local plugins (no switch).
+    private static func localPluginStates(
+        width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        let local = try Report.localPluginFixture()
+        func store(_ report: Report) -> AppStore { AppStore.preview(report, clock: report.generatedAt) }
+        func variant(_ change: (inout Report, Int) -> Void) -> Report {
+            var copy = local
+            if let index = copy.providers.firstIndex(where: { $0.id == "example" }) { change(&copy, index) }
+            return copy
+        }
+        try shoot("popover-overview-local-plugin", width, nil, store(local), AnyView(PopoverRoot(screenHeight: 1200)))
+        try shoot("detail-example-tokens", width, nil, store(local),
+                  AnyView(PopoverRoot(initialScreen: .detail("example"), screenHeight: 1000)))
+        try shoot("detail-example-quota", width, nil, store(local),
+                  AnyView(PopoverRoot(initialScreen: .detail("example"), detailMetric: .quota, screenHeight: 1000)))
+        try shoot("popover-settings-local-plugin", width, nil, store(local),
+                  AnyView(PopoverRoot(initialScreen: .settings, screenHeight: 1600)))
+        let notOn = variant { report, index in
+            report.providers[index].enabled = false
+            report.providers[index].setup = .disabled
+            report.providers[index].setupNote = "Not turned on. Turn it on in Settings, or run `collector.py plugin enable example`."
+        }
+        try shoot("popover-settings-local-plugin-off", width, nil, store(notOn),
+                  AnyView(PopoverRoot(initialScreen: .settings, screenHeight: 1600)))
+        let older = variant { report, index in
+            report.collector.installedVersion = "2.3.0"
+            report.collector.capabilities?.externalPlugins = false
+            report.providers[index].setup = .notConfigured
+            report.providers[index].setupNote = "Not collected: the installed collector (2.3.0) predates local plugins. Reinstall the collector to collect it."
+        }
+        try shoot("popover-settings-local-plugin-unsupported", width, nil, store(older),
+                  AnyView(PopoverRoot(initialScreen: .settings, screenHeight: 1600)))
     }
 
     /// History states for layout review: a narrower window (the shared compact

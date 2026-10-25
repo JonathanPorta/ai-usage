@@ -58,6 +58,8 @@ into both scenes with `.environment(store)`.
 | Paused schedule | `schedule.state == "paused"` | Status row: "Scheduled checks paused · Collect now still works". Menu-bar pause badge. Monitoring offers Resume. |
 | Pause not supported by the installed collector | `capabilities.pause == false` | Pause is disabled, with the version needed and the reinstall command |
 | Added account (phase 2) | A provider whose `type` differs from its `id` | Shown like any provider under its label. In Settings its subtitle names the product and id ("Claude Code account · claude-az"), and its toggle and price write `instances.<id>.…` |
+| Local plugin (phase 3) | `external: true` on a provider | Shown like any provider under its manifest name. In Settings its subtitle is "Local plugin · <id>", plus "off until you turn it on" while it has never been enabled; its toggle and price write `providers.<id>.…`. The collector refuses to turn on an invalid or missing plugin, and the banner shows its reason |
+| Local plugin: unsupported | `external: true` and `capabilities.external_plugins != true` | No switch. The subtitle says the installed collector predates local plugins and needs a reinstall |
 | Add Claude account: unsupported | `capabilities.instances != true` | No button. A caption gives the collector version needed (2.3.0) and the reinstall command |
 | Add Claude account: editing | Settings › Providers › "Add Claude account…" | Name, id (proposed from the name until edited, then the user's), and config folder (picker shows hidden folders). Problems are listed in plain words: built-in or duplicate id, invalid id, a folder without `.claude.json`. Empty fields wait until the user has tried. "Add account" stays disabled until there are none |
 | Add Claude account: saving, saved, failed | The form's own `AccountSubmission`, from `store.addAccount`'s `AccountSaveResult`; the banner from `store.action` | Spinner with "Adding <name>…", busy until the submission's refresh ends, so a second click writes nothing; then the form closes and the banner says "<name> added. It is read at the next check."; or the form stays filled with "Not added: <collector's reason>". Other actions and dismissing the banner don't change the form's result. |
@@ -114,7 +116,9 @@ writes PNGs of these screens in light and dark, then exits:
 
 - the overview at 420 pt, and in a 700 pt-tall screen;
 - every provider detail, in Tokens and Quota;
-- History in Tokens and Quota.
+- History in Tokens and Quota;
+- from the synthetic local-plugin fixture: the overview, the plugin's detail, and Settings
+  when it is on, not turned on yet, and with a collector that predates local plugins.
 
 It needs no screen-recording permission. `--live` renders the live report
 (read-only). Those images contain personal usage data, so they go under the

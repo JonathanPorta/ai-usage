@@ -23,6 +23,11 @@ import test_ai_usage_service as black_box
 from tests.parity import driver
 from tests.parity.test_parity import require_history
 
+from tests import isolation  # noqa: E402
+
+# Phase 3: in-process collection and reports never scan the developer's ~/.ai-usage/plugins.
+isolation.module_fixtures(globals())
+
 SERVICE = black_box.SERVICE
 SCRIPT = black_box.SCRIPT
 REPO = SCRIPT.parent

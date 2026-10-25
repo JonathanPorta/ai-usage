@@ -260,3 +260,22 @@ routine choice made within the approved scope; change it freely with a new entry
   - The phase-1 golden files are kept. Parity declares phase 2's exact output differences.
 
 **Reason:** the owner's second Claude login is collected and shown separately, without migrating or re-reading the existing history, and an older collector can never appear to support it.
+
+## 2026-10-24 — Local plugins, phase 3 (approved scope; engineering details)
+**Choice:** private collectors in `~/.ai-usage/plugins/<id>/`, each an executable plus `plugin.json`, run once per poll over a one-request, one-response JSON protocol. Details: `docs/PLUGINS.md`, "Local plugins".
+- **Approved by the owner (2026-10-24):** D1–D4 and AC-1–AC-13 of `tasks/phase-3/prd-private-plugins.md`, with five corrections:
+  - **D1:** off until explicitly enabled, on every path.
+  - **D2:** owner-only permissions are required and never repaired.
+  - **D3:** 2.4.0 with an `external_plugins` capability.
+  - **D4:** one provider per plugin folder.
+  - AC-13 stays pending until the owner checks the work laptop.
+- **Engineering:**
+  - The manifest picks report profiles (`usage`: daily_total | events | none; `quota`: used | remaining | none), never the reporter's internal fields. A percent of the other basis is refused.
+  - `ProviderDef.quota_basis` selects the external quota metric and basis. It is None for the built-ins, so their rules don't change.
+  - Each manifest source gets its own error metric (`<source id>_error`), so a plugin's error fails only that source.
+  - A successful run with no availability row gets one `availability/detected` row ("the plugin ran"), so a quiet poll doesn't read as "not found".
+  - The plugin's PATH is the collector's discovery folders without the environment's own PATH, and is the same from a shell and from launchd.
+  - In-process tests and the fixture generator point discovery at an empty folder or the sandbox's HOME, never the developer's `~/.ai-usage/plugins` (`tests/isolation.py`).
+  - Parity: only `VERSION` 2.4.0 and `capabilities.external_plugins` are declared. The scenarios also run with an empty plugins folder and with unconfigured and invalid plugins, and phase 2's data carries forward from `357bcee`.
+
+**Reason:** the owner's private work-tool collector runs on the work laptop without forking this repository, and a faulty plugin can't stall a poll or change another provider's data. It is trusted local code, not a sandboxed one.

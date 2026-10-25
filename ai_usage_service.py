@@ -2670,8 +2670,9 @@ It is off until you enable it, and then runs once per poll.
 
 A local plugin is trusted local code: it runs as you, with your permissions.
 The collector's timeout, output limits, process cleanup and response checks
-isolate faults. They are not a security sandbox. Install only plugins you
-wrote or trust as much as the collector.
+isolate faults.
+
+None of this is a security sandbox. A plugin is not confined by file-system, network or process restrictions. It can read files, open connections, spawn processes that escape its process group (for example with `setsid`), or change `~/.ai-usage` directly. Install only plugins you wrote or trust as much as the collector.
 
 Valid rows and state are stored in usage.csv and state.json: keep credentials
 out of them. stderr is discarded. See docs/PLUGINS.md."""
