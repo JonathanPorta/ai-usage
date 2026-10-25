@@ -40,6 +40,12 @@ def tearDownModule() -> None:
     time.tzset()
 
 
+# Phase 3: in-process collection and reports never scan the developer's ~/.ai-usage/plugins.
+from tests import isolation  # noqa: E402
+
+isolation.module_fixtures(globals(), before=setUpModule, after=tearDownModule)
+
+
 class ReportCase(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="ai-usage-report-test-")

@@ -271,6 +271,12 @@ public enum Presentation {
         }
     }
 
+    /// Settings offers a provider's on/off switch unless it is a local plugin the
+    /// installed collector can't run (it predates 2.4.0): turning it on would be refused.
+    public static func showsToggle(_ provider: Provider, in report: Report) -> Bool {
+        !provider.isLocalPlugin || report.collector.supportsLocalPlugins
+    }
+
     public static func setupText(_ provider: Provider) -> String? {
         switch provider.setup {
         case .ready: return nil

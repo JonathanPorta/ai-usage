@@ -27,16 +27,20 @@ struct PopoverRoot: View {
     @State private var focusRingsVisible = false
     private let detailMetric: ProviderDetailView.Metric
     private let screenHeight: CGFloat?
+    /// Snapshots only: lift the popover's maximum height so the whole overview list renders.
+    private let uncapped: Bool
 
-    init(initialScreen: PopoverScreen? = nil, detailMetric: ProviderDetailView.Metric = .tokens, screenHeight: CGFloat? = nil) {
+    init(initialScreen: PopoverScreen? = nil, detailMetric: ProviderDetailView.Metric = .tokens, screenHeight: CGFloat? = nil,
+         uncapped: Bool = false) {
         _screen = State(initialValue: initialScreen)
         self.detailMetric = detailMetric
         self.screenHeight = screenHeight
+        self.uncapped = uncapped
     }
 
     private var maxHeight: CGFloat {
         let screen = screenHeight ?? NSScreen.main?.visibleFrame.height ?? 900
-        return min(T.Layout.popoverMaxHeight, screen - T.Layout.popoverScreenMargin)
+        return uncapped ? screen - T.Layout.popoverScreenMargin : min(T.Layout.popoverMaxHeight, screen - T.Layout.popoverScreenMargin)
     }
 
     var body: some View {

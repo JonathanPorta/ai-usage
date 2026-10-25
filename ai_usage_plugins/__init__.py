@@ -16,7 +16,7 @@ from typing import Any
 BUNDLED = ("codex", "claude", "antigravity", "gemini_cli", "grok")
 
 # Every file of the package, installed together beside the collector.
-MODULES = ("__init__", "base", "support") + BUNDLED
+MODULES = ("__init__", "base", "support", "external") + BUNDLED
 
 
 def load_plugins() -> tuple[dict[str, Any], dict[str, str]]:

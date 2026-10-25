@@ -190,8 +190,39 @@ def error(ts: float, provider: str, metric: str, source: str, message: str) -> d
 
 SECOND_ACCOUNT = {"id": "claude-az", "plugin": "claude", "label": "Claude (work)"}
 
+# A synthetic local plugin (phase 3): daily totals and a used-percent weekly window.
+LOCAL_PLUGIN = "example"
+LOCAL_PLUGIN_MANIFEST = {
+    "manifest_version": 1, "protocol": 1, "id": LOCAL_PLUGIN, "executable": "collect",
+    "report": {"name": "Example", "product": "Example Tool", "usage": "daily_total", "quota": "used",
+               "sources": [
+                   {"id": "usage", "role": "usage", "label": "Daily usage", "kind": "Example API, read-only",
+                    "csv_source": "example-usage"},
+                   {"id": "limits", "role": "quota", "label": "Limits", "kind": "Example API, read-only",
+                    "csv_source": "example-limits"}]},
+}
 
-def fixture_rows(now: float, second_account: bool = False) -> CsvBuilder:
+
+def local_plugin_rows(ts: float, now: float) -> list[dict[str, Any]]:
+    """What the collector writes for the example plugin at one check (see external.stamp_row)."""
+    today = time.strftime("%Y-%m-%d", time.localtime(ts))
+    yesterday = time.strftime("%Y-%m-%d", time.localtime(ts - DAY))
+    hour = time.localtime(ts).tm_hour
+    base = 300_000 + (int(ts // DAY) * 104_729) % 400_000
+    return [
+        R(ts, LOCAL_PLUGIN, "availability", "detected", 1, unit="boolean", source="plugin",
+          message="the plugin ran"),
+        R(ts, LOCAL_PLUGIN, "usage", "daily_tokens", base * 2, kind="period_total", scope=yesterday,
+          period_start=yesterday, unit="tokens", source="example-usage"),
+        R(ts, LOCAL_PLUGIN, "usage", "daily_tokens", base * hour // 12, kind="period_total", scope=today,
+          period_start=today, unit="tokens", source="example-usage"),
+        R(ts, LOCAL_PLUGIN, "quota", "used_percent", round(min(90.0, 30 + (ts - (now - 4 * DAY)) / DAY * 9), 1)
+          if ts > now - 4 * DAY else 30.0, scope="weekly", unit="percent", window=604800,
+          resets=now + 3 * DAY + 4 * HOUR, source="example-limits"),
+    ]
+
+
+def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = False) -> CsvBuilder:
     """A rich, deterministic scenario around `now` (local time America/Denver).
 
     - Collection began 20 days ago, hourly checks.
@@ -204,6 +235,8 @@ def fixture_rows(now: float, second_account: bool = False) -> CsvBuilder:
       billing lookup failed, so quota keeps the previous reading and is stale
       (failed) while usage stays current. One day lost to log rotation.
     - Gemini CLI: not installed.
+    - With `local_plugin`, the synthetic local plugin "example" for the last
+      10 days: daily totals and a weekly used-percent window.
     - With `second_account`, an added Claude account (claude-az) that began
       a week ago: its own transcripts and plan limits, and no stats cache.
     """
@@ -277,6 +310,8 @@ def fixture_rows(now: float, second_account: bool = False) -> CsvBuilder:
                                      ts - (ts % (5 * HOUR)) + 5 * HOUR, provider=account))
             rows.append(claude_quota(ts, "weekly", 12.0 if ts > now - DAY else 6.0, 604800,
                                      now + 2 * DAY, provider=account))
+        if local_plugin and ts > now - 10 * DAY:
+            rows.extend(local_plugin_rows(ts, now))
         b.transaction(rows)
         # Usage events between checks (event time in collected_at)
         events: list[dict[str, Any]] = []
@@ -298,7 +333,8 @@ def fixture_rows(now: float, second_account: bool = False) -> CsvBuilder:
     return b
 
 
-def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_account: bool = False) -> Path:
+def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_account: bool = False,
+                  local_plugin: bool = False) -> Path:
     """Create an isolated collector home: config, CSV and log. Returns the config path."""
     root.mkdir(parents=True, exist_ok=True)
     data = root / "data"
@@ -338,9 +374,20 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_accoun
         (root / "claude-az").mkdir(exist_ok=True)
         config["instances"] = [{**SECOND_ACCOUNT, "settings": {
             "config_dir": str(root / "claude-az"), "executable": str(root / "bin" / "claude")}}]
+    if local_plugin:
+        # Its folder under the sandbox's own HOME (root/home), never the developer's.
+        folder = root / "home" / ".ai-usage" / "plugins" / LOCAL_PLUGIN
+        folder.mkdir(parents=True, exist_ok=True)
+        for directory in (folder.parent.parent, folder.parent, folder):
+            directory.chmod(0o700)
+        (folder / "plugin.json").write_text(json.dumps(LOCAL_PLUGIN_MANIFEST, indent=2) + "\n", encoding="utf-8")
+        (folder / "plugin.json").chmod(0o600)
+        (folder / "collect").write_text("#!/bin/sh\nexit 79\n", encoding="utf-8")  # never run by a report
+        (folder / "collect").chmod(0o700)
+        config["providers"][LOCAL_PLUGIN] = {"enabled": True}
     config_path = root / "config.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    fixture_rows(now, second_account).write(data / "usage.csv")
+    fixture_rows(now, second_account, local_plugin).write(data / "usage.csv")
     last_check = max(collector_check_times(data / "usage.csv"))
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_check))
     (data / "collector.log").write_text(
@@ -356,19 +403,25 @@ def collector_check_times(path: Path) -> list[float]:
                 for r in csv.DictReader(handle) if r["category"] == "availability"]
 
 
-def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False) -> dict[str, Any]:
-    """The committed app fixture: deterministic paths, TZ and service state."""
+def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False,
+                   local_plugin: bool = False) -> dict[str, Any]:
+    """The committed app fixture: deterministic paths, TZ and service state.
+
+    HOME is the sandbox's own while it is built, so local-plugin discovery reads
+    only the sandbox, never the developer's ~/.ai-usage/plugins."""
     import tempfile
     import ai_usage_report as report
 
     previous_tz = os.environ.get("TZ")
+    previous_home = os.environ.get("HOME")
     os.environ["TZ"] = FIXTURE_TZ
     time.tzset()
     try:
         now = report.parse_ts(now_iso)
         with tempfile.TemporaryDirectory(prefix="ai-usage-fixture-") as tmp:
             root = Path(tmp)
-            config_path = write_sandbox(root, now, second_account=second_account)
+            os.environ["HOME"] = str(root / "home")
+            config_path = write_sandbox(root, now, second_account=second_account, local_plugin=local_plugin)
             config = collector.load_config(config_path)
             built = report.build_report(
                 config, config_path=config_path, now=now, days=90,
@@ -382,16 +435,22 @@ def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False) -> 
         else:
             os.environ["TZ"] = previous_tz
         time.tzset()
+        if previous_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = previous_home
 
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "macos" / "Sources" / "AIUsageCore" / "Resources" / "fixtures" / "report-fixture.json"
 
 
 TWO_ACCOUNT_FIXTURE_PATH = FIXTURE_PATH.with_name("report-fixture-two-accounts.json")
+LOCAL_PLUGIN_FIXTURE_PATH = FIXTURE_PATH.with_name("report-fixture-local-plugin.json")
 
 
-def render_fixture(second_account: bool = False) -> str:
-    return json.dumps(fixture_report(second_account=second_account), indent=2, sort_keys=False) + "\n"
+def render_fixture(second_account: bool = False, local_plugin: bool = False) -> str:
+    built = fixture_report(second_account=second_account, local_plugin=local_plugin)
+    return json.dumps(built, indent=2, sort_keys=False) + "\n"
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -408,7 +467,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         now = report.parse_ts(arguments.now) if arguments.now else time.time()
         print(write_sandbox(arguments.directory, now))
         return 0
-    fixtures = {FIXTURE_PATH: render_fixture(), TWO_ACCOUNT_FIXTURE_PATH: render_fixture(second_account=True)}
+    fixtures = {FIXTURE_PATH: render_fixture(), TWO_ACCOUNT_FIXTURE_PATH: render_fixture(second_account=True),
+                LOCAL_PLUGIN_FIXTURE_PATH: render_fixture(local_plugin=True)}
     if arguments.command == "fixture":
         for path, rendered in fixtures.items():
             path.parent.mkdir(parents=True, exist_ok=True)

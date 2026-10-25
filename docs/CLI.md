@@ -21,6 +21,8 @@ python3 ai_usage_service.py install [--config PATH] [--no-start]
 ~/.ai-usage/collector.py instance add --plugin claude --id ID --label TEXT --config-dir DIR [--config PATH]  (2.3.0)
 ~/.ai-usage/collector.py instance list    [--config PATH]   # JSON: the added accounts           (2.3.0)
 ~/.ai-usage/collector.py instance enable|disable ID [--config PATH]                               (2.3.0)
+~/.ai-usage/collector.py plugin list      [--config PATH]   # JSON: local plugin folders and their state (2.4.0)
+~/.ai-usage/collector.py plugin enable|disable ID [--config PATH]                                 (2.4.0)
 ~/.ai-usage/collector.py doctor    [--config PATH] [--json]
 ~/.ai-usage/collector.py uninstall [--config PATH]
 ~/.ai-usage/collector.py version
@@ -46,6 +48,9 @@ The installed collector is `collector.py` plus its provider package
 - `providers.<id>.enabled=true|false`;
 - `providers.<id>.monthly_subscription_usd=N|null`;
 - `instances.<id>.enabled=true|false` and `instances.<id>.monthly_subscription_usd=N|null` (an added account, 2.3.0).
+- `providers.<id>.enabled=true|false`, `providers.<id>.monthly_subscription_usd=N|null` and
+  `providers.<id>.timeout_seconds=N` for a local plugin (2.4.0). The timeout can only lower the
+  plugin's own.
 
 It is locked, validated against the merged config, atomic and mode-preserving,
 and leaves every other key untouched. It exits 1 and changes nothing on any
@@ -67,6 +72,22 @@ environment.
 also refuse unless the LaunchAgent's collector is 2.3.0 or newer, because an
 older one would silently ignore the account. Disabling never needs it. See
 `docs/PLUGINS.md`, "Added accounts".
+
+A **local plugin** is trusted local code in `~/.ai-usage/plugins/<id>/`: an
+executable plus `plugin.json` (`docs/PLUGINS.md`, "Local plugins"). It is off until
+it is enabled:
+- `plugin list` prints `{plugins_dir, problem, plugins: [...], other_folders}` and runs nothing.
+- `plugin enable ID` and `configure providers.<id>.enabled=true` refuse, changing nothing,
+  unless the plugin folder is valid now and the LaunchAgent's collector is 2.4.0 or newer.
+- `plugin disable ID` and `configure providers.<id>.enabled=false` always work for a
+  discovered or configured id, even when its folder is missing or invalid.
+- An id that is neither discovered nor configured is refused as before:
+  "… is not a setting the menu app may change".
+
+`plugin --help` repeats the trust model: the collector's timeout, output limits,
+process cleanup and response checks isolate faults.
+
+> None of this is a security sandbox. A plugin is not confined by file-system, network or process restrictions. It can read files, open connections, spawn processes that escape its process group (for example with `setsid`), or change `~/.ai-usage` directly. Install only plugins you wrote or trust as much as the collector.
 
 `once --progress` lines look like
 `{"event":"provider","provider":"codex","index":1,"total":4}`.
@@ -137,7 +158,10 @@ reported*. It never means zero.
     "csv_rows": 329277,
     "installed_version": "2.1.0",      // VERSION read from the LaunchAgent's script; null if unknown
     "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true,
-                      "instances": false }   // instances: the installed collector collects added accounts (2.3.0+)
+                      "instances": false,          // the installed collector collects added accounts (2.3.0+)
+                      "external_plugins": false }, // ... and runs local plugins (2.4.0+)
+    "plugin_errors": { "plugins/broken": "plugins/broken/plugin.json: protocol must be 1" }
+                                 // present only when a bundled module failed to load or a local plugin folder is invalid
   },
   "thresholds": { "stale_after_seconds": 7200, "grok_billing_stale_after_seconds": 10800 },
   "service": {
@@ -180,6 +204,8 @@ reported*. It never means zero.
   "id": "codex", "name": "Codex", "product": "OpenAI Codex",
   "type": "codex",             // canonical type (the plugin id; 2.3.0+). An added account: its own id, its label
                                // as name, and its plugin's type, e.g. {"id": "claude-az", "type": "claude"}
+                               // A local plugin (2.4.0+): its folder name is its id and type, and it carries
+                               // "external": true (absent on every other provider)
   "enabled": true,
   "setup": "ready",            // ready | not_detected | disabled | not_configured | waiting
   "setup_note": null,
