@@ -497,8 +497,7 @@ class EnablementTests(unittest.TestCase):
 
     def test_plugin_enable_writes_the_config_under_the_lock_and_the_next_poll_collects_it(self) -> None:
         self.box.plugin("example")
-        self.box.config_path.chmod(0o640)
-        self.box.config({"keep": "me"} if False else None, extra_key=1)
+        self.box.config(extra_key=1)
         self.box.config_path.chmod(0o640)
         result = self.box.cli("plugin", "enable", "example")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -579,7 +578,7 @@ class EnablementTests(unittest.TestCase):
         self.assertEqual(by_provider["off-valid"], disabled)
         self.assertEqual(by_provider["off-invalid"], disabled)
         self.assertEqual(by_provider["off-missing"], disabled)
-        self.assertNotIn(("collection", "unexpected_error", "error"), by_provider["on-valid"])
+        self.assertEqual(by_provider["on-valid"], [("availability", "detected", "ok")])
         self.assertEqual(by_provider["on-invalid"], [("collection", "unexpected_error", "error")])
         self.assertEqual(by_provider["on-missing"], [("collection", "unexpected_error", "error")])
         messages = {row["provider"]: row["message"] for row in failure_rows(poll)}
@@ -623,8 +622,8 @@ class EnablementTests(unittest.TestCase):
              "settings": {"config_dir": str(claude_home), "enabled": False}}])
         result = self.box.cli("once", "--progress")
         self.assertEqual(result.returncode, 0, result.stderr)
-        doctor = json.loads(self.box.cli("doctor", "--json").stdout)
-        self.assertEqual(list(doctor)[-3:], ["claude-az", "alpha", "zeta"])
+        doctor = [line.split()[0] for line in self.box.cli("doctor").stdout.splitlines()[1:]]
+        self.assertEqual(doctor[-3:], ["claude-az", "alpha", "zeta"])
         providers = [p["id"] for p in self.box.report()["providers"]]
         self.assertEqual(providers[-3:], ["claude-az", "alpha", "zeta"])
         order = list(dict.fromkeys(row["provider"] for row in self.box.last_poll()))
@@ -648,7 +647,9 @@ class ProtocolTests(unittest.TestCase):
         run = self.box.runs("example")[0]
         self.assertEqual(run["argv"], ["collect"])
         self.assertEqual(Path(run["cwd"]).resolve(), (self.box.plugins / "example").resolve())
-        self.assertEqual(sorted(run["env"]), ["AI_USAGE_PLUGIN_DIR", "AI_USAGE_PROTOCOL", "HOME", "LANG", "PATH"])
+        # macOS adds __CF_USER_TEXT_ENCODING to every process at start-up; the collector doesn't pass it.
+        passed = sorted(key for key in run["env"] if key != "__CF_USER_TEXT_ENCODING")
+        self.assertEqual(passed, ["AI_USAGE_PLUGIN_DIR", "AI_USAGE_PROTOCOL", "HOME", "LANG", "PATH"])
         self.assertEqual(run["env"]["AI_USAGE_PROTOCOL"], "1")
         self.assertEqual(run["env"]["HOME"], str(self.box.home))
         self.assertNotIn("/usr/bin:/bin", run["env"]["PATH"].split(":")[:1])  # not the collector's own PATH
@@ -893,7 +894,7 @@ class BoundsTests(unittest.TestCase):
             """)
         _elapsed, rows = self.poll("noisy", body, timeout=20)
         self.assertEqual([(r["metric"], r["value"]) for r in rows if r["category"] == "usage"], [("daily_tokens", "7")])
-        self.assertIn("external plugin noisy collected rows=1 exit=status 0", self.box.log())
+        self.assertIn("external plugin noisy collected rows=2 exit=status 0", self.box.log())
         self.assertIn("stderr_bytes=1048576", self.box.log())
 
     def test_a_secret_is_never_echoed_from_stderr_a_rejected_row_or_a_start_failure(self) -> None:
@@ -937,10 +938,13 @@ class BoundsTests(unittest.TestCase):
 
     def test_too_many_rows_or_too_much_state_is_refused(self) -> None:
         rows = [daily(1, source="many-usage")] * 2001
-        self.box.plugin("many", defaults={"response": json.dumps({"protocol": 1, "rows": rows})})
-        self.box.plugin("big", defaults={"response": json.dumps({"protocol": 1, "rows": [],
-                                                                  "state": {"pad": "x" * (256 * 1024)}})})
-        self.box.config({"many": {"enabled": True}, "big": {"enabled": True}})
+        self.box.plugin("many")
+        self.box.plugin("big")
+        self.box.config({
+            "many": {"enabled": True, "response": json.dumps({"protocol": 1, "rows": rows})},
+            "big": {"enabled": True, "response": json.dumps({"protocol": 1, "rows": [],
+                                                             "state": {"pad": "x" * (256 * 1024)}})},
+        })
         self.box.once()
         self.assertEqual(failure_rows(self.box.rows("many"))[0]["message"],
                          "returned an invalid response at rows (more than 2000)")
@@ -1001,7 +1005,6 @@ class MalformedResponseTests(unittest.TestCase):
         self.box = Box(self)
 
     def test_each_malformed_response(self) -> None:
-        today = local_today().isoformat()
         far = (local_today() + datetime_module.timedelta(days=3)).isoformat()
 
         def response(*rows: dict[str, Any], **extra: Any) -> bytes:
@@ -1050,7 +1053,6 @@ class MalformedResponseTests(unittest.TestCase):
                             "returned an invalid response at rows[0].value"),
             "not-utf8": (b"\xff\xfe", 0, "returned output that is not UTF-8"),
         }
-        del today
         providers: dict[str, Any] = {}
         for name, (data, status, _reason) in cases.items():
             raw = self.box.root / f"{name}.out"
@@ -1101,7 +1103,8 @@ class MalformedResponseTests(unittest.TestCase):
             rows = [{"category": "usage", "metric": "daily_tokens", "period_start": "2026-01-01", "value": 1,
                      "source": "stateful-usage"}]
             if polls >= 1:
-                rows.append({"category": "usage", "metric": "nonsense"})
+                rows.append({"category": "usage", "metric": "nonsense", "period_start": "2026-01-01", "value": 1,
+                             "source": "stateful-usage"})
             print(json.dumps({"protocol": 1, "rows": rows, "state": {"polls": polls + 1}}))
             """)
         self.box.plugin("stateful", body)
@@ -1149,6 +1152,16 @@ class LifecycleTests(unittest.TestCase):
         executable.write_text(executable.read_text(encoding="utf-8") + "# upgraded\n", encoding="utf-8")
         self.box.once()
         self.assertEqual(self.box.state()["instances"]["example"], {"polls": 2})
+
+    def test_the_app_bundle_check_refuses_a_bundled_plugins_folder(self) -> None:
+        app = self.box.root / "AI Usage.app"
+        collector = app / "Contents" / "Resources" / "collector"
+        (collector / "plugins" / "example").mkdir(parents=True)
+        (collector / "plugins" / "example" / "plugin.json").write_text("{}", encoding="utf-8")
+        result = subprocess.run([sys.executable, "-I", "-B", str(REPO / "scripts" / "check_app_bundle.py"), str(app)],
+                                capture_output=True, text=True, env=self.box.environment(), timeout=60, check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a local plugins folder is bundled", result.stderr)
 
     def test_a_new_plugin_is_picked_up_by_a_running_daemon_on_its_next_poll(self) -> None:
         self.box.config(poll_interval_seconds=60)

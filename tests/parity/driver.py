@@ -490,15 +490,19 @@ def normalize(document: dict[str, Any], root: Path, src: Path) -> dict[str, Any]
 
 def run_scenario(src: Path, name: Union[str, Callable[[Sandbox], list[dict[str, Any]]]],
                  handoff: Optional[tuple[Path, int]] = None,
-                 environment_extra: Optional[Callable[[Sandbox], dict[str, str]]] = None) -> dict[str, Any]:
+                 environment_extra: Optional[Callable[[Sandbox], dict[str, str]]] = None,
+                 prepare: Optional[Callable[[Sandbox], None]] = None) -> dict[str, Any]:
     """Run a scenario's plan with `src`. With `handoff` (other_src, index), the
     steps from `index` on run with other_src in the same sandbox: data written
-    by one revision is read by the other. `name` may also be a plan builder, and
-    `environment_extra` adds variables to the collector's environment."""
+    by one revision is read by the other. `name` may also be a plan builder,
+    `environment_extra` adds variables to the collector's environment, and
+    `prepare` changes the sandbox after the scenario set it up."""
     root = Path(tempfile.mkdtemp(prefix="ai-usage-parity-"))
     try:
         box = Sandbox(root)
         steps = (SCENARIOS[name] if isinstance(name, str) else name)(box)
+        if prepare is not None:
+            prepare(box)
         environment = {
             "HOME": str(box.home),
             "PATH": os.pathsep.join([str(box.bin), "/usr/bin", "/bin"]),
@@ -723,6 +727,38 @@ def capture(src: Path) -> None:
             raise SystemExit(f"capture refused: {name} is not deterministic: {found}")
         golden_path(name).write_text(json.dumps(first, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(f"captured {name}")
+
+
+PHASE2_FILE = HERE / "PHASE2"
+
+
+def phase2_sha() -> str:
+    return PHASE2_FILE.read_text(encoding="utf-8").split()[0]
+
+
+def without_external(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` without what local plugins add to it (phase 3): their report entries,
+    their plugin_errors and their doctor entries. Built-in and added-account output stays."""
+    document = json.loads(json.dumps(document))
+    for result in document["results"]:
+        report = result.get("report") if result.get("op") == "report" else None
+        if report:
+            report["providers"] = [p for p in report["providers"] if not p.get("external")]
+            errors = report["collector"].get("plugin_errors")
+            if errors is not None:
+                errors = {key: value for key, value in errors.items() if not key.startswith("plugins")}
+                if errors:
+                    report["collector"]["plugin_errors"] = errors
+                else:
+                    del report["collector"]["plugin_errors"]
+        if result.get("op") == "doctor_json" and result.get("return") == 0:
+            entries = json.loads(result["stdout"])
+            entries = {key: entry for key, entry in entries.items() if not entry.get("external")}
+            result["stdout"] = json.dumps(entries, indent=2, sort_keys=True) + "\n"
+        elif result.get("op") == "doctor_text" and isinstance(result.get("stdout"), str):
+            result["stdout"] = "".join(line for line in result["stdout"].splitlines(keepends=True)
+                                       if not re.match(r"^  \S+ +local plugin, ", line))
+    return document
 
 
 def phase1_sha() -> str:

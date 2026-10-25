@@ -391,7 +391,9 @@ class PluginFailure(Exception):
 class RunInfo:
     exit: str = "not started"
     duration: float = 0.0
-    stderr_bytes: int = 0
+    stderr_bytes: int = 0  # counted; none of them is kept
+    stdout_peak: int = 0  # the most stdout ever buffered
+    largest_read: int = 0  # the largest single read from either pipe
 
 
 @dataclass
@@ -482,10 +484,12 @@ def run_plugin(plugin: ExternalPlugin, payload: bytes, timeout_seconds: int, inf
                     continue
                 except OSError:
                     chunk = b""
+                info.largest_read = max(info.largest_read, len(chunk))
                 if not chunk:
                     selector.unregister(stream)
                 elif key.data == "out":
                     stdout.extend(chunk)
+                    info.stdout_peak = len(stdout)
                     if len(stdout) > STDOUT_MAX_BYTES:
                         reason = "wrote more than 1 MiB to stdout"
                         break
@@ -727,6 +731,10 @@ def collect(plugin: ExternalPlugin, settings: Mapping[str, Any], state: Mapping[
     except PluginFailure as failure:
         failure.info = info  # type: ignore[attr-defined]
         raise
+    if not any(row["category"] == "availability" for row in rows):
+        # The plugin ran and found its tool, even when it had nothing new to report.
+        rows.insert(0, metric_row(collected_at, plugin.id, "availability", "detected", value=True,
+                                  unit="boolean", source=FAILURE_SOURCE, message="the plugin ran"))
     return Outcome(rows, new_state, info)
 
 

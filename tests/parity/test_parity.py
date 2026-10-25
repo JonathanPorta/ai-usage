@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from typing import Callable
 import unittest
 
 from tests.parity import driver
@@ -141,6 +142,67 @@ class ParityTests(unittest.TestCase):
             phase1 = driver.extract_baseline(Path(temporary) / "src", driver.phase1_sha())
             handed_off = driver.run_scenario(phase1, "all_providers", handoff=(driver.REPO, first_poll_index() + 1))
         self.assertIsNone(driver.first_difference(driver.expected("all_providers", first_poll_index() + 1), handed_off))
+
+
+def plugin_folders(contents: str) -> Callable[[driver.Sandbox], None]:
+    """A ~/.ai-usage/plugins folder for the sandbox: empty, or holding an unconfigured
+    valid plugin and an invalid one (phase 3 AC-10)."""
+    def prepare(box: driver.Sandbox) -> None:
+        plugins = box.home / ".ai-usage" / "plugins"
+        plugins.mkdir(parents=True)
+        for directory in (plugins.parent, plugins):
+            directory.chmod(0o700)
+        if contents == "empty":
+            return
+        for name, protocol in (("unconfigured", 1), ("invalid", 9)):
+            folder = plugins / name
+            folder.mkdir(mode=0o700)
+            manifest = {"manifest_version": 1, "protocol": protocol, "id": name, "executable": "collect",
+                        "report": {"name": name, "product": name, "usage": "daily_total", "quota": "none",
+                                   "sources": [{"id": "usage", "role": "usage", "label": "Usage", "kind": "Test",
+                                                "csv_source": f"{name}-usage"}]}}
+            (folder / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (folder / "plugin.json").chmod(0o600)
+            # Never run: an unconfigured plugin is off, and an invalid one never runs.
+            (folder / "collect").write_text(driver.TRIPWIRE, encoding="utf-8")
+            (folder / "collect").chmod(0o700)
+    return prepare
+
+
+class PluginFolderParityTests(unittest.TestCase):
+    """Phase 3 AC-10: a plugins folder that holds nothing enabled changes nothing else."""
+
+    def test_an_empty_plugins_folder_changes_nothing(self) -> None:
+        for name in driver.SCENARIOS:
+            with self.subTest(name):
+                found = driver.run_scenario(driver.REPO, name, prepare=plugin_folders("empty"))
+                self.assertIsNone(driver.first_difference(driver.expected(name), found))
+
+    def test_unconfigured_and_invalid_plugins_change_no_built_in_or_added_account_output(self) -> None:
+        for name in driver.SCENARIOS:
+            with self.subTest(name):
+                found = driver.run_scenario(driver.REPO, name, prepare=plugin_folders("unconfigured-and-invalid"))
+                self.assertEqual(found["tripwire"], "")
+                report = next((r["report"] for r in found["results"] if r["op"] == "report" and r.get("report")),
+                              None)
+                if report is not None:
+                    external = {p["id"]: p["setup"] for p in report["providers"] if p.get("external")}
+                    self.assertEqual(external, {"unconfigured": "disabled"})
+                    self.assertEqual(sorted(report["collector"]["plugin_errors"]), ["plugins/invalid"])
+                self.assertIsNone(driver.first_difference(driver.expected(name), driver.without_external(found)))
+
+
+class Phase2CarryForwardTests(unittest.TestCase):
+    def test_state_and_csv_written_by_phase_2_carry_forward(self) -> None:
+        # Phase 3 AC-10: phase 2's last revision (#21) polls first, then this tree, in one sandbox.
+        require_history(self, driver.phase2_sha())
+        handoff = first_poll_index() + 1
+        with tempfile.TemporaryDirectory(prefix="ai-usage-phase2-") as temporary:
+            phase2 = driver.extract_baseline(Path(temporary) / "src", driver.phase2_sha())
+            handed_off = driver.run_scenario(phase2, "all_providers", handoff=(driver.REPO, handoff))
+        expected = driver.expected("all_providers")
+        # Phase 2 already wrote the steps before the handoff; this tree writes the rest.
+        self.assertIsNone(driver.first_difference(expected["results"][handoff:], handed_off["results"][handoff:]))
 
 
 if __name__ == "__main__":
