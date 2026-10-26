@@ -1,5 +1,5 @@
 ## Session State: private-plugins
-Last updated: 2026-10-25 (the owner's personal Mac reinstalled from `d9ea445` and accepted)
+Last updated: 2026-10-26 (the AC-13 procedure corrected and tested; AC-13 still pending)
 
 **Status: phase 3 is merged (`d481cef`, #23) and installed on the owner's personal Mac from
 `d9ea445`, which also has the Collect-result banner fix (#24). The owner accepted that reinstall on
@@ -16,7 +16,7 @@ until the owner performs it on the work laptop.**
 | Renders | **Accepted** by the owner, 2026-10-25: 14 synthetic renders (7 screens, light and dark). The 76 existing renders are byte-identical to `1b37aa7`'s on this Mac. | The owner's decision record on #23. |
 | Personal-Mac reinstall | **Done and accepted** by the owner, 2026-10-25. Collector 2.4.0 and the app are from `d9ea445`. | See "Personal-Mac reinstall" below. |
 | Release | **Not approved.** | — |
-| AC-13 | **Pending** until the owner performs it on the work laptop, and reports only pass or fail. | — |
+| AC-13 | **Pending** until the owner performs it on the work laptop, and reports only pass or fail. The owner's corrected procedure (2026-10-26) covers fresh and upgrade installs, and its install steps stop on failure. Its checks need a new collection with the plugin's success marker, match the report contract per manifest profile, and keep the measurement comparison as a separate check. | [`procedure-ac13-work-laptop.md`](procedure-ac13-work-laptop.md); `tests/test_ac13_procedure.py`: 26 synthetic tests, no real provider tools (an audit hook checks what starts). 8 deliberately weakened checks are each caught. |
 
 - **Validation review mode:** auto-proceed (owner, 2026-10-24).
 - **Blocked:** no. Waiting on: AC-13 (the owner, on the work laptop). A release needs its own
