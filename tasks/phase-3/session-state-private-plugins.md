@@ -116,5 +116,9 @@ Each has a regression test in `ReviewedDefectTests` that fails on `b45d338`'s co
     - it wrote `last-report.json` after launch: collector 2.4.0, local plugins supported, the service running, both Claude accounts;
     - the bundled reporter returns quota `current` for both accounts and 0 failures;
     - the signature still verifies after launch.
-- **Unverified:** what the app draws on screen (the overview cards, Settings, the Collect result banner giving way to a later check). Nothing observed the screen; no GUI automation was used or authorized.
+- **Seen by the owner on screen (2026-10-26):** after a Collect now with no error rows, the overview reads Monitoring and lists every provider. Claude Code and Claude (az) have separate cards, each with its own limits and today's total.
+- **Still unverified:** Settings, and the Collect result banner giving way to a later check. No GUI automation was used or authorized.
+- **Re-install from the same SHA (2026-10-26):** the owner ran `ai_usage_service.py install` again from a second clean clone at `d9ea445`. Afterwards:
+  - the collector and plugin package are still byte-identical to the pinned clone, and `config.json` is unchanged;
+  - only the LaunchAgent changed: the installer records the installing shell's `PATH`, and `install-ownership.json` updated its hash to match.
 - AC-10 and the accepted renders stay closed; this reinstall doesn't reopen them.
