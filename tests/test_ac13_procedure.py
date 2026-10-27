@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import datetime as datetime_module
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,6 +34,8 @@ import time
 from typing import Any, Optional
 import unittest
 
+from tests.parity.test_parity import require_history
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "ai_usage_service.py"
 PROCEDURE = REPO / "tasks" / "phase-3" / "procedure-ac13-work-laptop.md"
@@ -44,6 +47,8 @@ BUILT_INS_OFF = {name: {"enabled": False} for name in ("codex", "claude", "antig
 SERVICE_LINE = "{} INFO collection completed rows=1 detected_providers=1 errors=0\n"
 # The plugin runner lists its process group with `ps` after every run.
 SYSTEM_PROGRAMS = {"ps"}
+PREVIOUS_SHA = "1b37aa78a4d7e1768c17d9c5db1984280059008d"  # collector 2.3.0, before phase 3
+PINNED_SHA = "d9ea44543861bd18eaba5f1c86867d4ef2079d63"  # the procedure's pin, collector 2.4.0
 
 # Every Python process a test starts loads this from PYTHONPATH and records each
 # program it starts.
@@ -127,7 +132,7 @@ def source_error(name: str) -> dict[str, Any]:
 class Laptop:
     """An isolated HOME with an installed 2.4.0 collector and every built-in provider off."""
 
-    def __init__(self, test: unittest.TestCase) -> None:
+    def __init__(self, test: unittest.TestCase, installed: bool = True) -> None:
         temporary = tempfile.TemporaryDirectory(prefix="ai-usage-ac13-")
         test.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -135,17 +140,20 @@ class Laptop:
         self.ai = self.home / ".ai-usage"
         self.ai.mkdir(parents=True)
         self.ai.chmod(0o700)
-        shutil.copy2(SCRIPT, self.ai / "collector.py")
-        (self.ai / "collector.py").chmod(0o755)
-        shutil.copytree(REPO / "ai_usage_plugins", self.ai / "ai_usage_plugins",
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        (self.ai / "config.json").write_text(
-            json.dumps({"poll_interval_seconds": 3600, "providers": BUILT_INS_OFF}, indent=2) + "\n", encoding="utf-8")
-        agents = self.home / "Library" / "LaunchAgents"
-        agents.mkdir(parents=True)
-        with (agents / "codes.porta.ai-usage.plist").open("wb") as handle:
-            plistlib.dump({"Label": "codes.porta.ai-usage",
-                           "ProgramArguments": [sys.executable, str(self.ai / "collector.py"), "daemon"]}, handle)
+        if installed:
+            shutil.copy2(SCRIPT, self.ai / "collector.py")
+            (self.ai / "collector.py").chmod(0o755)
+            shutil.copytree(REPO / "ai_usage_plugins", self.ai / "ai_usage_plugins",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            (self.ai / "config.json").write_text(
+                json.dumps({"poll_interval_seconds": 3600, "providers": BUILT_INS_OFF}, indent=2) + "\n",
+                encoding="utf-8")
+            agents = self.home / "Library" / "LaunchAgents"
+            agents.mkdir(parents=True)
+            with (agents / "codes.porta.ai-usage.plist").open("wb") as handle:
+                plistlib.dump({"Label": "codes.porta.ai-usage",
+                               "ProgramArguments": [sys.executable, str(self.ai / "collector.py"), "daemon"]}, handle)
+        self.launchctl = ""
         self.bin = self.root / "bin"
         self.bin.mkdir()
         (self.bin / "python3").symlink_to(sys.executable)
@@ -190,7 +198,7 @@ class Laptop:
     # ---- running
 
     def environment(self, **extra: str) -> dict[str, str]:
-        return {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "AI_USAGE_LAUNCHCTL": "",
+        return {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "AI_USAGE_LAUNCHCTL": self.launchctl,
                 "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(self.audit),
                 "AC13_TEST_STARTED": str(self.started), "AC13_ID": "acme", **extra}
 
@@ -277,12 +285,15 @@ DAILY_AND_QUOTA = {"rows": [daily("acme", 1234), quota("acme", 42.5)]}
 
 class ProcedureShapeTests(unittest.TestCase):
     def test_the_procedure_has_each_check(self) -> None:
-        self.assertEqual(sorted(snippets()), ["foreground", "mark", "plugin", "report", "service", "snapshot", "values"])
-        self.assertEqual(sorted(steps()), ["app", "clone", "install", "place", "preflight", "upgrade"])
+        self.assertEqual(sorted(snippets()), ["foreground", "managed", "mark", "plugin", "removed", "report", "restore",
+                                              "service", "snapshot", "values"])
+        self.assertEqual(sorted(steps()), ["app", "backup", "clone", "install", "place", "preflight", "previous",
+                                           "rollback", "start", "stop"])
 
     def test_a_check_used_twice_is_the_same_both_times(self) -> None:
         copies = snippet_copies(procedure())
-        self.assertEqual(len(copies["mark"]), 2)
+        for name in ("mark", "snapshot", "removed"):
+            self.assertEqual(len(copies[name]), 2, name)
         for name, versions in copies.items():
             self.assertEqual(len(set(versions)), 1, name)
 
@@ -568,6 +579,238 @@ class ValuesTests(unittest.TestCase):
         laptop.once()
         laptop.mark()
         self.assertIn("FAIL: usage.csv has no successful run of acme", laptop.snippet("values").stderr)
+
+class RollbackTests(unittest.TestCase):
+    """Upgrade from 2.3.0, the documented rollback, then uninstall and reinstall (F1 on #25).
+
+    The backup, install, rollback and previous blocks run as written. The stop and
+    start blocks act on the real LaunchAgent, so they don't run: a stand-in
+    launchctl reports the service as not loaded, and a stand-in pgrep finds nothing.
+    """
+
+    def setUp(self) -> None:
+        require_history(self, PREVIOUS_SHA)
+        require_history(self, PINNED_SHA)
+        self.laptop = laptop = Laptop(self, installed=False)
+        launchctl = laptop.root / "launchctl"
+        launchctl.write_text('#!/bin/sh\ncase "$1" in print) exit 113 ;; *) exit 0 ;; esac\n', encoding="utf-8")
+        launchctl.chmod(0o755)
+        laptop.launchctl = str(launchctl)
+        (laptop.bin / "pgrep").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        (laptop.bin / "pgrep").chmod(0o755)
+        self.previous = laptop.root / "previous"
+        listed = subprocess.run(["git", "-C", str(REPO), "ls-tree", "-r", "--name-only", PREVIOUS_SHA,
+                                 "ai_usage_service.py", "ai_usage_plugins"], capture_output=True, text=True, check=True)
+        for name in listed.stdout.split():
+            (self.previous / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.previous / name).write_bytes(subprocess.run(["git", "-C", str(REPO), "show", f"{PREVIOUS_SHA}:{name}"],
+                                                              capture_output=True, check=True).stdout)
+        self.work = laptop.home / "ai-usage-ac13"
+        self.work.mkdir(mode=0o700)
+        self.clone = self.work / "src"
+        subprocess.run(["git", "clone", "--quiet", str(REPO), str(self.clone)], capture_output=True, check=True)
+        subprocess.run(["git", "-C", str(self.clone), "checkout", "--quiet", "--detach", PINNED_SHA],
+                       capture_output=True, check=True)
+        (self.work / "app-verified").write_text(PINNED_SHA + "\n", encoding="utf-8")
+        # Two integrations: Gemini CLI's is managed before the upgrade; Antigravity's is
+        # added by the upgrade, because its tool appears after 2.3.0 was installed. Each
+        # settings file also holds the owner's own settings.
+        self.gemini = laptop.home / ".gemini" / "settings.json"
+        self.antigravity = laptop.home / ".gemini" / "antigravity-cli" / "settings.json"
+        self.antigravity.parent.mkdir(parents=True)
+        self.gemini.write_text(json.dumps({"theme": "Dracula"}), encoding="utf-8")
+        self.antigravity.write_text(json.dumps({"vimMode": True}), encoding="utf-8")
+        self.wrapper = laptop.ai / "antigravity-statusline"
+        providers: dict[str, Any] = {name: {"enabled": False} for name in ("codex", "claude", "grok")}
+        providers["gemini_cli"] = {"enabled": True, "configure_telemetry": True,
+                                   "executable": str(laptop.bin / "gemini")}
+        providers["antigravity"] = {"enabled": True, "executable": str(laptop.bin / "agy")}
+        (laptop.ai / "config.json").write_text(json.dumps({"poll_interval_seconds": 3600, "providers": providers},
+                                                          indent=2) + "\n", encoding="utf-8")
+
+    # ---- helpers
+
+    def tool(self, name: str) -> None:
+        """A provider tool that is found but never run."""
+        path = self.laptop.bin / name
+        path.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    def run_python(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run([sys.executable, *arguments], text=True, capture_output=True,
+                                env=self.laptop.environment(), timeout=120, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def passed(self, name: str) -> subprocess.CompletedProcess[str]:
+        result = self.laptop.step(name)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS:", result.stdout)
+        return result
+
+    def settings(self, path: Path) -> dict[str, Any]:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def own_settings(self, path: Path, **changes: Any) -> None:
+        self.assertTrue(path.exists())
+        path.write_text(json.dumps({**self.settings(path), **changes}), encoding="utf-8")
+
+    def record(self) -> dict[str, Any]:
+        return json.loads((self.laptop.ai / "install-ownership.json").read_text(encoding="utf-8"))
+
+    def modules(self) -> dict[str, bytes]:
+        return {path.name: path.read_bytes() for path in sorted((self.laptop.ai / "ai_usage_plugins").glob("*.py"))}
+
+    def assert_consistent(self) -> dict[str, Any]:
+        """Every owned file matches the record, every module is recorded, and owned settings are in place."""
+        record = self.record()
+        for key, entry in record["files"].items():
+            path = Path(entry["path"])
+            if entry["owned"]:
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), entry["sha256"], key)
+                self.assertEqual(path.stat().st_mode & 0o777, entry["mode"], key)
+        recorded = {Path(entry["path"]).name for key, entry in record["files"].items()
+                    if key.startswith("plugin_module:") and entry["owned"]}
+        self.assertEqual(set(self.modules()), recorded)
+        for name, entry in record["integrations"].items():
+            if entry["owned"] and entry["attached"]:
+                self.assertEqual(self.settings(Path(entry["settings_path"])).get(entry["field"]), entry["value"], name)
+        return record
+
+    def data(self, folder: Path) -> dict[str, bytes]:
+        return {name: (folder / name).read_bytes() for name in ("config.json", "state.json", "usage.csv")}
+
+    def upgrade(self) -> Path:
+        """2.3.0 installed and collected; then the backup and install blocks; then the plugin collects."""
+        laptop = self.laptop
+        self.tool("gemini")
+        self.run_python(str(self.previous / "ai_usage_service.py"), "install", "--no-start")
+        laptop.collector("once")
+        before = self.assert_consistent()
+        self.assertEqual((before["integrations"]["gemini_cli"]["owned"], before["integrations"]["antigravity"]["owned"]),
+                         (True, False))
+        self.assertNotIn("plugin_module:external", before["files"])
+        self.tool("agy")
+        self.passed("backup")
+        self.passed("install")
+        upgraded = self.assert_consistent()
+        self.assertTrue(upgraded["integrations"]["antigravity"]["owned"], "the upgrade added the integration")
+        self.assertTrue(upgraded["files"]["antigravity_wrapper"]["owned"])
+        self.assertTrue(upgraded["files"]["plugin_module:external"]["owned"], "the upgrade added a module")
+        laptop.plugin(rows=[daily("acme", 77)])
+        laptop.enable()
+        laptop.once()
+        self.own_settings(self.gemini, fontSize=14)
+        self.own_settings(self.antigravity, editor="zed")
+        return Path((self.work / "backup-path").read_text(encoding="utf-8").strip())
+
+    # ---- tests
+
+    def test_upgrade_rollback_uninstall_and_reinstall_stay_consistent(self) -> None:
+        laptop = self.laptop
+        backup = self.upgrade()
+        newer = self.data(laptop.ai)
+        plugins = {str(path): path.read_bytes() for path in (laptop.ai / "plugins").rglob("*") if path.is_file()}
+
+        self.passed("rollback")
+        rollback = Path((self.work / "rollback-path").read_text(encoding="utf-8").strip())
+        self.assertEqual(self.data(rollback), newer, "a copy of the newer data is kept")
+        self.assertIn(b'"acme"', newer["config.json"])
+        self.assertFalse((laptop.ai / "collector.py").exists())
+        self.assertFalse(self.wrapper.exists())
+        self.passed("previous")
+
+        # The previous collector, exactly: its code, no module from the upgrade, its data.
+        self.assertEqual((laptop.ai / "collector.py").read_bytes(),
+                         (self.previous / "ai_usage_service.py").read_bytes())
+        self.assertEqual(self.modules(), {path.name: path.read_bytes()
+                                          for path in sorted((self.previous / "ai_usage_plugins").glob("*.py"))})
+        self.assertNotIn("external.py", self.modules())
+        self.assertEqual(self.data(laptop.ai), self.data(backup))
+        record = self.assert_consistent()
+        self.assertTrue(record["integrations"]["gemini_cli"]["owned"])
+        # 2.3.0 sets up Antigravity's integration too now that its tool is here; it owns it.
+        self.assertTrue(record["integrations"]["antigravity"]["owned"])
+        self.assertTrue(record["files"]["antigravity_wrapper"]["owned"])
+        self.assertEqual((self.settings(self.gemini)["theme"], self.settings(self.gemini)["fontSize"]),
+                         ("Dracula", 14))
+        self.assertEqual((self.settings(self.antigravity)["vimMode"], self.settings(self.antigravity)["editor"]),
+                         (True, "zed"))
+
+        self.run_python(str(laptop.ai / "collector.py"), "uninstall")
+        for path in (laptop.ai / "collector.py", laptop.ai / "install-ownership.json", self.wrapper,
+                     laptop.ai / "ai_usage_plugins", laptop.home / "Library" / "LaunchAgents" / "codes.porta.ai-usage.plist"):
+            self.assertFalse(path.exists(), f"uninstall left {path}")
+        self.assertEqual(self.settings(self.gemini), {"theme": "Dracula", "fontSize": 14})
+        self.assertEqual(self.settings(self.antigravity), {"vimMode": True, "editor": "zed"})
+        self.assertEqual(self.data(laptop.ai), self.data(backup))
+
+        self.run_python(str(self.clone / "ai_usage_service.py"), "install", "--no-start")
+        record = self.assert_consistent()
+        self.assertEqual(sorted(self.modules()),
+                         sorted(path.name for path in (self.clone / "ai_usage_plugins").glob("*.py")))
+        self.assertEqual((laptop.ai / "collector.py").read_bytes(), (self.clone / "ai_usage_service.py").read_bytes())
+        self.assertTrue(record["integrations"]["antigravity"]["owned"] and record["integrations"]["gemini_cli"]["owned"])
+        self.assertEqual((self.settings(self.gemini)["theme"], self.settings(self.antigravity)["editor"]),
+                         ("Dracula", "zed"))
+        self.assertEqual({str(path): path.read_bytes() for path in (laptop.ai / "plugins").rglob("*")
+                          if path.is_file()}, plugins, "the plugins folder is never touched")
+
+    def test_a_module_changed_after_the_upgrade_stops_the_rollback_until_moved_aside(self) -> None:
+        laptop = self.laptop
+        self.upgrade()
+        external = laptop.ai / "ai_usage_plugins" / "external.py"
+        external.write_text(external.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+        stopped = laptop.step("rollback")
+        self.assertNotEqual(stopped.returncode, 0)
+        self.assertIn("FAIL: uninstall kept these, because they changed after 2.4.0 installed them", stopped.stderr)
+        self.assertIn(f"  {external}", stopped.stderr)
+        self.assertNotEqual(laptop.step("previous").returncode, 0, "the previous block checks it again")
+        self.assertFalse((laptop.ai / "collector.py").exists(), "nothing was installed over the kept file")
+        external.rename(laptop.root / "external.py")
+        self.passed("previous")
+        self.assertNotIn("external.py", self.modules())
+        self.assert_consistent()
+
+    def test_an_integration_setting_changed_after_the_upgrade_is_kept(self) -> None:
+        laptop = self.laptop
+        self.upgrade()
+        own = {"enabled": False}
+        self.own_settings(self.gemini, telemetry=own)
+        self.passed("rollback")
+        result = self.passed("previous")
+        self.assertIn(f"kept: your own telemetry in {self.gemini}, which is no longer managed", result.stdout)
+        self.assertEqual(self.settings(self.gemini)["telemetry"], own)
+        self.assertFalse(self.assert_consistent()["integrations"]["gemini_cli"]["owned"])
+        self.run_python(str(laptop.ai / "collector.py"), "uninstall")
+        self.assertEqual(self.settings(self.gemini), {"theme": "Dracula", "fontSize": 14, "telemetry": own})
+
+    def test_an_integration_setting_nothing_manages_is_caught(self) -> None:
+        laptop = self.laptop
+        backup = self.upgrade()
+        self.passed("rollback")
+        self.passed("previous")
+        record = self.record()
+        record["integrations"]["gemini_cli"]["owned"] = False
+        (laptop.ai / "install-ownership.json").write_text(json.dumps(record), encoding="utf-8")
+        checked = laptop.snippet("managed", AC13_BACKUP=str(backup))
+        self.assertNotEqual(checked.returncode, 0)
+        self.assertIn(f"the gemini_cli integration is in {self.gemini}, but nothing manages it", checked.stderr)
+
+    def test_copying_the_old_files_back_is_caught(self) -> None:
+        # The rollback F1 reported: the old files copied over 2.4.0 under 2.4.0's ownership record.
+        laptop = self.laptop
+        backup = self.upgrade()
+        shutil.copy2(backup / "collector.py", laptop.ai / "collector.py")
+        shutil.copytree(backup / "ai_usage_plugins", laptop.ai / "ai_usage_plugins", dirs_exist_ok=True)
+        for name in ("config.json", "state.json", "usage.csv"):
+            shutil.copy2(backup / name, laptop.ai / name)
+        checked = laptop.snippet("managed", AC13_BACKUP=str(backup))
+        self.assertNotEqual(checked.returncode, 0)
+        self.assertIn(f"{laptop.ai / 'collector.py'} does not match the ownership record", checked.stderr)
+        self.assertIn(f"{laptop.ai / 'collector.py'} is not managed as it was before the upgrade", checked.stderr)
+        uninstalled = self.run_python(str(laptop.ai / "collector.py"), "uninstall")
+        self.assertIn(f"Preserved modified installer file: {laptop.ai / 'collector.py'}", uninstalled.stdout)
 
 
 class AuditTests(unittest.TestCase):

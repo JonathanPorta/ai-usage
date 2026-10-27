@@ -14,7 +14,10 @@ AC-13 passes when the owner's private plugin is:
 - Don't go on after a `FAIL:` line or a non-zero exit.
 - The work folder is `~/ai-usage-ac13`.
 
-**Tested in CI:** `tests/test_ac13_procedure.py` runs the Python checks (each starts `# ac13: <name>`) and the plugin-placement step against synthetic plugins in an isolated home. Keep each `# ac13:` first line, because the test finds the snippets by it.
+**Tested in CI:** `tests/test_ac13_procedure.py` runs this procedure's checks against synthetic plugins in an isolated home. Keep each `# ac13:` first line, because the test finds the blocks and snippets by it.
+- It runs every Python check (each starts `# ac13: <name>`) and the plugin-placement step.
+- It runs an upgrade from 2.3.0 with the backup and install blocks, then the rollback's two blocks, then an uninstall and a reinstall.
+- The stop and start blocks aren't run, because they act on the real LaunchAgent. There, a stand-in `launchctl` is used, and a stand-in `pgrep` reports that nothing is running.
 
 ## Prerequisites
 - **The laptop:**
@@ -88,15 +91,12 @@ STEP
 ```
 
 ## 3. Upgrade only: stop everything and back up
-This quits every copy of AI Usage and stops the service. It waits for a running collection to finish, then confirms all three are stopped.
-
-It then takes phase 2's locked snapshot, which CI tests: it takes the collector's own locks and finishes an interrupted commit first. It also copies the installed code and the LaunchAgent.
+The first block quits every copy of AI Usage and stops the service. It waits for a running collection to finish, then confirms all three are stopped. Before it stops anything, it checks that the installed collector has an ownership record (`~/.ai-usage/install-ownership.json`). Without one, neither the upgrade nor its rollback is covered.
 ```bash
 bash -euo pipefail <<'STEP'
-# ac13: upgrade
-W="$HOME/ai-usage-ac13"
+# ac13: stop
 [ -e "$HOME/.ai-usage/collector.py" ] || { echo "FAIL: no collector is installed; this is a fresh install, skip step 3"; exit 1; }
-[ ! -e "$W/backup-path" ] || { echo "FAIL: a backup was already taken: $(cat "$W/backup-path")"; exit 1; }
+[ -f "$HOME/.ai-usage/install-ownership.json" ] || { echo "FAIL: the installed collector has no ownership record, so neither the upgrade nor its rollback is covered; stop here"; exit 1; }
 pkill -x AIUsage 2>/dev/null || true
 for _ in $(seq 1 30); do pgrep -x AIUsage >/dev/null || break; sleep 1; done
 if pgrep -x AIUsage >/dev/null; then echo "FAIL: AI Usage is still running"; exit 1; fi
@@ -104,7 +104,17 @@ if pgrep -x AIUsage >/dev/null; then echo "FAIL: AI Usage is still running"; exi
 for _ in $(seq 1 180); do pgrep -f "$HOME/.ai-usage/collector.py" >/dev/null || break; sleep 1; done
 if pgrep -f "$HOME/.ai-usage/collector.py" >/dev/null; then echo "FAIL: a collection is still running"; exit 1; fi
 "$HOME/.ai-usage/collector.py" service-status | python3 -c 'import json, sys; s = json.load(sys.stdin); sys.exit(0 if s["state"] != "running" else "FAIL: the service is still running")'
-echo "stopped: the app, the service and every collection"
+echo "PASS: the app, the service and every collection are stopped"
+STEP
+```
+The second block takes phase 2's locked snapshot, which CI tests: it takes the collector's own locks and finishes an interrupted commit first. It also copies the installed code, its ownership record and the LaunchAgent. The rollback uses them.
+```bash
+bash -euo pipefail <<'STEP'
+# ac13: backup
+W="$HOME/ai-usage-ac13"
+[ ! -e "$W/backup-path" ] || { echo "FAIL: a backup was already taken: $(cat "$W/backup-path")"; exit 1; }
+if pgrep -x AIUsage >/dev/null || pgrep -f "$HOME/.ai-usage/collector.py" >/dev/null; then echo "FAIL: AI Usage or a collection is running; run the stop block first"; exit 1; fi
+"$HOME/.ai-usage/collector.py" service-status | python3 -c 'import json, sys; s = json.load(sys.stdin); sys.exit(0 if s["state"] != "running" else "FAIL: the service is running; run the stop block first")'
 backup="$W/backup-$(date +%Y%m%d%H%M%S)"
 AC13_SNAPSHOT="$backup" python3 - <<'EOF'
 # ac13: snapshot
@@ -132,17 +142,17 @@ with c.state_transaction_lock(state):  # no collection runs until the copy is do
             handle.write(c.VERSION + "\n")
 print(f"snapshot: {target} (version {c.VERSION})")
 EOF
-cp -p "$HOME/.ai-usage/collector.py" "$backup/"
+cp -p "$HOME/.ai-usage/collector.py" "$HOME/.ai-usage/install-ownership.json" "$backup/"
 [ ! -d "$HOME/.ai-usage/ai_usage_plugins" ] || cp -Rp "$HOME/.ai-usage/ai_usage_plugins" "$backup/"
 cp -p "$HOME/Library/LaunchAgents/codes.porta.ai-usage.plist" "$backup/"
 echo "$backup" > "$W/backup-path"
 echo "PASS: backup at $backup"
 STEP
 ```
-If the snapshot fails on a much older collector, stop: the upgrade isn't covered.
+If the snapshot fails on a much older collector, stop: the upgrade isn't covered. Start the old service again with `~/.ai-usage/collector.py start`.
 
 ## 4. Install the collector
-For an upgrade, this refuses to run unless step 3's backup exists and the app and service are still stopped. It installs without starting the service. It checks the installed files against the clone, and for an upgrade checks that the data matches the backup. Only then does it start the service.
+For an upgrade, the first block refuses to run unless step 3's backup exists and the app and service are still stopped. It installs without starting the service. It checks the installed files against the clone, and for an upgrade checks that the data matches the backup. Only then does the second block start the service.
 ```bash
 bash -euo pipefail <<'STEP'
 # ac13: install
@@ -165,6 +175,12 @@ if [ -n "$backup" ]; then
   for name in config.json state.json usage.csv; do cmp "$backup/$name" "$HOME/.ai-usage/$name"; done
   echo "kept: config, state and history match the backup"
 fi
+echo "PASS: collector 2.4.0 installed from $SHA; start it with the next block"
+STEP
+```
+```bash
+bash -euo pipefail <<'STEP'
+# ac13: start
 "$HOME/.ai-usage/collector.py" start
 running=0
 for _ in $(seq 1 30); do
@@ -172,7 +188,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [ "$running" = 1 ] || { echo "FAIL: the service is not running; see collector.py service-status"; exit 1; }
-echo "PASS: collector 2.4.0 installed from $SHA, and the service is running"
+echo "PASS: the service is running collector $("$HOME/.ai-usage/collector.py" version)"
 STEP
 ```
 
@@ -575,7 +591,7 @@ open "$HOME/ai-usage-ac13/src/macos/build/AI Usage.app"
 
 ## Result
 **AC-13 passes** only if all of these hold:
-- steps 1, 2 and 4 to 10 end in `PASS`, and step 3 also does for an upgrade;
+- every block of steps 1, 2 and 4 to 10 ends in `PASS`, and step 3's blocks also do for an upgrade;
 - the values agree with the work tool;
 - step 11 shows the plugin.
 
@@ -583,10 +599,186 @@ Otherwise it fails. Send back only `AC-13: pass` or `AC-13: fail`.
 
 ## Turning it off, and rollback
 - **Turn the plugin off:** `~/.ai-usage/collector.py plugin disable "$AC13_ID"`. Its history is kept.
-- **Fresh install, remove it:** from the clone, `python3 ai_usage_service.py uninstall`. This removes the service and keeps config and data.
-- **Upgrade, return to the previous collector:**
-  1. Quit the app, then run `~/.ai-usage/collector.py stop`.
-  2. Keep a copy of the newer data first. Rerun step 3's snapshot snippet with `AC13_SNAPSHOT="$backup/at-rollback"`, where `$backup` is the folder in `~/ai-usage-ac13/backup-path`.
-  3. Restore `config.json`, `state.json` and `usage.csv` from `$backup`.
-  4. Put back `collector.py`, `ai_usage_plugins/` and the LaunchAgent from `$backup`. The old version is in `$backup/collector-version.txt`.
-  5. Run `~/.ai-usage/collector.py start`, and open the app you used before.
+- **Fresh install, remove it:** quit the app, then from the clone run `python3 ai_usage_service.py uninstall`. This removes the service and keeps config and data.
+- **Upgrade, return to the previous collector:** see the next section.
+
+### Upgrade rollback
+The rollback uses the installers' own ownership records. It doesn't copy program files back:
+- 2.4.0's `uninstall` removes what its record lists. That includes files the upgrade added, such as `ai_usage_plugins/external.py`, and the integration settings it added.
+  - It removes a setting only while the setting still has the installer's value, and leaves the rest of each settings file alone.
+  - It keeps config, data, the plugins folder and any file that changed since it was installed.
+- The previous collector's own `install`, run from the backup, puts its files back and writes a matching record. It sets up integrations as it would on a new install, so an integration the upgrade added stays only if that version adds it too.
+
+To roll back:
+1. Run step 3's stop block.
+2. Run the two blocks below.
+3. Run step 4's start block, then open the app you used before.
+
+The first block saves a locked copy of the current config, state and history, which are newer than the backup, with 2.4.0's ownership record, in `$backup/at-rollback-<time>`. It then uninstalls 2.4.0 and checks that nothing 2.4.0 installed is left. If it lists a file that uninstall kept because it changed, move that file out of the way, then run the second block.
+```bash
+bash -euo pipefail <<'STEP'
+# ac13: rollback
+W="$HOME/ai-usage-ac13"
+[ -s "$W/backup-path" ] || { echo "FAIL: there is no backup from step 3"; exit 1; }
+backup="$(cat "$W/backup-path")"
+for name in collector.py install-ownership.json collector-version.txt config.json state.json usage.csv; do
+  [ -f "$backup/$name" ] || { echo "FAIL: the backup has no $name"; exit 1; }
+done
+[ "$("$HOME/.ai-usage/collector.py" version 2>/dev/null)" = 2.4.0 ] || { echo "FAIL: the installed collector is not 2.4.0"; exit 1; }
+if pgrep -x AIUsage >/dev/null || pgrep -f "$HOME/.ai-usage/collector.py" >/dev/null; then echo "FAIL: AI Usage or a collection is running; run step 3's stop block"; exit 1; fi
+"$HOME/.ai-usage/collector.py" service-status | python3 -c 'import json, sys; s = json.load(sys.stdin); sys.exit(0 if s["state"] != "running" else "FAIL: the service is running; run the stop block from step 3")'
+rollback="$backup/at-rollback-$(date +%Y%m%d%H%M%S)"
+AC13_SNAPSHOT="$rollback" python3 - <<'EOF'
+# ac13: snapshot
+import importlib.util, os, shutil, sys
+home = os.path.expanduser("~/.ai-usage")
+sys.path.insert(0, home)
+spec = importlib.util.spec_from_file_location("installed_collector", os.path.join(home, "collector.py"))
+c = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(c)
+config_path = c.Path(home) / "config.json"
+config = c.load_config(config_path)
+usage, log = c.configured_paths(config)
+state = c.state_path_for(config)
+c.configure_logging(log)  # a recovery is logged to collector.log, as the collector would
+target = os.environ["AC13_SNAPSHOT"]
+with c.state_transaction_lock(state):  # no collection runs until the copy is done
+    c.recover_pending_transaction(state, usage, c.load_state(state))
+    if c.pending_state_path(state).exists():
+        sys.exit("FAIL: a pending transaction journal is still present")
+    with c.exclusive_file_lock(usage.with_name(f"{usage.name}.lock")):
+        os.makedirs(target, mode=0o700)
+        for path in (config_path, state, usage):
+            shutil.copy2(path, target)
+        with open(os.path.join(target, "collector-version.txt"), "w") as handle:
+            handle.write(c.VERSION + "\n")
+print(f"snapshot: {target} (version {c.VERSION})")
+EOF
+cp -p "$HOME/.ai-usage/install-ownership.json" "$rollback/"
+echo "$rollback" > "$W/rollback-path"
+"$HOME/.ai-usage/collector.py" uninstall
+AC13_RECORD="$rollback/install-ownership.json" python3 - <<'EOF'
+# ac13: removed
+import json, os, sys
+with open(os.environ["AC13_RECORD"], encoding="utf-8") as handle:
+    files = [entry for entry in json.load(handle)["files"].values() if entry["owned"]]
+kept = [entry["path"] for entry in files if os.path.lexists(entry["path"])]
+if kept:
+    sys.exit("FAIL: uninstall kept these, because they changed after 2.4.0 installed them. Move each one out "
+             "of the way, then run the second rollback block:\n" + "\n".join(f"  {path}" for path in kept))
+print(f"removed: all {len(files)} files 2.4.0 installed")
+EOF
+echo "PASS: 2.4.0 is uninstalled; the newer data is kept in $rollback"
+STEP
+```
+The second block puts back the config, state and history from the backup, under the previous collector's locks. It then installs the previous collector from the backup with that version's own installer, and checks:
+- the installed code is the backup's, byte for byte, with no other modules;
+- the version, config, state and history match the backup;
+- the new ownership record matches the files on disk;
+- everything managed before the upgrade is managed again. Two exceptions are noted, not failed:
+  - an integration setting you changed after the upgrade keeps your value and is no longer managed;
+  - an integration whose tool is gone isn't set up again.
+```bash
+bash -euo pipefail <<'STEP'
+# ac13: previous
+W="$HOME/ai-usage-ac13"
+[ -s "$W/backup-path" ] && [ -s "$W/rollback-path" ] || { echo "FAIL: run the first rollback block first"; exit 1; }
+backup="$(cat "$W/backup-path")"; rollback="$(cat "$W/rollback-path")"
+[ ! -e "$HOME/.ai-usage/install-ownership.json" ] || { echo "FAIL: a collector is installed; run the first rollback block first"; exit 1; }
+if pgrep -x AIUsage >/dev/null || pgrep -f "$HOME/.ai-usage/collector.py" >/dev/null; then echo "FAIL: AI Usage or a collection is running; run step 3's stop block"; exit 1; fi
+AC13_RECORD="$rollback/install-ownership.json" python3 - <<'EOF'
+# ac13: removed
+import json, os, sys
+with open(os.environ["AC13_RECORD"], encoding="utf-8") as handle:
+    files = [entry for entry in json.load(handle)["files"].values() if entry["owned"]]
+kept = [entry["path"] for entry in files if os.path.lexists(entry["path"])]
+if kept:
+    sys.exit("FAIL: uninstall kept these, because they changed after 2.4.0 installed them. Move each one out "
+             "of the way, then run the second rollback block:\n" + "\n".join(f"  {path}" for path in kept))
+print(f"removed: all {len(files)} files 2.4.0 installed")
+EOF
+AC13_RESTORE="$backup" python3 - <<'EOF'
+# ac13: restore
+import importlib.util, os, shutil, sys
+backup = os.environ["AC13_RESTORE"]
+sys.path.insert(0, backup)
+spec = importlib.util.spec_from_file_location("previous_collector", os.path.join(backup, "collector.py"))
+c = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(c)
+config_path = c.Path(os.path.expanduser("~/.ai-usage")) / "config.json"
+config = c.load_config(c.Path(backup) / "config.json")  # the settings from before the upgrade
+usage, _ = c.configured_paths(config)
+state = c.state_path_for(config)
+with c.state_transaction_lock(state):  # the previous collector's own locks
+    if c.pending_state_path(state).exists():
+        sys.exit("FAIL: a pending transaction journal is present")
+    with c.exclusive_file_lock(usage.with_name(f"{usage.name}.lock")):
+        for path in (config_path, state, usage):
+            target = os.path.realpath(path)  # a symlinked file stays linked
+            staged = f"{target}.ac13-restore"
+            shutil.copy2(os.path.join(backup, path.name), staged)
+            os.replace(staged, target)
+print(f"restored: config, state and history from {backup}")
+EOF
+python3 "$backup/collector.py" install --no-start
+cmp "$backup/collector.py" "$HOME/.ai-usage/collector.py" || { echo "FAIL: collector.py is not the backup's"; exit 1; }
+if [ -d "$backup/ai_usage_plugins" ]; then
+  diff -r -x __pycache__ "$backup/ai_usage_plugins" "$HOME/.ai-usage/ai_usage_plugins" || { echo "FAIL: ai_usage_plugins is not the backup's"; exit 1; }
+elif [ -e "$HOME/.ai-usage/ai_usage_plugins" ]; then
+  echo "FAIL: the previous collector had no ai_usage_plugins folder"; exit 1
+fi
+[ "$("$HOME/.ai-usage/collector.py" version)" = "$(cat "$backup/collector-version.txt")" ] || { echo "FAIL: the installed version is not the backup's"; exit 1; }
+for name in config.json state.json usage.csv; do cmp "$backup/$name" "$HOME/.ai-usage/$name" || { echo "FAIL: $name is not the backup's"; exit 1; }; done
+AC13_BACKUP="$backup" python3 - <<'EOF'
+# ac13: managed
+import hashlib, json, os, stat, sys
+home = os.path.expanduser("~/.ai-usage")
+def load(path):
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+def matches(entry):
+    path = entry["path"]
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    with open(path, "rb") as handle:
+        digest = hashlib.sha256(handle.read()).hexdigest()
+    return digest == entry["sha256"] and stat.S_IMODE(os.stat(path).st_mode) == entry["mode"]
+now = load(os.path.join(home, "install-ownership.json"))
+before = load(os.path.join(os.environ["AC13_BACKUP"], "install-ownership.json"))
+owned = {key: entry for key, entry in now["files"].items() if entry["owned"]}
+problems = [f"{entry['path']} does not match the ownership record" for entry in owned.values() if not matches(entry)]
+package = os.path.join(home, "ai_usage_plugins")
+listed = {entry["path"] for entry in owned.values()}
+for name in sorted(os.listdir(package)) if os.path.isdir(package) else []:
+    if name.endswith(".py") and os.path.join(package, name) not in listed:
+        problems.append(f"{os.path.join(package, name)} is not a file of the previous collector")
+# What was managed before the upgrade is managed again: the same code and LaunchAgent path
+# (the LaunchAgent is written afresh), and every integration setting still in place.
+for key, entry in before["files"].items():
+    current = owned.get(key)
+    if entry["owned"] and not key.endswith("_wrapper") and not (
+            current and current["path"] == entry["path"] and (key == "plist" or current["sha256"] == entry["sha256"])):
+        problems.append(f"{entry['path']} is not managed as it was before the upgrade")
+for name, entry in before["integrations"].items():
+    current = now["integrations"].get(name, {})
+    if not entry["owned"] or (current.get("owned") and current.get("value") == entry["value"]):
+        continue
+    settings = load(entry["settings_path"]) if os.path.isfile(entry["settings_path"]) else {}
+    if settings.get(entry["field"]) == entry["value"]:
+        problems.append(f"the {name} integration is in {entry['settings_path']}, but nothing manages it")
+    elif entry["field"] in settings:
+        print(f"kept: your own {entry['field']} in {entry['settings_path']}, which is no longer managed")
+    else:
+        print(f"note: the {name} integration wasn't set up again; its tool may be gone")
+attached = {name: entry for name, entry in now["integrations"].items() if entry["owned"] and entry["attached"]}
+for name, entry in attached.items():
+    if load(entry["settings_path"]).get(entry["field"]) != entry["value"]:
+        problems.append(f"the {name} integration is missing from {entry['settings_path']}")
+if problems:
+    sys.exit("FAIL: the installation doesn't match its ownership record:\n" + "\n".join(f"  {p}" for p in problems))
+print(f"managed: {len(owned)} files and {len(attached)} integrations match the ownership record, "
+      "and everything managed before the upgrade is managed again")
+EOF
+echo "PASS: collector $(cat "$backup/collector-version.txt") is installed again from $backup; now run step 4's start block"
+STEP
+```

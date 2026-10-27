@@ -1,5 +1,5 @@
 ## Session State: private-plugins
-Last updated: 2026-10-26 (the AC-13 procedure corrected and tested; AC-13 still pending)
+Last updated: 2026-10-26 (the AC-13 rollback fixed for F1 and tested; AC-13 still pending)
 
 **Status: phase 3 is merged (`d481cef`, #23) and installed on the owner's personal Mac from
 `d9ea445`, which also has the Collect-result banner fix (#24). The owner accepted that reinstall on
@@ -16,13 +16,25 @@ until the owner performs it on the work laptop.**
 | Renders | **Accepted** by the owner, 2026-10-25: 14 synthetic renders (7 screens, light and dark). The 76 existing renders are byte-identical to `1b37aa7`'s on this Mac. | The owner's decision record on #23. |
 | Personal-Mac reinstall | **Done and accepted** by the owner, 2026-10-25. Collector 2.4.0 and the app are from `d9ea445`. | See "Personal-Mac reinstall" below. |
 | Release | **Not approved.** | — |
-| AC-13 | **Pending** until the owner performs it on the work laptop, and reports only pass or fail. The owner's corrected procedure (2026-10-26) covers fresh and upgrade installs, and its install steps stop on failure. Its checks need a new collection with the plugin's success marker, match the report contract per manifest profile, and keep the measurement comparison as a separate check. | [`procedure-ac13-work-laptop.md`](procedure-ac13-work-laptop.md); `tests/test_ac13_procedure.py`: 26 synthetic tests, no real provider tools (an audit hook checks what starts). 8 deliberately weakened checks are each caught. |
+| AC-13 | **Pending** until the owner performs it on the work laptop, and reports only pass or fail. The owner's corrected procedure (2026-10-26) covers fresh and upgrade installs, and its install steps stop on failure. Its checks need a new collection with the plugin's success marker, match the report contract per manifest profile, and keep the measurement comparison as a separate check. Its upgrade rollback uses the installers' own records (review F1 on #25). | [`procedure-ac13-work-laptop.md`](procedure-ac13-work-laptop.md); `tests/test_ac13_procedure.py`: 31 synthetic tests, no real provider tools (an audit hook checks what starts). 8 weakened checks and 10 weakened rollback steps are each caught. |
 
 - **Validation review mode:** auto-proceed (owner, 2026-10-24).
 - **Blocked:** no. Waiting on: AC-13 (the owner, on the work laptop). A release needs its own
   approval.
 - **Follow-up:** test isolation for provider discovery,
   [`follow-up-test-isolation-provider-discovery.md`](follow-up-test-isolation-provider-discovery.md).
+
+### Independent review of #25 (2026-10-26, at `304d751`): F1 fixed
+- **F1 (important):** the upgrade rollback copied the old collector, package and LaunchAgent back under 2.4.0's `install-ownership.json`. A later `uninstall` kept the old files as modified and dropped the record, so the next install refused them as unowned.
+- **Fix:** step 3 now also backs up the ownership record, and refuses an install that has none. The rollback uses the installers' own mechanisms:
+  - 2.4.0's `uninstall` removes what its record lists, including `external.py` and the integration settings the upgrade added;
+  - the previous collector's own `install`, run from the backup, writes its files and a matching record.
+
+  The shutdown, the locked snapshot with journal recovery, and a kept copy of the newer data are unchanged. The data from before the upgrade is put back under the previous collector's locks.
+- **Test:** `RollbackTests` runs the procedure's backup, install, rollback and previous blocks as written, in an isolated HOME, from the real 2.3.0 (`1b37aa7`) to the pin, then an uninstall and a reinstall.
+  - It covers an integration managed before the upgrade (Gemini CLI) and one the upgrade added (Antigravity), and checks that the owner's other settings survive.
+  - It checks that the files and the ownership record agree at each step.
+  - It also covers a file changed after the upgrade, a changed integration setting, an integration setting nothing manages, and the old copy-back rollback.
 
 ### Key Decisions
 - D1–D4 as recommended, and AC-1 to AC-13, approved by the owner on 2026-10-24 with five
