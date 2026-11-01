@@ -63,7 +63,10 @@ The installer:
 
 1. discovers installed providers without executing them;
 2. copies itself to `~/.ai-usage/collector.py` and its provider plugins to
-   `~/.ai-usage/ai_usage_plugins/` (see [docs/PLUGINS.md](docs/PLUGINS.md));
+   `~/.ai-usage/ai_usage_plugins/` (see [docs/PLUGINS.md](docs/PLUGINS.md)),
+   and writes `~/.ai-usage/ai-usage-collector`, the launcher the LaunchAgent
+   runs (it only execs the recorded interpreter, so Login Items shows
+   "ai-usage-collector" rather than the interpreter's name);
 3. creates `~/.ai-usage/config.json`, `usage.csv`, `collector.log`, and internal
    state/cache files;
 4. attaches the Antigravity status-line callback only when `agy` exists and no

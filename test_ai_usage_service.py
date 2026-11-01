@@ -1641,6 +1641,19 @@ for line in sys.stdin:
             [str(Path(value).resolve()) if index in {0, 3} else value for index, value in enumerate(plist["ProgramArguments"][1:])],
             [str(installed.resolve()), "daemon", "--config", str(config.resolve())],
         )
+        # Login Items labels the item with the launched file's name (issue #26):
+        # the program is the product-named launcher, which only execs the
+        # recorded interpreter; the arguments the collector sees are unchanged.
+        launcher = root / "ai-usage-collector"
+        self.assertEqual(Path(plist["ProgramArguments"][0]).resolve(), launcher.resolve())
+        self.assertTrue(launcher.exists(), "installer did not create the launcher")
+        self.assertEqual(stat.S_IMODE(launcher.stat().st_mode), 0o700)
+        launcher_lines = launcher.read_text().splitlines()
+        self.assertEqual(len(launcher_lines), 2)
+        self.assertEqual(launcher_lines[0], "#!/bin/sh")
+        self.assertTrue(launcher_lines[1].startswith("exec "))
+        self.assertTrue(launcher_lines[1].endswith(' "$@"'))
+        self.assertEqual(plist["AssociatedBundleIdentifiers"], ["codes.porta.ai-usage.app"])
         self.assertEqual(Path(plist["StandardOutPath"]).resolve(), log.resolve())
         self.assertEqual(Path(plist["StandardErrorPath"]).resolve(), log.resolve())
 
@@ -1779,6 +1792,7 @@ for line in sys.stdin:
         )
         self.assertFalse(plist_path.exists())
         self.assertFalse((root / "collector.py").exists())
+        self.assertFalse((root / "ai-usage-collector").exists())
         self.assertFalse((root / "antigravity-statusline").exists())
         for preserved in (config, root / "usage.csv", root / "collector.log"):
             self.assertTrue(preserved.exists(), f"uninstall removed {preserved}")
