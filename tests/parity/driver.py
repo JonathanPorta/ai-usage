@@ -567,8 +567,8 @@ def golden_path(name: str) -> Path:
     return GOLDEN / f"{name}.json"
 
 
-# Phases 2 and 3 (tasks/phase-2/prd-provider-instances.md, tasks/phase-3/prd-private-plugins.md)
-# change the output on purpose, in exactly these places and nothing else. expected() applies
+# Phases 2 to 4 (tasks/phase-2/prd-provider-instances.md, tasks/phase-3/prd-private-plugins.md,
+# tasks/phase-4/prd-all-view.md) change the output on purpose, in exactly these places and nothing else. expected() applies
 # them to the unchanged golden files; the observed output is never normalized for them.
 VERSION = "2.4.0"
 INTENTIONAL_CHANGES = {
@@ -579,6 +579,7 @@ INTENTIONAL_CHANGES = {
                                                       "2.4.0 or newer",
     "report.providers[*].type": "added: the provider's canonical type, its id for a built-in",
     "doctor_json.stdout[*].type": "added: the same type on every doctor --json entry",
+    "report.groups": "added (phase 4): each type's accounts tracked now, day by day, from the providers",
     # The stale-quota correction (tasks/phase-2/fix-stale-quota-reporting.md):
     "csv[claude].usage_source_age_seconds": "added: one freshness row before each transaction's Claude /usage rows",
     "once.stdout.appended_rows": "one more row per transaction that has Claude /usage rows",
@@ -661,6 +662,36 @@ def correct_claude_quota(report: dict[str, Any], age: float, refresh_error: Opti
     collection["summary"]["providers_partly"] += 1
 
 
+def expected_groups(providers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Phase 4's groups, derived here independently of the reporter from the PRD's rules."""
+    types = list(dict.fromkeys(p["type"] for p in providers))
+    dates = [day["date"] for day in providers[0]["days"]] if providers else []
+    groups = []
+    for kind in types:
+        accounts = [p for p in providers if p["type"] == kind]
+        members = [p for p in accounts if p["enabled"] is True and p["setup"] != "disabled"]
+        days = []
+        for index, date in enumerate(dates):
+            parts = [{"id": p["id"], **{key: p["days"][index][key]
+                                        for key in ("state", "total", "as_of", "incomplete_events")}}
+                     for p in members]
+            known = [part["total"] for part in parts if part["total"] is not None]
+            states = [part["state"] for part in parts]
+            if not known:
+                state = "not_collected" if all(s == "not_collected" for s in states) else "missing"
+            else:
+                state = ("incomplete" if "missing" in states else "partial" if "partial" in states
+                         else "measured" if sum(known) > 0 else "zero")
+            days.append({"date": date, "state": state, "total": sum(known) if known else None,
+                         "incomplete_events": sum(part["incomplete_events"] for part in parts), "parts": parts})
+        starts = sorted(p["coverage_start"] for p in members if p["coverage_start"])
+        groups.append({"type": kind, "name": next((p["name"] for p in accounts if p["id"] == kind), kind),
+                       "members": [p["id"] for p in members],
+                       "excluded": [{"id": p["id"], "reason": "disabled"} for p in accounts if p not in members],
+                       "coverage_start": starts[0] if starts else None, "days": days})
+    return groups
+
+
 def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
     """The golden document for `name` with INTENTIONAL_CHANGES applied to the results
     of steps `changed_from` onward (the ones this tree runs in a carry-forward)."""
@@ -693,6 +724,7 @@ def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
             collector["capabilities"]["external_plugins"] = collector["installed_version"] is not None
             for provider in report["providers"]:
                 provider["type"] = provider["id"]
+            report["groups"] = expected_groups(report["providers"])
         if result["op"] == "doctor_json" and result.get("return") == 0:
             entries = json.loads(result["stdout"])
             for key, entry in entries.items():
@@ -743,7 +775,10 @@ def without_external(document: dict[str, Any]) -> dict[str, Any]:
     for result in document["results"]:
         report = result.get("report") if result.get("op") == "report" else None
         if report:
+            external = {p["type"] for p in report["providers"] if p.get("external")}
             report["providers"] = [p for p in report["providers"] if not p.get("external")]
+            if "groups" in report:
+                report["groups"] = [g for g in report["groups"] if g["type"] not in external]
             errors = report["collector"].get("plugin_errors")
             if errors is not None:
                 errors = {key: value for key, value in errors.items() if not key.startswith("plugins")}

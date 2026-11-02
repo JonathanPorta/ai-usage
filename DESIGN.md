@@ -31,6 +31,7 @@ Semantic intent only. Executable values are in `macos/design/tokens.json`.
 | Text / muted | Primary values and labels; secondary captions and timestamps |
 | Accent (blue) | Input bars, meters, links, selected state, today highlight |
 | Accent soft | Output bars and secondary series |
+| Account series 1–4 | One tool's accounts on History's All tools page: blue, indigo (light) or lavender (dark), teal, slate. Each is named in the legend, readout and breakdown, so color is never the only cue |
 | Success (green) | The healthy status glyph only |
 | Warning (amber) | Usage limits (gauge symbol) **and** stale readings (clock symbol), always with the reading's age |
 | Danger (red) | Collector or source failures (✕ or lock symbol), always with an action |
@@ -57,6 +58,13 @@ popover radius 15.
 - **Provider card:** a name row. Then one compact cell per quota window (label, % used or remaining, meter, reset time). Then today's total beside a 7-day bar chart, and finally freshness captions.
 - **Provider detail:** replaces the overview inside the popover. Order: Back, then heading and status, then the primary chart (Tokens 7 or 30 days, or Quota with a window picker), quota windows, today, models, collapsible Cost and accounting, and collapsible Sources and diagnostics (opens automatically when a source has a problem). Last comes Open in History.
 - **History:** a separate, resizable window (minimum about 640×460). A provider list sits beside a Tokens | Quota choice, the range, summary tiles, the chart, the table and accounting.
+- **All tools (History):** the first sidebar entry. One panel per tool with an account tracked now, each with:
+  - its range total and today;
+  - a day chart with the tool's accounts stacked;
+  - a breakdown of every account, whose name opens its own page;
+  - the accounts that are off.
+
+  Tools are never added to each other, and the figures cover the accounts tracked now.
 
 ## Components
 
@@ -93,6 +101,13 @@ you", "reported usage cost".
 | Quota reset | Dashed vertical marker; the line breaks at the reset |
 | Gap in readings | Line break |
 | Stale window | Last value extended to now as a dashed amber line |
+| Accounts stacked (All tools) | One segment per account, bottom to top in display order, with 1 pt gaps cut out of the stack so the bar keeps its total's height. From the fifth account on, accounts four onward share one "Other accounts" segment |
+| An account without a reading (All tools) | The known stack at its true height. A dashed-circle marker below the baseline names the gap; it is never a segment and never adds height |
+| So far, accounts stacked (All tools) | The stack in a lighter fill inside a dashed outline |
+
+A combined figure states its own completeness. It reads "at least N" when a reading may be
+missing or low, and "—" when nothing is known, never 0. Each account keeps its own read time;
+there is never one combined "as of".
 
 ## Anti-patterns
 

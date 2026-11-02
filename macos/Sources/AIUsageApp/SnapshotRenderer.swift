@@ -52,6 +52,9 @@ enum SnapshotRenderer {
                 try localPluginStates(width: popoverWidth) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
+                try allToolsStates(report) { name, width, height, store, view in
+                    try shoot(name, width: width, height: height, store: store, view)
+                }
             }
             print("snapshot: wrote \(written.count) images to \(directory.path)")
             exit(0)
@@ -193,6 +196,57 @@ enum SnapshotRenderer {
             }
         }
         try shoot("history-empty-none-in-range", 920, 900, oldOnly, HistoryView(providerId: "grok", tokenRange: 7))
+    }
+
+    /// History's All tools page (phase 4): two Claude Code accounts with the other tools (wide,
+    /// narrow, 90 days), an incomplete day with an account that is off (that day selected),
+    /// five accounts of one tool, only one-account tools, and no usage at all.
+    private static func allToolsStates(
+        _ single: Report,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        func store(_ report: Report) -> AppStore { AppStore.preview(report, clock: report.generatedAt) }
+        func page(_ range: Int = 30) -> HistoryView { HistoryView(allTools: true, allRange: range) }
+        let two = try Report.twoAccountFixture()
+        let height: CGFloat = 2300
+        try shoot("history-all-tools", 920, height, store(two), AnyView(page()))
+        try shoot("history-all-tools-narrow", 760, height, store(two), AnyView(page()))
+        try shoot("history-all-tools-90d", 920, height, store(two), AnyView(page(90)))
+        let incomplete = try Report.scenarioFixture("all-tools")
+        let day = incomplete.groups?.first { $0.type == "claude" }?.days.first { $0.state == .incomplete }?.date
+        try shoot("history-all-tools-incomplete-off", 920, height, store(incomplete),
+                  AnyView(page().environment(\.chartPreviewDate, day)))
+        try shoot("history-all-tools-overflow", 920, height, store(try Report.scenarioFixture("overflow")),
+                  AnyView(page()))
+        try shoot("history-all-tools-single", 920, height, store(single), AnyView(page()))
+        var empty = two
+        for index in empty.providers.indices {
+            for day in empty.providers[index].days.indices where empty.providers[index].days[day].state != .notCollected {
+                empty.providers[index].days[day].state = .missing
+                empty.providers[index].days[day].total = nil
+                empty.providers[index].days[day].input = nil
+                empty.providers[index].days[day].output = nil
+                empty.providers[index].days[day].cacheRead = nil
+            }
+        }
+        empty.groups = empty.groups?.map { group in
+            var group = group
+            group.days = group.days.map { day in
+                var day = day
+                guard day.state != .notCollected else { return day }
+                day.state = .missing
+                day.total = nil
+                day.incompleteEvents = 0
+                day.parts = day.parts.map { part in
+                    var part = part
+                    if part.state != .notCollected { (part.state, part.total, part.asOf) = (.missing, nil, nil) }
+                    return part
+                }
+                return day
+            }
+            return group
+        }
+        try shoot("history-all-tools-no-usage", 920, 1500, store(empty), AnyView(page()))
     }
 
     private static func fetchLive() throws -> Report {

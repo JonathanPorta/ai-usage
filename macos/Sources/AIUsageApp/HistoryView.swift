@@ -22,6 +22,10 @@ struct HistoryView: View {
     @Environment(AppStore.self) private var store
     @Environment(Navigation.self) private var navigation
     @State private var providerId: String?
+    /// All tools (phase 4) instead of one provider; shown only when the report has groups.
+    @State private var showsAll = false
+    /// All tools keeps its own range, apart from the provider pages'.
+    @State private var allRange = 30
     @State private var metric: ProviderDetailView.Metric = .tokens
     /// Each mode keeps its own range when switching away and back.
     @State private var tokenRange = 30
@@ -31,8 +35,11 @@ struct HistoryView: View {
     /// ring shows only once the keyboard is used (as in the popover).
     @State private var focusRingsVisible = false
 
-    init(providerId: String? = nil, metric: ProviderDetailView.Metric = .tokens, tokenRange: Int = 30) {
+    init(providerId: String? = nil, metric: ProviderDetailView.Metric = .tokens, tokenRange: Int = 30,
+         allTools: Bool = false, allRange: Int = 30) {
         _providerId = State(initialValue: providerId)
+        _showsAll = State(initialValue: allTools)
+        _allRange = State(initialValue: allRange)
         _metric = State(initialValue: metric)
         _tokenRange = State(initialValue: tokenRange)
     }
@@ -50,7 +57,11 @@ struct HistoryView: View {
             GeometryReader { proxy in
                 let compact = proxy.size.width - 2 * T.Space.s5 < Self.compactBreakpoint
                 ScrollView {
-                    if let report = store.report, let provider = selected(report) {
+                    if let report = store.report, selection(report) == .allTools {
+                        AllToolsView(report: report, range: $allRange, compact: compact, now: store.now,
+                                     open: open)
+                            .padding(T.Space.s5)
+                    } else if let report = store.report, let provider = selected(report) {
                         main(report: report, provider: provider, compact: compact)
                             .padding(T.Space.s5)
                     } else {
@@ -77,8 +88,21 @@ struct HistoryView: View {
     private func applyRequest() {
         if let id = navigation.historyRequest?.providerId {
             providerId = id
+            showsAll = false
             metric = .tokens
         }
+    }
+
+    private func selection(_ report: Report) -> HistorySelection {
+        (showsAll ? HistorySelection.allTools : .provider(selected(report)?.id ?? "")).resolved(in: report)
+    }
+
+    /// An account named on All tools opens its own page.
+    private func open(_ id: String) {
+        providerId = id
+        showsAll = false
+        windowId = nil
+        metric = .tokens
     }
 
     private func selected(_ report: Report) -> Provider? {
@@ -97,10 +121,32 @@ struct HistoryView: View {
             }
             .padding(.horizontal, T.Space.s3).padding(.top, T.Space.s4)
             if let report = store.report {
-                let current = selected(report)?.id
+                let all = selection(report) == .allTools
+                let current = all ? nil : selected(report)?.id
+                if report.groups != nil {
+                    Button {
+                        showsAll = true
+                    } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("All tools").font(.auBody)
+                            Text("Accounts stacked by tool").font(.auCaption)
+                                .foregroundStyle(all ? T.Color.text.color : T.Color.muted.color)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, T.Space.s2).padding(.vertical, 6)
+                        .background(all ? T.Color.accentBackground.color : .clear,
+                                    in: RoundedRectangle(cornerRadius: T.Radius.small))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, T.Space.s2)
+                    .accessibilityAddTraits(all ? .isSelected : [])
+                    .accessibilityHint("Every tool's daily tokens, accounts stacked")
+                }
                 ForEach(report.providers) { provider in
                     Button {
                         providerId = provider.id
+                        showsAll = false
                         windowId = nil
                     } label: {
                         VStack(alignment: .leading, spacing: 1) {
@@ -211,7 +257,7 @@ struct HistoryView: View {
 /// Row 2: a one-line title and a one-line subtitle on the left, controls anchored
 /// right. Fixed height, so text never changes the layout; in the compact
 /// arrangement the controls move to their own right-aligned line.
-private struct ControlRow<Controls: View>: View {
+struct ControlRow<Controls: View>: View {
     let compact: Bool
     let title: String
     let subtitle: String
@@ -314,7 +360,7 @@ private struct SummaryCards: View {
 }
 
 /// Secondary explanation, collapsed by default, below the chart.
-private struct AboutNumbers: View {
+struct AboutNumbers: View {
     let text: String
     @FocusState private var focused: Bool
     @Environment(\.focusRingsVisible) private var focusRingsVisible

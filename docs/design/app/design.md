@@ -332,6 +332,25 @@ Live sandbox check (2026-10-15, synthetic data, at `9d30c61`):
 - Not reproduced: a provider selection change seen once during a Tab pass; two full Tab passes and a Space selection left the selection unchanged. No cause is diagnosed.
 - These confirm behaviour only. The six History replacement baselines and twenty new states were accepted separately on 2026-10-15 (`references/README.md`).
 
+All tools (phase 4, `tasks/phase-4/prd-all-view.md`, 2026-11-01):
+- **What it is:** History's first sidebar entry. Each tool with an account tracked now gets a panel with:
+  - its range total and today, each stating its own completeness;
+  - its accounts stacked per day;
+  - a breakdown of every account.
+
+  Tools are never added to each other.
+- **New marks:**
+  - Account series 1–4.
+  - "Other accounts" from the fifth account on.
+  - The incomplete-day marker below the baseline, which carries no amount.
+  - A "so far" stack: a lighter fill inside a dashed outline in the text color. The accent outline vanished against the first series' blue, so it isn't used.
+- **The dark series** were spread after the first overflow render: lavender and slate looked alike at 1.2:1. They are now 1.9:1 apart, with neighbours at least 1.5:1.
+- **Renders:** 14 new, in light and dark, from synthetic fixtures (`make app-snapshot` in a separate worktree).
+  - They are not in `SHA256SUMS`; they await the owner's acceptance.
+  - Against `main` (`b569d31`) rendered on the same Mac, 64 renders are byte-identical.
+  - The 26 `history-*` renders differ only inside the sidebar (the All tools row). This was checked row by row outside x = 211 pt, and a negative control confirmed that the check catches a main-column change.
+- **Not verified live:** hover and keyboard on the new chart, the breakdown links, and the range control on screen. The owner's live check (AC-11) follows a separately approved app install.
+
 ### Current acceptance state (2026-10-11)
 
 | Item | State |

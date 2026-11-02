@@ -71,7 +71,7 @@ class ParityTests(unittest.TestCase):
         self.assertEqual(found, GOLDEN_SHA256)
 
     def test_the_intentional_changes_are_exactly_the_declared_ones(self) -> None:
-        # Phase 2's whole output difference from the baseline: a new key needs a PRD change first.
+        # Phases 2 to 4's whole output difference from the baseline: a new key needs a PRD change first.
         self.assertEqual(sorted(driver.INTENTIONAL_CHANGES), [
             "csv[claude].usage_source_age_seconds",
             "doctor_json.stdout[*].type",
@@ -81,6 +81,7 @@ class ParityTests(unittest.TestCase):
             "report.collector.csv_rows",
             "report.collector.installed_version",
             "report.collector.version",
+            "report.groups",
             "report.providers[*].type",
             "report.providers[claude] failed refresh",
             "report.providers[claude].quota.*measured_at",

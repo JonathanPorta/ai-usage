@@ -141,6 +141,57 @@
         "checking"
       ],
       "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "GroupDayChart",
+      "source": "macos/Sources/AIUsageDesign/GroupCharts.swift",
+      "status": "implemented",
+      "variants": [
+        "one account",
+        "two to four accounts",
+        "five or more (\"Other accounts\")"
+      ],
+      "states": [
+        "measured",
+        "zero",
+        "missing",
+        "not collected",
+        "so far (partial)",
+        "incomplete (an account without a reading: marker below the baseline)",
+        "hover",
+        "focus"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture-all-tools.json and report-fixture-overflow.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "GroupChartLegend",
+      "source": "macos/Sources/AIUsageDesign/GroupCharts.swift",
+      "status": "implemented",
+      "variants": [
+        "one account",
+        "several accounts (positional swatches)"
+      ],
+      "states": [
+        "default"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture-two-accounts.json (rendered by `make app-snapshot`)"
+    },
+    {
+      "name": "AllToolsPage",
+      "source": "macos/Sources/AIUsageApp/AllToolsView.swift",
+      "status": "implemented",
+      "variants": [
+        "sections with readings",
+        "a section with no readings",
+        "excluded accounts",
+        "every account of a tool off"
+      ],
+      "states": [
+        "default",
+        "focus"
+      ],
+      "preview": "macos/Sources/AIUsageCore/Resources/fixtures/report-fixture-all-tools.json (rendered by `make app-snapshot`)",
+      "implementation": "AllToolsView, with the model AllToolsPage in AIUsageCore"
     }
   ]
 }

@@ -16,8 +16,52 @@ public struct Report: Codable, Equatable, Sendable {
     public var schedule: Schedule
     public var collection: CollectionState
     public var providers: [Provider]
+    /// Each canonical type's accounts tracked now, day by day (phase 4's All tools).
+    /// Absent from older reporters; then All tools is hidden.
+    public var groups: [ToolGroup]?
 
     public func provider(_ id: String) -> Provider? { providers.first { $0.id == id } }
+}
+
+/// One canonical type's accounts tracked now (`report.groups`, docs/CLI.md). The reporter
+/// adds only known values within the type; a day without a known value has no total.
+public struct ToolGroup: Codable, Equatable, Identifiable, Sendable {
+    public struct Excluded: Codable, Equatable, Sendable {
+        public var id: String
+        public var reason: String
+    }
+
+    public var type: String
+    public var name: String
+    public var members: [String]
+    public var excluded: [Excluded]
+    public var coverageStart: String?
+    public var days: [GroupDay]
+
+    public var id: String { type }
+}
+
+public struct GroupDay: Codable, Equatable, Identifiable, Sendable {
+    public enum State: String, Codable, Sendable {
+        case measured, zero, missing, notCollected = "not_collected", partial, incomplete
+    }
+
+    /// One account's own Day for that date, with its own time and incomplete events.
+    public struct Part: Codable, Equatable, Sendable {
+        public var id: String
+        public var state: Day.State
+        public var total: Double?
+        public var asOf: Date?
+        public var incompleteEvents: Int
+    }
+
+    public var date: String
+    public var state: State
+    public var total: Double?
+    public var incompleteEvents: Int
+    public var parts: [Part]
+
+    public var id: String { date }
 }
 
 public struct CollectorInfo: Codable, Equatable, Sendable {
@@ -381,6 +425,15 @@ public extension Report {
     /// The fixture with a synthetic local plugin (`example`, "Example").
     static func localPluginFixture() throws -> Report {
         guard let url = Bundle.module.url(forResource: "report-fixture-local-plugin", withExtension: "json", subdirectory: "fixtures") else {
+            throw ReportError.malformed("fixture resource missing")
+        }
+        return try decode(Data(contentsOf: url))
+    }
+
+    /// A phase-4 All tools fixture over 30 days: "all-tools" (an incomplete day and an account
+    /// that is off) or "overflow" (five Claude Code accounts).
+    static func scenarioFixture(_ name: String) throws -> Report {
+        guard let url = Bundle.module.url(forResource: "report-fixture-\(name)", withExtension: "json", subdirectory: "fixtures") else {
             throw ReportError.malformed("fixture resource missing")
         }
         return try decode(Data(contentsOf: url))

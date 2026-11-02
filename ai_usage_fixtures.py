@@ -190,6 +190,23 @@ def error(ts: float, provider: str, metric: str, source: str, message: str) -> d
 
 SECOND_ACCOUNT = {"id": "claude-az", "plugin": "claude", "label": "Claude (work)"}
 
+# All tools (phase 4): more added Claude accounts, each active from `since` to `until` days
+# ago, with transcripts at `hours`; a `disabled` one is turned off after `until`.
+SCENARIOS: dict[str, dict[str, Any]] = {
+    # An incomplete day (claude-az's transcripts lost 2 days ago) and an account that is off.
+    "all-tools": {"lost": [("claude-az", 2)], "extra_accounts": [
+        {"id": "claude-old", "label": "Claude (old)", "since": 19, "until": 12, "disabled": True,
+         "hours": (11, 16), "tokens": (20_000, 4_000)}]},
+    # Five Claude Code accounts: three drawn on their own and two as "Other accounts".
+    "overflow": {"lost": [], "extra_accounts": [
+        {"id": "claude-lab", "label": "Claude (lab)", "since": 12, "until": 0, "hours": (9, 13, 17),
+         "tokens": (14_000, 3_000)},
+        {"id": "claude-oss", "label": "Claude (oss)", "since": 9, "until": 0, "hours": (12,),
+         "tokens": (9_000, 2_000)},
+        {"id": "claude-ci", "label": "Claude (ci)", "since": 6, "until": 0, "hours": (2, 3),
+         "tokens": (6_000, 1_000)}]},
+}
+
 # A synthetic local plugin (phase 3): daily totals and a used-percent weekly window.
 LOCAL_PLUGIN = "example"
 LOCAL_PLUGIN_MANIFEST = {
@@ -222,7 +239,8 @@ def local_plugin_rows(ts: float, now: float) -> list[dict[str, Any]]:
     ]
 
 
-def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = False) -> CsvBuilder:
+def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = False,
+                 scenario: Optional[str] = None) -> CsvBuilder:
     """A rich, deterministic scenario around `now` (local time America/Denver).
 
     - Collection began 20 days ago, hourly checks.
@@ -239,7 +257,10 @@ def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = 
       10 days: daily totals and a weekly used-percent window.
     - With `second_account`, an added Claude account (claude-az) that began
       a week ago: its own transcripts and plan limits, and no stats cache.
+    - With a `scenario` from SCENARIOS (phase 4): its extra Claude accounts and lost days.
     """
+    extras = SCENARIOS[scenario]["extra_accounts"] if scenario else []
+    lost = SCENARIOS[scenario]["lost"] if scenario else []
     b = CsvBuilder()
     start = now - 20 * DAY
     start -= start % HOUR
@@ -312,6 +333,16 @@ def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = 
                                      now + 2 * DAY, provider=account))
         if local_plugin and ts > now - 10 * DAY:
             rows.extend(local_plugin_rows(ts, now))
+        for extra in extras:
+            if now - extra["since"] * DAY < ts <= now - extra["until"] * DAY:
+                rows.append(detected(ts, extra["id"]))
+            elif extra.get("disabled") and ts > now - extra["until"] * DAY:
+                rows.append(disabled(ts, extra["id"]))
+        for provider, days_ago in lost:
+            if abs(ts - (now - days_ago * DAY)) < HOUR / 2:
+                rows.append(R(ts, provider, "collection", "rotation_data_loss", 1, kind="interval_total",
+                              unit="files", source="claude-session-log", status="error",
+                              message="session log rotated before read"))
         b.transaction(rows)
         # Usage events between checks (event time in collected_at)
         events: list[dict[str, Any]] = []
@@ -322,6 +353,10 @@ def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = 
         if second_account and ts > now - 7 * DAY and lt.tm_hour in (10, 15) and lt.tm_wday < 5:
             events += claude_event(ts + 700, "claude-sonnet-4-5", 12_000, 2_500, 90_000, session="w1",
                                    provider=SECOND_ACCOUNT["id"])
+        for number, extra in enumerate(extras):
+            if now - extra["since"] * DAY < ts <= now - extra["until"] * DAY and lt.tm_hour in extra["hours"]:
+                events += claude_event(ts + 800 + number, "claude-sonnet-4-5", *extra["tokens"],
+                                       session=f"x{number}", provider=extra["id"])
         if 9 <= lt.tm_hour <= 17 and lt.tm_wday < 5:
             scope = f"g{index:04d}"
             events += grok_event(ts + 1200, scope, 9_000, 1_300, incomplete=(lt.tm_hour == 12), cost=0.04)
@@ -334,7 +369,7 @@ def fixture_rows(now: float, second_account: bool = False, local_plugin: bool = 
 
 
 def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_account: bool = False,
-                  local_plugin: bool = False) -> Path:
+                  local_plugin: bool = False, scenario: Optional[str] = None) -> Path:
     """Create an isolated collector home: config, CSV and log. Returns the config path."""
     root.mkdir(parents=True, exist_ok=True)
     data = root / "data"
@@ -374,6 +409,13 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_accoun
         (root / "claude-az").mkdir(exist_ok=True)
         config["instances"] = [{**SECOND_ACCOUNT, "settings": {
             "config_dir": str(root / "claude-az"), "executable": str(root / "bin" / "claude")}}]
+    for extra in SCENARIOS[scenario]["extra_accounts"] if scenario else []:
+        (root / extra["id"]).mkdir(exist_ok=True)
+        settings = {"config_dir": str(root / extra["id"]), "executable": str(root / "bin" / "claude")}
+        if extra.get("disabled"):
+            settings["enabled"] = False
+        config.setdefault("instances", []).append(
+            {"id": extra["id"], "plugin": "claude", "label": extra["label"], "settings": settings})
     if local_plugin:
         # Its folder under the sandbox's own HOME (root/home), never the developer's.
         folder = root / "home" / ".ai-usage" / "plugins" / LOCAL_PLUGIN
@@ -387,7 +429,7 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_accoun
         config["providers"][LOCAL_PLUGIN] = {"enabled": True}
     config_path = root / "config.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    fixture_rows(now, second_account, local_plugin).write(data / "usage.csv")
+    fixture_rows(now, second_account, local_plugin, scenario).write(data / "usage.csv")
     last_check = max(collector_check_times(data / "usage.csv"))
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_check))
     (data / "collector.log").write_text(
@@ -404,7 +446,8 @@ def collector_check_times(path: Path) -> list[float]:
 
 
 def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False,
-                   local_plugin: bool = False) -> dict[str, Any]:
+                   local_plugin: bool = False, scenario: Optional[str] = None,
+                   days: int = 90) -> dict[str, Any]:
     """The committed app fixture: deterministic paths, TZ and service state.
 
     HOME is the sandbox's own while it is built, so local-plugin discovery reads
@@ -421,10 +464,11 @@ def fixture_report(now_iso: str = FIXTURE_NOW, second_account: bool = False,
         with tempfile.TemporaryDirectory(prefix="ai-usage-fixture-") as tmp:
             root = Path(tmp)
             os.environ["HOME"] = str(root / "home")
-            config_path = write_sandbox(root, now, second_account=second_account, local_plugin=local_plugin)
+            config_path = write_sandbox(root, now, second_account=second_account, local_plugin=local_plugin,
+                                        scenario=scenario)
             config = collector.load_config(config_path)
             built = report.build_report(
-                config, config_path=config_path, now=now, days=90,
+                config, config_path=config_path, now=now, days=days,
                 service={"state": "running", "pid": 4242, "disabled": False, "detail": "launchctl: state = running"},
                 installed_version=tuple(int(part) for part in collector.VERSION.split(".")))
             text = json.dumps(built).replace(str(root.resolve()), "/sandbox").replace(str(root), "/sandbox")
@@ -446,10 +490,14 @@ FIXTURE_PATH = Path(__file__).resolve().parent / "macos" / "Sources" / "AIUsageC
 
 TWO_ACCOUNT_FIXTURE_PATH = FIXTURE_PATH.with_name("report-fixture-two-accounts.json")
 LOCAL_PLUGIN_FIXTURE_PATH = FIXTURE_PATH.with_name("report-fixture-local-plugin.json")
+# Phase 4's All tools scenarios, over 30 days to keep the committed files small.
+SCENARIO_FIXTURE_PATHS = {name: FIXTURE_PATH.with_name(f"report-fixture-{name}.json") for name in SCENARIOS}
 
 
-def render_fixture(second_account: bool = False, local_plugin: bool = False) -> str:
-    built = fixture_report(second_account=second_account, local_plugin=local_plugin)
+def render_fixture(second_account: bool = False, local_plugin: bool = False,
+                   scenario: Optional[str] = None) -> str:
+    built = fixture_report(second_account=second_account, local_plugin=local_plugin, scenario=scenario,
+                           days=30 if scenario else 90)
     return json.dumps(built, indent=2, sort_keys=False) + "\n"
 
 
@@ -468,7 +516,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(write_sandbox(arguments.directory, now))
         return 0
     fixtures = {FIXTURE_PATH: render_fixture(), TWO_ACCOUNT_FIXTURE_PATH: render_fixture(second_account=True),
-                LOCAL_PLUGIN_FIXTURE_PATH: render_fixture(local_plugin=True)}
+                LOCAL_PLUGIN_FIXTURE_PATH: render_fixture(local_plugin=True),
+                **{path: render_fixture(second_account=True, scenario=name)
+                   for name, path in SCENARIO_FIXTURE_PATHS.items()}}
     if arguments.command == "fixture":
         for path, rendered in fixtures.items():
             path.parent.mkdir(parents=True, exist_ok=True)
