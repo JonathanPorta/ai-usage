@@ -10,8 +10,8 @@ releasing are separate owner decisions.**
 | --- | --- | --- |
 | PRD packet | **Approved** by the owner, 2026-11-01: D1–D7 as recommended, with corrections C1–C4 and a D4 clarification. The acceptance criteria are renumbered AC-1 to AC-12. | [`prd-all-view.md`](prd-all-view.md); the [decision record](https://github.com/JonathanPorta/ai-usage/pull/28#issuecomment-6569972670) on #28. |
 | Task list | Tasks 1.0 to 5.2 done; 4.3 (the owner's visual acceptance) and 5.3 (CI and review on the final head) open. | [`tasks-all-view.md`](tasks-all-view.md) |
-| Implementation | **Done, in review** on `jp/f/phase-4-all-view`. There is no collector change (`ai_usage_service.py` and `ai_usage_plugins/` are untouched; still 2.4.0). | `tests/test_all_view.py`: 19 tests. `AllToolsTests`: 21 XCTests. 10 weakened report rules and 10 weakened figure rules are each caught. Parity declares only `report.groups`. |
-| Renders (AC-10) | **Awaiting the owner.** 14 new renders (7 scenes, light and dark). Against `main` rendered on this Mac, 64 are identical, and the 26 History renders differ only by the sidebar row. | `docs/design/app/design.md`, the native verification log. |
+| Implementation | **Done, in review** on `jp/f/phase-4-all-view`. There is no collector change (`ai_usage_service.py` and `ai_usage_plugins/` are untouched; still 2.4.0). | `tests/test_all_view.py`: 19 tests. `AllToolsTests`: 22 XCTests. 10 weakened report rules and 10 weakened figure rules are each caught. Parity declares only `report.groups`. |
+| Renders (AC-10) | **Awaiting the owner.** 16 new renders (8 scenes, light and dark). Against `main` rendered on this Mac, 64 are identical, and the 26 History renders differ only by the sidebar row. | `docs/design/app/design.md`, the native verification log. |
 | Live check (AC-11) | Pending a separately approved app install. | — |
 
 - **Entry:** phase 2's exit (accepted 2026-10-23). Phase 4 doesn't depend on phase 3, so
@@ -56,6 +56,17 @@ releasing are separate owner decisions.**
 5. **The renderer's selected day.** The incomplete-day render shows a day selected so its
    readout can be reviewed. This uses `chartPreviewDate`, an environment value that the app
    never sets.
+
+6. **The owner's review of the first packet (2026-11-02), first finding:** the readout no
+   longer stops at three lines.
+   - Every account's value, state and time stays visible, and the chart reserves the tallest
+     readout so its height doesn't move.
+   - Breakdown names and statuses wrap instead of truncating.
+   - Two overflow-fixture accounts have long names, and a narrow overflow render with today
+     selected shows a four-line readout.
+7. **The same review, second finding:** a zero day with incomplete turns reads "at least 0
+   tokens" with the warning. "Measured, no usage" is only for a complete zero. A regression
+   covers it, and fails against the old wording.
 
 ### Discovered, not in scope
 - A provider's own History page shows its range total without "at least" when the range has a

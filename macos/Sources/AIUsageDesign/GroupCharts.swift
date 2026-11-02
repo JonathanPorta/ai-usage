@@ -73,7 +73,8 @@ public struct GroupDayChart: View {
             .frame(height: plotHeight + 1 + strip + 2)
             axis
             // Sized to the tallest text it can show, so moving between days never
-            // changes the chart's height.
+            // changes the chart's height. Never truncated: every account's value, state
+            // and time stays visible, however many accounts or however long their names.
             ZStack(alignment: .topLeading) {
                 ForEach(Array(readouts.enumerated()), id: \.offset) { _, text in caption(text).hidden() }
                 caption(readout)
@@ -129,7 +130,6 @@ public struct GroupDayChart: View {
         Text(text)
             .font(.auBody)
             .foregroundStyle(T.Color.muted.color)
-            .lineLimit(3)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

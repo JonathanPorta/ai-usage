@@ -53,6 +53,14 @@ final class AllToolsTests: XCTestCase {
         XCTAssertEqual(AllToolsRules.todayFigure(AllToolsReading(days[1])), AllToolsFigure(value: 40, qualified: false))
     }
 
+    func testAZeroDayWithIncompleteTurnsIsAtLeastZero() {
+        let lowZero = day("2026-09-28", .zero, 0, events: 2)
+        XCTAssertEqual(range([lowZero, day(today, .partial, 0)]), AllToolsFigure(value: 0, qualified: true))
+        XCTAssertEqual(AllToolsRules.todayFigure(AllToolsReading(day(today, .zero, 0, events: 2))).text, "at least 0")
+        // A complete zero stays an unqualified, known 0.
+        XCTAssertEqual(range([day("2026-09-28", .zero, 0), day(today, .partial, 0)]), AllToolsFigure(value: 0, qualified: false))
+    }
+
     func testTodayIsQualifiedOnlyByItsOwnDay() {
         XCTAssertTrue(AllToolsRules.todayFigure(AllToolsReading(day(today, .incomplete, 40))).qualified)
         XCTAssertTrue(AllToolsRules.todayFigure(AllToolsReading(day(today, .partial, 40, events: 1))).qualified)
@@ -220,14 +228,17 @@ final class AllToolsTests: XCTestCase {
     func testTheOverflowFixtureKeepsEveryAccountNamed() throws {
         let report = try Report.scenarioFixture("overflow")
         let claude = try XCTUnwrap(AllToolsPage(report, range: 30)?.sections.first { $0.id == "claude" })
-        XCTAssertEqual(claude.series.map(\.label), ["Claude Code", "Claude (work)", "Claude (lab)", "Other accounts (2)"])
+        let lab = "Claude (research lab, long-running evaluations)"
+        let oss = "Claude (open-source maintainers, shared team account)"
+        XCTAssertEqual(claude.series.map(\.label), ["Claude Code", "Claude (work)", lab, "Other accounts (2)"])
+        XCTAssertEqual(claude.rows.map(\.name), ["Claude Code", "Claude (work)", lab, oss, "Claude (ci)"])
         XCTAssertEqual(claude.rows.map(\.id), ["claude", "claude-az", "claude-lab", "claude-oss", "claude-ci"])
         XCTAssertEqual(claude.rows.map(\.series), [0, 1, 2, 3, 3])
         let group = try XCTUnwrap(report.groups?.first { $0.type == "claude" })
         for (bar, day) in zip(claude.bars, group.days.suffix(30)) {
             let others = day.parts.filter { ["claude-oss", "claude-ci"].contains($0.id) }.compactMap(\.total).reduce(0, +)
             XCTAssertEqual(bar.segments.first { $0.series == 3 }?.value ?? 0, others, bar.date)
-            for name in ["Claude Code", "Claude (work)", "Claude (lab)", "Claude (oss)", "Claude (ci)"]
+            for name in ["Claude Code", "Claude (work)", lab, oss, "Claude (ci)"]
                 where day.state != .notCollected {
                 XCTAssertTrue(bar.readout.contains(name), "\(bar.date): \(bar.readout)")
             }
@@ -271,6 +282,12 @@ final class AllToolsTests: XCTestCase {
         XCTAssertEqual(text(day("2026-09-28", .measured, 30, events: 3, parts: [part("a", .measured, 20, events: 3),
                                                                              part("b", .measured, 10)])),
                        "\(date): at least 30 tokens: A 20 (3 turns reported incomplete usage), B 10")
+        // A zero with incomplete turns may be low: "at least 0", never "measured, no usage".
+        let lowZero = day("2026-09-28", .zero, 0, events: 2, parts: [part("a", .zero, 0, events: 2), part("b", .zero, 0)])
+        XCTAssertEqual(text(lowZero), "\(date): at least 0 tokens — 2 turns reported incomplete usage: "
+                       + "A 0 (2 turns reported incomplete usage), B 0")
+        XCTAssertEqual(text(day("2026-09-28", .zero, 0, events: 1, parts: [part("a", .zero, 0, events: 1)])),
+                       "\(date): at least 0 tokens — 1 turn reported incomplete usage: A 0 (1 turn reported incomplete usage)")
         // One account: its part is left out unless it adds a time or incomplete turns.
         XCTAssertEqual(text(day("2026-09-28", .measured, 20, parts: [part("a", .measured, 20)])), "\(date): 20 tokens")
         XCTAssertEqual(text(day(today, .partial, 20, parts: [part("a", .partial, 20)])),

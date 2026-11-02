@@ -111,12 +111,13 @@ private struct Breakdown: View {
                     RoundedRectangle(cornerRadius: 2).fill(GroupDayChart.color(swatch)).frame(width: 9, height: 9)
                         .accessibilityHidden(true)
                 }
-                name.lineLimit(1)
+                // Long names wrap; nothing in the breakdown is truncated.
+                name.fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(total).frame(width: 110, alignment: .trailing)
             Text(today).frame(width: 90, alignment: .trailing)
-            Text(status).frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
+            Text(status).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
         }
         .font(header ? .auCaption.weight(.semibold) : .auCaption.monospacedDigit())
         .foregroundStyle(header ? T.Color.muted.color : T.Color.text.color)

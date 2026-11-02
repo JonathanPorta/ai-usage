@@ -197,11 +197,14 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     "all-tools": {"lost": [("claude-az", 2)], "extra_accounts": [
         {"id": "claude-old", "label": "Claude (old)", "since": 19, "until": 12, "disabled": True,
          "hours": (11, 16), "tokens": (20_000, 4_000)}]},
-    # Five Claude Code accounts: three drawn on their own and two as "Other accounts".
+    # Five Claude Code accounts: three drawn on their own and two as "Other accounts", two of
+    # them with long names, so the readout and the breakdown must wrap rather than truncate.
     "overflow": {"lost": [], "extra_accounts": [
-        {"id": "claude-lab", "label": "Claude (lab)", "since": 12, "until": 0, "hours": (9, 13, 17),
+        {"id": "claude-lab", "label": "Claude (research lab, long-running evaluations)", "since": 12, "until": 0,
+         "hours": (9, 13, 17),
          "tokens": (14_000, 3_000)},
-        {"id": "claude-oss", "label": "Claude (oss)", "since": 9, "until": 0, "hours": (12,),
+        {"id": "claude-oss", "label": "Claude (open-source maintainers, shared team account)", "since": 9,
+         "until": 0, "hours": (12,),
          "tokens": (9_000, 2_000)},
         {"id": "claude-ci", "label": "Claude (ci)", "since": 6, "until": 0, "hours": (2, 3),
          "tokens": (6_000, 1_000)}]},

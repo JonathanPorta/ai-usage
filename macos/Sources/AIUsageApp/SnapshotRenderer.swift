@@ -200,7 +200,8 @@ enum SnapshotRenderer {
 
     /// History's All tools page (phase 4): two Claude Code accounts with the other tools (wide,
     /// narrow, 90 days), an incomplete day with an account that is off (that day selected),
-    /// five accounts of one tool, only one-account tools, and no usage at all.
+    /// five accounts of one tool (also narrow, with today selected), only one-account tools,
+    /// and no usage at all.
     private static func allToolsStates(
         _ single: Report,
         shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
@@ -216,8 +217,12 @@ enum SnapshotRenderer {
         let day = incomplete.groups?.first { $0.type == "claude" }?.days.first { $0.state == .incomplete }?.date
         try shoot("history-all-tools-incomplete-off", 920, height, store(incomplete),
                   AnyView(page().environment(\.chartPreviewDate, day)))
-        try shoot("history-all-tools-overflow", 920, height, store(try Report.scenarioFixture("overflow")),
-                  AnyView(page()))
+        let overflow = try Report.scenarioFixture("overflow")
+        try shoot("history-all-tools-overflow", 920, height, store(overflow), AnyView(page()))
+        // Today selected at the narrow width: five accounts, two with long names and each with
+        // its own time, so the readout runs past three lines and must not be cut off.
+        try shoot("history-all-tools-overflow-narrow", 760, 2900, store(overflow),
+                  AnyView(page().environment(\.chartPreviewDate, overflow.today)))
         try shoot("history-all-tools-single", 920, height, store(single), AnyView(page()))
         var empty = two
         for index in empty.providers.indices {

@@ -240,6 +240,9 @@ public enum AllToolsText {
         switch day.state {
         case .notCollected: return "\(date): not collected"
         case .missing: head = "\(date): no data — missing reading, not zero"
+        // "Measured, no usage" only for a complete zero: incomplete turns make it "at least 0".
+        case .zero where figure.qualified:
+            head = "\(date): \(figure.text) tokens — \(AllToolsText.turns(day.incompleteEvents)) reported incomplete usage"
         case .zero: head = "\(date): 0 tokens — measured, no usage"
         case .partial where day.date == today: head = "\(date) so far: \(figure.text) tokens"
         case .partial: head = "\(date): \(figure.text) tokens, day incomplete"
@@ -262,11 +265,11 @@ public enum AllToolsText {
             let time = part.asOf.map { today ? "as of \(Format.clock($0))" : "read until \(Format.clock($0))" }
             text = "\(name) \(Format.tokens(part.total)) \(time ?? "time unknown")"
         }
-        if part.incompleteEvents > 0 {
-            text += " (\(part.incompleteEvents) \(part.incompleteEvents == 1 ? "turn" : "turns") reported incomplete usage)"
-        }
+        if part.incompleteEvents > 0 { text += " (\(turns(part.incompleteEvents)) reported incomplete usage)" }
         return text
     }
+
+    static func turns(_ count: Int) -> String { "\(count) \(count == 1 ? "turn" : "turns")" }
 
     /// What qualifies one account's figures over the range, or "Complete".
     static func status(_ days: [Day], coverageStart: String?, today: String) -> String {

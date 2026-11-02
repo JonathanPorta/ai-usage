@@ -15922,7 +15922,7 @@
     {
       "id": "claude-lab",
       "type": "claude",
-      "name": "Claude (lab)",
+      "name": "Claude (research lab, long-running evaluations)",
       "product": "Claude Code",
       "enabled": true,
       "setup": "ready",
@@ -16341,7 +16341,7 @@
     {
       "id": "claude-oss",
       "type": "claude",
-      "name": "Claude (oss)",
+      "name": "Claude (open-source maintainers, shared team account)",
       "product": "Claude Code",
       "enabled": true,
       "setup": "ready",

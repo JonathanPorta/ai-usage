@@ -345,7 +345,9 @@ All tools (phase 4, `tasks/phase-4/prd-all-view.md`, 2026-11-01):
   - The incomplete-day marker below the baseline, which carries no amount.
   - A "so far" stack: a lighter fill inside a dashed outline in the text color. The accent outline vanished against the first series' blue, so it isn't used.
 - **The dark series** were spread after the first overflow render: lavender and slate looked alike at 1.2:1. They are now 1.9:1 apart, with neighbours at least 1.5:1.
-- **Renders:** 14 new, in light and dark, from synthetic fixtures (`make app-snapshot` in a separate worktree).
+- **The readout is never truncated.** It names every account with its value, state and time, at any width and for long names, and the chart reserves the tallest readout's height so moving between days never moves the page. The breakdown's names and statuses wrap too. The first render packet cut the readout at three lines; at 760 pt that hid part of one, which is why `history-all-tools-narrow` changed.
+- **A zero day with incomplete turns** reads "at least 0 tokens" with the warning. "Measured, no usage" is kept for a complete zero.
+- **Renders:** 16 new (8 scenes), in light and dark, from synthetic fixtures (`make app-snapshot` in a separate worktree). `history-all-tools-overflow-narrow` selects today at 760 pt, so the readout runs past three lines.
   - They are not in `SHA256SUMS`; they await the owner's acceptance.
   - Against `main` (`b569d31`) rendered on the same Mac, 64 renders are byte-identical.
   - The 26 `history-*` renders differ only inside the sidebar (the All tools row). This was checked row by row outside x = 211 pt, and a negative control confirmed that the check catches a main-column change.

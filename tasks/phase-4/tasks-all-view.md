@@ -52,7 +52,8 @@
   - [x] 1.4 Negative control: 10 weakened rules, each caught.
   - [x] 1.5 Series tokens with the contrast and lightness tests.
 - [x] 2.0 Presentation model (AC-4 to AC-9)
-  - [x] 2.1 Validation first: `AllToolsTests` (21 XCTests).
+  - [x] 2.1 Validation first: `AllToolsTests` (22 XCTests, including the zero day with incomplete
+        turns).
   - [x] 2.2 `ToolGroup` and `GroupDay` decoding; `AllToolsPage`, figures F1–F4, series and
         overflow, bars, breakdown rows, readouts, and `HistorySelection`.
   - [x] 2.3 Negative control: 10 weakened rules, each caught.
@@ -61,8 +62,9 @@
   - [x] 3.2 `AllToolsView`; History's All tools row and selection; breakdown names open each
         account's page.
 - [x] 4.0 Renders (AC-10)
-  - [x] 4.1 Seven scenes, each in light and dark: two accounts (wide, narrow, 90 days), an
-        incomplete day with an account off, the overflow, one-account tools only, and no usage.
+  - [x] 4.1 Eight scenes, each in light and dark: two accounts (wide, narrow, 90 days), an
+        incomplete day with an account off, the overflow (wide, and narrow with today selected,
+        so the readout runs past three lines), one-account tools only, and no usage.
   - [x] 4.2 Compared with `main` rendered on the same Mac: 64 identical; the 26 History
         renders differ only in the sidebar.
   - [ ] 4.3 The owner's visual acceptance (pending).
