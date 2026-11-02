@@ -105,6 +105,15 @@ SERVICE_LABEL = resolve_service_label()
 DEFAULT_ROOT = Path.home() / ".ai-usage"
 DEFAULT_CONFIG_PATH = DEFAULT_ROOT / "config.json"
 DEFAULT_INSTALLED_SCRIPT = DEFAULT_ROOT / "collector.py"
+# The program the LaunchAgent runs. System Settings > Login Items labels a
+# background item with the launched file's name, so launching the interpreter
+# directly listed the collector as "python3.15". This launcher only execs the
+# recorded interpreter with the unchanged arguments (issue #26).
+DEFAULT_LAUNCHER = DEFAULT_ROOT / "ai-usage-collector"
+# The menu-bar app's CFBundleIdentifier (macos/Support/Info.plist). macOS groups
+# the background item under the app once the app and the launcher share a
+# Developer ID team; with ad-hoc signatures the key is inert and harmless.
+APP_BUNDLE_IDENTIFIER = "codes.porta.ai-usage.app"
 DEFAULT_PLIST_PATH = (
     Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
 )
@@ -1508,21 +1517,28 @@ def apply_integration_plan(plan: MutableMapping[str, Any], tx: FilesystemTransac
         print(f"Preserved {spec.display_name} settings ({status}): {plan['settings_path']}")
 
 
+def build_launcher_bytes(python_executable: Path) -> bytes:
+    """The two-line sh launcher: exec the recorded interpreter with its arguments."""
+    return ("#!/bin/sh\n" + "exec " + shlex.quote(str(python_executable)) + ' "$@"\n').encode("utf-8")
+
+
 def build_launch_agent_plist(
     python_executable: Path,
     installed_script: Path,
     config_path: Path,
     log_path: Path,
+    launcher: Optional[Path] = None,
 ) -> bytes:
     payload = {
         "Label": SERVICE_LABEL,
         "ProgramArguments": [
-            str(python_executable),
+            str(launcher if launcher is not None else python_executable),
             str(installed_script),
             "daemon",
             "--config",
             str(config_path),
         ],
+        "AssociatedBundleIdentifiers": [APP_BUNDLE_IDENTIFIER],
         "RunAtLoad": True,
         "KeepAlive": True,
         "ProcessType": "Background",
@@ -1729,12 +1745,20 @@ def install_service(config_path: Path, no_start: bool) -> None:
         DEFAULT_INSTALLED_SCRIPT,
         config_path,
         log_path,
+        DEFAULT_LAUNCHER,
     )
     file_plans: dict[str, dict[str, Any]] = {
         "installed_script": prepare_managed_file(
             "installed_script",
             DEFAULT_INSTALLED_SCRIPT,
             Path(__file__).resolve().read_bytes(),
+            0o700,
+            previous_ownership,
+        ),
+        "launcher": prepare_managed_file(
+            "launcher",
+            DEFAULT_LAUNCHER,
+            build_launcher_bytes(python_executable),
             0o700,
             previous_ownership,
         ),
@@ -1810,7 +1834,7 @@ def install_service(config_path: Path, no_start: bool) -> None:
         # The collector and its plugin package are written together, in one
         # transaction: a failure restores every one of them. Modules go first, so
         # a collector.py started mid-install never finds an older package.
-        for key in (*module_plans, "installed_script"):
+        for key in (*module_plans, "installed_script", "launcher"):
             apply_managed_file(file_plans[key], tx)
         for key, record in obsolete_modules.items():
             remove_owned_file(key, record, tx)
@@ -2439,6 +2463,7 @@ def uninstall_service(config_path: Path) -> None:
             if not hook_safe:
                 unsafe_hooks.append(integration_display_name(name))
         remove_owned_file("plist", files.get("plist"), tx)
+        remove_owned_file("launcher", files.get("launcher"), tx)
         if not unsafe_hooks and not remove_owned_file("installed_script", files.get("installed_script"), tx):
             # collector.py stays (modified or unowned), so it keeps the package it needs.
             print("Preserved the provider plugins because collector.py was kept")
