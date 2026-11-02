@@ -57,6 +57,7 @@ The Blessed checkers in `tools/blessed/` come from blessed-cicd's signed public 
   - The handoff defines only paired semantic values and no separate primitive palette, so the primitive layer is collapsed into the semantic layer. Do not add primitives without a design reason.
 - **Generation:** `macos/scripts/generate_design_tokens.py` writes `DesignTokens.generated.swift`. It is deterministic, uses only the standard library, and resolves references. `TokenColor` resolves light and dark against the effective `NSAppearance`, so views follow the system appearance.
 - **Rule:** never write a hex value or a magic point size in a view. Add a token instead.
+- **Account series (phase 4):** `color.semantic.series1`–`series4`, aliased as `color.component.chart.account1`–`account4`. Each reaches at least 3:1 against the background, the panel, the selected-day fill and the today fill in both appearances, and neighbouring series differ in lightness (`tests/test_all_view.py` computes both from `tokens.json`).
 - **Deliberate divergence from the handoff:** `color.semantic.accentSoft` is `#5586c6` / `#6c94c7` instead of the handoff's `#a9c3e6` / `#3d5a80`, an accessibility correction (2026-10-09) for chart contrast. The handoff archive is unchanged.
 
 ## Components and patterns
@@ -125,3 +126,4 @@ over the collector's CSV, its state and `launchctl`.
 | Offscreen visual verification (`make app-snapshot`) | Done |
 | Monitoring, Settings, service start/stop, pause/resume, provider progress, notifications, open at login | Done (milestone 2). Pause and progress need collector 2.2.0+, and the UI says so |
 | Visual baselines | Accepted 2026-10-10: 30 fixture renders in `docs/design/app/references/` (captured states only; interactions listed separately) |
+| All tools (phase 4): `GroupDayChart`, `GroupChartLegend`, `AllToolsView` over the `AllToolsPage` model | Implemented; its renders await the owner's visual acceptance |

@@ -528,6 +528,61 @@ def build_days(definition: ProviderDef, aggregated: dict[str, dict[str, float]],
     return out, coverage_start, today_record
 
 
+# Phase 4's All tools: each type's accounts tracked now, day by day. Values add only
+# within a type and only when known; a day without a known value has no total.
+GROUP_PART_KEYS = ("id", "state", "total", "as_of", "incomplete_events")
+
+
+def build_groups(providers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One group per type, in the order of each type's first provider (docs/CLI.md, Group)."""
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for provider in providers:
+        by_type.setdefault(provider["type"], []).append(provider)
+    dates = [day["date"] for day in providers[0]["days"]] if providers else []
+    groups = []
+    for kind, accounts in by_type.items():
+        members = [p for p in accounts if p["enabled"] and p["setup"] != "disabled"]
+        own = next((p for p in accounts if p["id"] == kind), None)
+        starts = [p["coverage_start"] for p in members if p["coverage_start"]]
+        days_by_member = [{day["date"]: day for day in p["days"]} for p in members]
+        groups.append({
+            "type": kind,
+            "name": own["name"] if own else kind,
+            "members": [p["id"] for p in members],
+            "excluded": [{"id": p["id"], "reason": "disabled"} for p in accounts if p not in members],
+            "coverage_start": min(starts) if starts else None,
+            "days": [group_day(date, [{"id": member["id"], **part_of(days.get(date))}
+                                      for member, days in zip(members, days_by_member)])
+                     for date in dates],
+        })
+    return groups
+
+
+def part_of(day: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if day is None:
+        return {"state": "missing", "total": None, "as_of": None, "incomplete_events": 0}
+    return {"state": day["state"], "total": day["total"], "as_of": day["as_of"],
+            "incomplete_events": day["incomplete_events"]}
+
+
+def group_day(date: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Rules 3 and 4 of the Group contract: a known 0 is a value; no known value is no total."""
+    known = [part["total"] for part in parts if part["total"] is not None]
+    states = {part["state"] for part in parts}
+    total = clean(sum(known)) if known else None
+    if not known:
+        state = "not_collected" if states <= {"not_collected"} else "missing"
+    elif "missing" in states:
+        state = "incomplete"
+    elif "partial" in states:
+        state = "partial"
+    else:
+        state = "measured" if total > 0 else "zero"
+    return {"date": date, "state": state, "total": total,
+            "incomplete_events": sum(part["incomplete_events"] for part in parts),
+            "parts": [{key: part[key] for key in GROUP_PART_KEYS} for part in parts]}
+
+
 def models_today(definition: ProviderDef, rows: list[Row], model_rows: list[Row], today: str) -> list[dict[str, Any]]:
     totals: dict[str, float] = {}
     if definition.type == "grok":
@@ -1217,6 +1272,7 @@ def build_report(
         "schedule": schedule,
         "collection": collection,
         "providers": providers_out,
+        "groups": build_groups(providers_out),
     }
 
 

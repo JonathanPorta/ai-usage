@@ -193,7 +193,9 @@ reported*. It never means zero.
     }
   },
   "providers": [ /* Provider, in display order: codex, claude, antigravity, grok, gemini_cli,
-                    then added accounts in config order */ ]
+                    then added accounts in config order */ ],
+  "groups": [ /* Group (phase 4, additive): one per canonical type, in the order of each
+                 type's first provider */ ]
 }
 ```
 
@@ -294,6 +296,48 @@ provider's own total. Cache tokens are never included in `total`.
 Limits: `reached` when remaining is 0 or below (used 100 or above). `low` when
 remaining is 10 or below. A limit is only flagged on a **current** window. Each
 window's freshness is evaluated on its own.
+
+### Group
+
+History's All tools page reads this. It is a function of `providers`: one group per canonical
+type, holding that type's accounts tracked now.
+
+```jsonc
+{
+  "type": "claude",
+  "name": "Claude Code",                 // the built-in's name; a local plugin's own name
+  "members": ["claude", "claude-az"],    // enabled and not disabled, in display order
+  "excluded": [ { "id": "claude-old", "reason": "disabled" } ],   // their history is left out too
+  "coverage_start": "2026-07-08",        // the earliest member's, or null
+  "days": [ {                            // oldest → today, exactly --days entries
+    "date": "2026-10-04",
+    "state": "incomplete",               // measured | zero | missing | not_collected | partial | incomplete
+    "total": 776000,                     // null when no part has a value; a known 0 is a value
+    "incomplete_events": 0,              // the parts' sum
+    "parts": [                           // each member's own Day for the date, in member order
+      { "id": "claude", "state": "measured", "total": 776000, "as_of": null, "incomplete_events": 0 },
+      { "id": "claude-az", "state": "missing", "total": null, "as_of": null, "incomplete_events": 0 }
+    ]
+  } ]
+}
+```
+
+A group day's state is decided in this order:
+1. Every part is `not_collected`: `not_collected`.
+2. No part has a value, and at least one is `missing`: `missing`.
+3. At least one part is `missing` and another has a value: `incomplete`.
+4. At least one part is `partial`: `partial`.
+5. Otherwise `measured` when the total is above 0, and `zero` when it is 0.
+
+A part "has a value" when its `total` isn't null. A `not_collected` part (an account added
+later) doesn't make a day incomplete.
+
+The `total` adds only the parts' known values, which already exclude cache tokens.
+
+A group day has no `as_of` of its own, because each part keeps the time its account was read.
+
+Nothing crosses groups. Groups carry no quota, cost or model fields: those are per account, so
+they are never combined.
 
 ### Source
 
