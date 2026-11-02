@@ -21,6 +21,9 @@ until the owner performs it on the work laptop.**
 - **Validation review mode:** auto-proceed (owner, 2026-10-24).
 - **Blocked:** no. Waiting on: AC-13 (the owner, on the work laptop). A release needs its own
   approval.
+- **Installed since:** on 2026-11-01, the personal Mac's collector was replaced by #27's (the
+  Login Items launcher, `efc605d`, outside this project). It is still 2.4.0. The backup
+  `pre-2.4.0-20261025153758` and the pinned rollback clones are kept.
 - **Follow-up:** test isolation for provider discovery,
   [`follow-up-test-isolation-provider-discovery.md`](follow-up-test-isolation-provider-discovery.md).
 
