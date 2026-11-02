@@ -7,7 +7,7 @@ review page https://claude.ai/artifact/KPTdFWGJPhwnj1YtkZd2Kj).
 
 | Item | Value |
 | --- | --- |
-| Images | 74 PNGs: 37 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts and single-account Settings 2026-10-20, chart readout spacing 2026-10-22 (below) |
+| Images | 90 PNGs: 45 views × light (`aqua`) and dark (`darkAqua`); 30 accepted 2026-10-10, History updated 2026-10-15, added accounts and single-account Settings 2026-10-20, chart readout spacing 2026-10-22, All tools 2026-11-02 (below) |
 | Checksums | `SHA256SUMS` (identical to the package's `SHA256SUMS.txt`) |
 | Command | `make app-snapshot` (`AIUsage --snapshot .sandbox/snapshots/fixture`) |
 | Data | Committed synthetic fixture `macos/Sources/AIUsageCore/Resources/fixtures/report-fixture.json`, evaluated at 2026-09-29T16:40:00Z, `TZ=America/Denver` |
@@ -106,6 +106,21 @@ Interaction, checked in an isolated fixture app at `11f6fcc` (not a render):
 
 The automation available could not move the pointer or deliver keys to the popover. The owner
 accepted merging with these checks unverified; they are not recorded as passed.
+
+## All tools (accepted 2026-11-02)
+
+Accepted by the owner (Jonathan) on 2026-11-02 ("AC-10: accepted for the 16-render packet from
+082c5f9.") from the review page https://claude.ai/artifact/4cAWnnExHwNJDGQoCqgFH3 (PR #29,
+phase 4). The decision is recorded on PR #29:
+https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6574017977.
+
+| Item | Value |
+| --- | --- |
+| Added (16) | `history-all-tools`, `history-all-tools-narrow`, `history-all-tools-90d`, `history-all-tools-incomplete-off`, `history-all-tools-overflow`, `history-all-tools-overflow-narrow`, `history-all-tools-single`, `history-all-tools-no-usage`, light and dark |
+| Data | The committed fixtures `report-fixture-two-accounts.json` (the two-account and no-usage scenes), `report-fixture.json` (one-account tools only), and the scenario fixtures `report-fixture-all-tools.json` and `report-fixture-overflow.json` |
+| Rendered at | `082c5f9` (the PR head, as reviewed); a fresh render there is byte-identical to the packet |
+| Toolchain | macOS 27.0.1, Swift 6.4 |
+| Not replaced | The 26 earlier History baselines. Their renders now also show the "All tools" row in the sidebar, and nothing else differs from `main` rendered on the same Mac. They were rendered on macOS 26.6.1 and already fail to match on 27.0.1 (above); re-baselining them needs its own review |
 
 Verify: `cd docs/design/app/references && shasum -a 256 -c SHA256SUMS`
 

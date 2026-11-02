@@ -67,7 +67,8 @@
         so the readout runs past three lines), one-account tools only, and no usage.
   - [x] 4.2 Compared with `main` rendered on the same Mac: 64 identical; the 26 History
         renders differ only in the sidebar.
-  - [ ] 4.3 The owner's visual acceptance (pending).
+  - [x] 4.3 The owner accepted the 16-render packet from `082c5f9` on 2026-11-02; the renders
+        and their checksums are in `docs/design/app/references`.
 - [x] 5.0 Docs and validation (AC-12)
   - [x] 5.1 `docs/CLI.md`, `DESIGN.md`, `DESIGN_SYSTEM.md`, the components manifest, and the
         verification log.

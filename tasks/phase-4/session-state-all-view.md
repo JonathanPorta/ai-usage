@@ -1,22 +1,22 @@
 ## Session State: all-view
-Last updated: 2026-11-01 (implemented on `jp/f/phase-4-all-view`; renders and merge await the owner)
+Last updated: 2026-11-02 (renders accepted; the merge awaits the owner)
 
 **Status: phase 4's plan is approved and merged (#28, `b569d31`). The implementation is in its own
-PR, with 14 renders for the owner's visual acceptance. Merging it, installing the app and
-releasing are separate owner decisions.**
+PR (#29), and the owner accepted its 16 renders (AC-10) on 2026-11-02. Merging it, installing
+the app and releasing are separate owner decisions.**
 
 ### Current Position
 | Part | State | Evidence |
 | --- | --- | --- |
 | PRD packet | **Approved** by the owner, 2026-11-01: D1–D7 as recommended, with corrections C1–C4 and a D4 clarification. The acceptance criteria are renumbered AC-1 to AC-12. | [`prd-all-view.md`](prd-all-view.md); the [decision record](https://github.com/JonathanPorta/ai-usage/pull/28#issuecomment-6569972670) on #28. |
-| Task list | Tasks 1.0 to 5.2 done; 4.3 (the owner's visual acceptance) and 5.3 (CI and review on the final head) open. | [`tasks-all-view.md`](tasks-all-view.md) |
+| Task list | Tasks 1.0 to 5.2 done, including 4.3 (the owner's visual acceptance); 5.3 (CI and review on the final head) open. | [`tasks-all-view.md`](tasks-all-view.md) |
 | Implementation | **Done, in review** on `jp/f/phase-4-all-view`. There is no collector change (`ai_usage_service.py` and `ai_usage_plugins/` are untouched; still 2.4.0). | `tests/test_all_view.py`: 19 tests. `AllToolsTests`: 22 XCTests. 10 weakened report rules and 10 weakened figure rules are each caught. Parity declares only `report.groups`. |
-| Renders (AC-10) | **Awaiting the owner.** 16 new renders (8 scenes, light and dark). Against `main` rendered on this Mac, 64 are identical, and the 26 History renders differ only by the sidebar row. | `docs/design/app/design.md`, the native verification log. |
+| Renders (AC-10) | **Accepted** by the owner, 2026-11-02, for the 16-render packet from `082c5f9` (8 scenes, light and dark). They are committed as references with their checksums. Against `main` rendered on this Mac, 64 are identical, and the 26 earlier History renders differ only by the sidebar row; those baselines aren't replaced. | The [decision record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6574017977) on #29; `docs/design/app/references/README.md`. |
 | Live check (AC-11) | Pending a separately approved app install. | — |
 
 - **Entry:** phase 2's exit (accepted 2026-10-23). Phase 4 doesn't depend on phase 3, so
   phase 3's pending AC-13 doesn't block it.
-- **Blocked:** no. Waiting on: the owner's review of the implementation PR and its renders.
+- **Blocked:** no. Waiting on: the owner's merge decision for #29.
 
 ### Phase-gate audit (phase 3 → phase 4, 2026-11-01)
 **Result: PASS WITH WARNINGS.**
