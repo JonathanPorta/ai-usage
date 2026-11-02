@@ -17,8 +17,8 @@
 | AC-7 | Chart marks | 2.0, 3.0 |
 | AC-8 | Series and overflow | 2.0, 3.0 |
 | AC-9 | Accessibility and token contrast | 1.0, 2.0, 3.0 |
-| AC-10 | Visual acceptance by the owner (pending) | 4.0 |
-| AC-11 | Live check by the owner, after an approved install (pending) | — |
+| AC-10 | Visual acceptance by the owner (accepted 2026-11-02) | 4.0 |
+| AC-11 | Live check by the owner, after an approved install (passed 2026-11-02) | — |
 | AC-12 | Validation and isolation | 5.0 |
 
 ## Relevant Files
@@ -74,4 +74,5 @@
         verification log.
   - [x] 5.2 `make check`, `make app-test`, `make fixture-check`, `make design-build-check`, and
         `spec-check`/`design-check --strict`.
-  - [ ] 5.3 CI green on the final head, with a fresh independent review.
+  - [x] 5.3 CI green on the final head `cd6ed0f`, with a fresh independent review; merged as
+        `3a2473a`, and main CI green there.
