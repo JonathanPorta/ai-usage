@@ -1,22 +1,38 @@
 ## Session State: all-view
-Last updated: 2026-11-02 (renders accepted; the merge awaits the owner)
+Last updated: 2026-11-02 (phase 4 closed: merged, installed, AC-10 and AC-11 passed)
 
-**Status: phase 4's plan is approved and merged (#28, `b569d31`). The implementation is in its own
-PR (#29), and the owner accepted its 16 renders (AC-10) on 2026-11-02. Merging it, installing
-the app and releasing are separate owner decisions.**
+**Status: phase 4 is complete.** The plan is merged (#28, `b569d31`) and the implementation is
+merged (#29, `3a2473a`). The owner accepted its 16 renders (AC-10), the app was installed from
+`3a2473a`, and the owner passed the live check (AC-11), all on 2026-11-02. Release is not
+approved.
 
 ### Current Position
 | Part | State | Evidence |
 | --- | --- | --- |
 | PRD packet | **Approved** by the owner, 2026-11-01: D1–D7 as recommended, with corrections C1–C4 and a D4 clarification. The acceptance criteria are renumbered AC-1 to AC-12. | [`prd-all-view.md`](prd-all-view.md); the [decision record](https://github.com/JonathanPorta/ai-usage/pull/28#issuecomment-6569972670) on #28. |
-| Task list | Tasks 1.0 to 5.2 done, including 4.3 (the owner's visual acceptance); 5.3 (CI and review on the final head) open. | [`tasks-all-view.md`](tasks-all-view.md) |
-| Implementation | **Done, in review** on `jp/f/phase-4-all-view`. There is no collector change (`ai_usage_service.py` and `ai_usage_plugins/` are untouched; still 2.4.0). | `tests/test_all_view.py`: 19 tests. `AllToolsTests`: 22 XCTests. 10 weakened report rules and 10 weakened figure rules are each caught. Parity declares only `report.groups`. |
+| Task list | All tasks done, 1.0 to 5.3. | [`tasks-all-view.md`](tasks-all-view.md) |
+| Implementation | **Merged** as `3a2473a` ([#29](https://github.com/JonathanPorta/ai-usage/pull/29), squash-merged at head `cd6ed0f` with the head-match guard; [decision record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6574656688)). Main CI run 41427767134 is green on `3a2473a`. There is no collector change (`ai_usage_service.py` and `ai_usage_plugins/` are untouched; still 2.4.0). | `tests/test_all_view.py`: 19 tests. `AllToolsTests`: 22 XCTests. 10 weakened report rules and 10 weakened figure rules are each caught. Parity declares only `report.groups`. |
 | Renders (AC-10) | **Accepted** by the owner, 2026-11-02, for the 16-render packet from `082c5f9` (8 scenes, light and dark). They are committed as references with their checksums. Against `main` rendered on this Mac, 64 are identical, and the 26 earlier History renders differ only by the sidebar row; those baselines aren't replaced. | The [decision record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6574017977) on #29; `docs/design/app/references/README.md`. |
-| Live check (AC-11) | Pending a separately approved app install. | — |
+| App install | **Installed** on the personal Mac, 2026-11-02, owner-approved. Built in a clean clone pinned to `3a2473a` (`~/devel/portaj/ai-usage-pinned/3a2473a…`), checked with `check_app_bundle.py` and `codesign --verify --deep --strict` (ad-hoc, `codes.porta.ai-usage.app`), and deployed to the path it already ran from. The running app's CDHash matches the bundle (executable sha256 `d0acf053…`). The collector, its plugins, `config.json`, `install-ownership.json`, the LaunchAgent and history are unchanged, and the collector process wasn't restarted. | Rollback: `~/.ai-usage/app-rollback-pre-3a2473a-20261102032859` (the previous app, sha256 `984e02d2…`). |
+| Live check (AC-11) | **Passed** by the owner, 2026-11-02: both Claude accounts appear in All tools, and each account's Today value matches its own History page. | The [decision record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6575171653) on #29. |
 
 - **Entry:** phase 2's exit (accepted 2026-10-23). Phase 4 doesn't depend on phase 3, so
   phase 3's pending AC-13 doesn't block it.
-- **Blocked:** no. Waiting on: the owner's merge decision for #29.
+- **Blocked:** no. Phase 4 is closed; nothing waits on it. AC-13 (phase 3) stays pending on the
+  work laptop, release isn't approved, and deferred work stays deferred.
+
+### Phase-gate audit (phase 4 exit, 2026-11-02)
+**Result: PASS.**
+- **Exit criterion** (the project plan: the All view renders, and the owner accepts it visually):
+  met. AC-10 was accepted, and AC-11 passed live.
+- **Listed done but not done:** none found. Tasks 1.0 to 5.3 are checked against #29, its merge
+  commit and the two decision records.
+- **Required but not done:** none for phase 4. Phase 3's AC-13 stays pending on the work laptop,
+  independent of this phase.
+- **Done differently than documented:** none. The 26 earlier History baselines weren't
+  replaced, as recorded in the references README.
+- **Verification performed:** main CI on `3a2473a`; the install checks above. AC-11 is the
+  owner's live check; no agent GUI automation was used.
 
 ### Phase-gate audit (phase 3 → phase 4, 2026-11-01)
 **Result: PASS WITH WARNINGS.**

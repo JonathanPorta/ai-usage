@@ -7,6 +7,10 @@ corrections renumber them as AC-1 to AC-12 (see Decisions). No further plan appr
 unless a material scope or product decision changes. Merging the implementation, installing the
 app and releasing remain separate decisions.
 
+**Closeout (2026-11-02):** implemented and merged in #29 (`3a2473a`). The owner accepted AC-10
+([record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6574017977)), the app was installed from `3a2473a` with the owner's approval, and the
+owner passed AC-11 ([record](https://github.com/JonathanPorta/ai-usage/pull/29#issuecomment-6575171653)). Release is not approved.
+
 Scope comes from `tasks/project-plan.md`, phase 4: "stacked bars by canonical/parent type across
 instances". Exit: "All view renders; visual acceptance by the owner". Entry: phase 2's exit,
 accepted on 2026-10-23. Phase 4 doesn't depend on phase 3 (see the plan's dependency map), so
@@ -398,11 +402,12 @@ A figure is **qualified** when it may be low. Rules F1 to F3 apply to each figur
     - no usage at all.
   - The changed `history-*` renders differ only by the sidebar row. Every other existing render is
     byte-identical.
-  - **Pending:** the owner reviews them together with the implementation PR.
+  - **Accepted** by the owner on 2026-11-02, for the 16-render packet from `082c5f9`.
 - **AC-11 Live check by the owner**, after a separately approved app install on the personal Mac.
   - All tools shows Claude Code with both accounts stacked.
   - Today's part for each account matches that account's own History page.
-  - **Pending:** the owner performs it.
+  - **Passed** (owner, 2026-11-02) on the app installed from `3a2473a`: both Claude accounts
+    appear in All tools, and each account's Today value matches its own History page.
 - **AC-12 Validation and isolation.**
   - `make check` (with `AI_USAGE_REQUIRE_PARITY_HISTORY=1`), `make app-test`,
     `make fixture-check` and `make design-build-check` pass.

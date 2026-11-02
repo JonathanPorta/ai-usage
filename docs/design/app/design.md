@@ -348,10 +348,11 @@ All tools (phase 4, `tasks/phase-4/prd-all-view.md`, 2026-11-01):
 - **The readout is never truncated.** It names every account with its value, state and time, at any width and for long names, and the chart reserves the tallest readout's height so moving between days never moves the page. The breakdown's names and statuses wrap too. The first render packet cut the readout at three lines; at 760 pt that hid part of one, which is why `history-all-tools-narrow` changed.
 - **A zero day with incomplete turns** reads "at least 0 tokens" with the warning. "Measured, no usage" is kept for a complete zero.
 - **Renders:** 16 new (8 scenes), in light and dark, from synthetic fixtures (`make app-snapshot` in a separate worktree). `history-all-tools-overflow-narrow` selects today at 760 pt, so the readout runs past three lines.
-  - They are not in `SHA256SUMS`; they await the owner's acceptance.
+  - The owner accepted them on 2026-11-02; they are in `references/` and `SHA256SUMS`.
   - Against `main` (`b569d31`) rendered on the same Mac, 64 renders are byte-identical.
   - The 26 `history-*` renders differ only inside the sidebar (the All tools row). This was checked row by row outside x = 211 pt, and a negative control confirmed that the check catches a main-column change.
-- **Not verified live:** hover and keyboard on the new chart, the breakdown links, and the range control on screen. The owner's live check (AC-11) follows a separately approved app install.
+- **Live check (AC-11), passed by the owner on 2026-11-02** on the app installed from `3a2473a`: both Claude accounts appear in All tools, and each account's Today value matches its own History page.
+- **Not verified live:** hover and keyboard on the new chart, the breakdown links, and the range control on screen. AC-11 didn't cover them.
 
 ### Current acceptance state (2026-10-11)
 

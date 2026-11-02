@@ -11,10 +11,10 @@ five corrections made in the PRD ([PRD](phase-3/prd-private-plugins.md)). It is 
 2026-10-25 ([session state](phase-3/session-state-private-plugins.md)). AC-13 is pending until the
 owner performs it on the work laptop. Phase 4's PRD and acceptance criteria were approved by the
 owner on 2026-11-01, with four corrections made in the PRD ([PRD](phase-4/prd-all-view.md)). It
-doesn't wait on AC-13, because phase 4 depends only on phase 2. Its implementation is in review;
-the owner accepted its renders (AC-10) on 2026-11-02
-([session state](phase-4/session-state-all-view.md)). Merging it, installing the app and
-releasing remain separate decisions. Each phase gets its own PRD and acceptance-criteria gate,
+doesn't wait on AC-13, because phase 4 depends only on phase 2. It is merged (#29, `3a2473a`) and
+was installed on the personal Mac; the owner accepted its renders (AC-10) and passed its live
+check (AC-11) on 2026-11-02 ([session state](phase-4/session-state-all-view.md)). Release
+remains a separate decision. Each phase gets its own PRD and acceptance-criteria gate,
 and this plan does not widen their scope.
 
 ## Project Brief
