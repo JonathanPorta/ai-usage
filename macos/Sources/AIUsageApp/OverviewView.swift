@@ -289,7 +289,9 @@ struct ProviderCard: View {
             }
             Text(usage.text).foregroundStyle(usage.warning ? T.Color.warning.color : T.Color.muted.color)
             if let failed = provider.sources.first(where: { $0.status == .failed || $0.status == .auth }) {
-                Label("\(failed.label): \(failed.status == .auth ? "sign-in needed" : "last check failed")",
+                Label(failed.status == .auth ? "\(failed.label): sign-in needed"
+                      : "Couldn't refresh \(failed.label.lowercased()) · "
+                        + (failed.measuredAt != nil || failed.lastReadAt != nil ? "showing the last reading" : "no reading yet"),
                       systemImage: failed.status == .auth ? Symbols.signIn : Symbols.failure)
                     .foregroundStyle(T.Color.danger.color)
             }
