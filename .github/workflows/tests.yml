@@ -190,7 +190,9 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.9", "3.14"]
-    runs-on: ubuntu-latest
+    # ubuntu-latest is Ubuntu 26.04, which setup-python has no 3.9 for; the
+    # 3.9 leg stays on 24.04. The job name is a required check: keep it.
+    runs-on: ${{ matrix.python == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
