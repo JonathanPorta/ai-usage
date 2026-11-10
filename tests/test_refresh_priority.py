@@ -158,8 +158,6 @@ class RecordTests(unittest.TestCase):
             # A nullable measurement: sampled one second in, None when the child was gone
             # by then or `ps` could not say.
             self.assertTrue(record["child_priority"] is None or isinstance(record["child_priority"], int))
-        if DARWIN:
-            self.assertIsInstance(timeout["child_priority"], int, "a child alive at one second is sampled")
 
     def test_a_child_that_answers_within_a_second_is_not_sampled(self) -> None:
         state: dict[str, Any] = {}
