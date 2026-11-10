@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import time
@@ -655,6 +656,8 @@ def collect_claude(
     state: MutableMapping[str, Any],
 ) -> list[dict[str, Any]]:
     del include_history
+    if provider_config.get("refresh_diagnostics") is not True:
+        state.pop(REFRESH_DIAGNOSTICS_KEY, None)  # diagnostics off: nothing is retained
     rows: list[dict[str, Any]] = []
     executable = find_executable(provider_config, ["claude"])
     stats_setting = provider_config.get("stats_file", "~/.claude/stats-cache.json")
@@ -864,7 +867,9 @@ def collect_claude(
         )
     )
 
-    rows.extend(collect_claude_subscription_usage(collected_at, provider_config, executable))
+    # Refresh diagnostics (#31) live in the account's own state, only when switched on.
+    diagnostics = state if provider_config.get("refresh_diagnostics") is True else None
+    rows.extend(collect_claude_subscription_usage(collected_at, provider_config, executable, diagnostics))
     return rows
 
 
@@ -999,10 +1004,19 @@ def read_claude_usage_cache(path: Path) -> Optional[dict[str, Any]]:
     }
 
 
-def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optional[Path] = None) -> None:
-    """Run the locked-down `/usage` once; it refreshes the cache as a side effect."""
+def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optional[Path] = None,
+                     trace: Optional[dict[str, Any]] = None) -> None:
+    """Run the locked-down `/usage` once; it refreshes the cache as a side effect.
+
+    `trace`, when given, receives what the run did (duration, exit status, the
+    timeout, the process group's command names at a timeout, and its raw output)
+    for refresh diagnostics. It stays in memory: only its sanitized summary is kept.
+    """
 
     timeout_seconds = max(5, min(int(timeout_seconds), 120))
+    trace = trace if trace is not None else {}
+    trace.update(timeout_seconds=timeout_seconds, timed_out=False, exit_status=None)
+    started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
         process = subprocess.Popen(
             [str(executable), *CLAUDE_USAGE_ARGUMENTS],
@@ -1017,11 +1031,18 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
         process_group = process.pid if os.name == "posix" else None
         try:
             stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
+            trace["exit_status"] = process.returncode
+        except subprocess.TimeoutExpired as timeout:
+            trace["timed_out"] = True
+            trace["stdout"], trace["stderr"] = timeout.output, timeout.stderr
+            if process_group is not None:
+                trace["processes"] = process_group_commands(process_group)
             terminate_provider_process(process, process_group)
             raise RuntimeError(f"claude /usage did not finish within {timeout_seconds}s")
         finally:
+            trace["duration_seconds"] = round(time.monotonic() - started, 3)
             terminate_provider_process(process, process_group)
+    trace["stdout"], trace["stderr"] = stdout, stderr
     if process.returncode != 0:
         detail = (stderr or "").strip().splitlines()[-1:] or [f"exit {process.returncode}"]
         raise RuntimeError(f"claude /usage failed: {detail[0][:200]}")
@@ -1031,6 +1052,182 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
         raise RuntimeError("claude /usage did not answer with JSON") from None
     if not isinstance(answer, Mapping) or answer.get("is_error") or answer.get("subtype") != "success":
         raise RuntimeError("claude /usage reported an error")
+
+
+# --------------------------------------------------------------------------- refresh diagnostics
+# Off unless an account's settings say `"refresh_diagnostics": true` (issue #31). Each
+# /usage run then leaves one bounded, sanitized record in that account's own state:
+# failures with a short redacted stderr tail, successes as timing only. Nothing raw is
+# kept: no stdout text, no prompt, no environment, no credentials.
+REFRESH_DIAGNOSTICS_KEY = "claude_refresh_diagnostics"
+REFRESH_DIAGNOSTICS_MAX_RECORDS = 48
+REFRESH_DIAGNOSTICS_MAX_AGE_SECONDS = 14 * 86400
+REFRESH_DIAGNOSTICS_DETAIL_BYTES = 1024
+REFRESH_DIAGNOSTICS_MAX_LINES = 8
+REFRESH_DIAGNOSTICS_LINE_CHARS = 200
+REFRESH_DIAGNOSTICS_MAX_PROCESSES = 12
+# The only fields kept from a JSON answer: its shape, never its text.
+REFRESH_DIAGNOSTICS_ANSWER_FIELDS = (
+    "type", "subtype", "is_error", "duration_ms", "duration_api_ms", "num_turns", "stop_reason",
+)
+REFRESH_DIAGNOSTICS_REDACTIONS = (
+    (re.compile(r"(?i)\bbearer\s+\S+"), "Bearer [redacted]"),
+    (re.compile(r"(?i)\b([\w.-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential|session)[\w.-]*)"
+                r"(\"?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1\2[redacted]"),
+    (re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"), "[email]"),
+    (re.compile(r"\bsk-[\w-]{6,}"), "[redacted]"),
+    (re.compile(r"\beyJ[\w-]+\.[\w-]+(?:\.[\w-]+)?"), "[redacted]"),
+    (re.compile(r"(https?://[^\s?#]+)[?#]\S*"), r"\1?[redacted]"),
+    (re.compile(r"[A-Za-z0-9+/_=-]{24,}"), "[redacted]"),
+)
+
+
+def redact_refresh_text(text: str, home: Optional[str] = None) -> str:
+    """One line with home paths shortened to ~ and anything secret-shaped removed."""
+
+    homes = {home} if home else {str(Path.home()), os.path.realpath(str(Path.home()))}
+    for prefix in sorted((h.rstrip("/") for h in homes if h and h.rstrip("/")), key=len, reverse=True):
+        text = text.replace(prefix, "~")
+    text = re.sub(r"/(?:Users|home)/[^/\s]+", "~", text)
+    for pattern, replacement in REFRESH_DIAGNOSTICS_REDACTIONS:
+        text = pattern.sub(replacement, text)
+    text = "".join(character if character.isprintable() else " " for character in text).strip()
+    return text[:REFRESH_DIAGNOSTICS_LINE_CHARS]
+
+
+def refresh_output_tail(output: Any, home: Optional[str] = None) -> list[str]:
+    """The last few non-empty lines, each redacted, together at most DETAIL_BYTES."""
+
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    if not isinstance(output, str):
+        return []
+    lines = [redact_refresh_text(line, home) for line in output.splitlines() if line.strip()]
+    lines = [line for line in lines if line][-REFRESH_DIAGNOSTICS_MAX_LINES:]
+    while lines and len(json.dumps(lines).encode("utf-8")) > REFRESH_DIAGNOSTICS_DETAIL_BYTES:
+        lines.pop(0)
+    return lines
+
+
+def refresh_answer_shape(output: Any) -> dict[str, Any]:
+    """stdout as structure only: its size, whether it is JSON, and the answer's status fields."""
+
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    if not isinstance(output, str):
+        return {"bytes": 0}
+    shape: dict[str, Any] = {"bytes": len(output.encode("utf-8"))}
+    try:
+        answer = json.loads(output)
+    except (json.JSONDecodeError, ValueError):
+        shape["json"] = False
+        return shape
+    shape["json"] = True
+    if isinstance(answer, Mapping):
+        for field in REFRESH_DIAGNOSTICS_ANSWER_FIELDS:
+            value = answer.get(field)
+            if isinstance(value, (bool, int, float)) or (isinstance(value, str) and len(value) <= 40):
+                shape[field] = value
+    return shape
+
+
+def process_group_commands(process_group: int) -> list[str]:
+    """Best-effort command names (basenames only, no arguments) still in the group."""
+
+    try:
+        completed = subprocess.run(["ps", "-axo", "pgid=,comm="], capture_output=True, text=True,
+                                   timeout=1, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    names: list[str] = []
+    for line in completed.stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0] == str(process_group):
+            names.append(redact_refresh_text(os.path.basename(parts[1].strip()))[:60])
+    return names[:REFRESH_DIAGNOSTICS_MAX_PROCESSES]
+
+
+def seconds_since_wake(now: float) -> Optional[float]:
+    """Seconds since macOS last woke from sleep (None elsewhere or when unknown)."""
+
+    try:
+        completed = subprocess.run(["sysctl", "-n", "kern.waketime"], capture_output=True, text=True,
+                                   timeout=1, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"sec\s*=\s*(\d+)", completed.stdout)
+    if completed.returncode != 0 or match is None or int(match.group(1)) <= 0:
+        return None
+    return round(now - int(match.group(1)), 1)
+
+
+def refresh_outcome(error: Optional[BaseException], trace: Mapping[str, Any]) -> str:
+    if error is None:
+        return "ok"
+    if isinstance(error, StaleRefresh):
+        return "stale_answer"
+    if trace.get("timed_out"):
+        return "timeout"
+    if trace.get("exit_status") not in (None, 0):
+        return "exit_status"
+    return "error"
+
+
+class StaleRefresh(RuntimeError):
+    """`/usage` exited cleanly but Claude Code answered from an older cached reading."""
+
+
+def refresh_diagnostic_record(
+    collected_at: str,
+    provider_config: Mapping[str, Any],
+    trace: Mapping[str, Any],
+    error: Optional[BaseException],
+    cache_before: Optional[Mapping[str, Any]],
+    cache_after: Optional[Mapping[str, Any]],
+    started_ms: float,
+    now: float,
+) -> dict[str, Any]:
+    """One sanitized record of a /usage run. A success keeps timing only."""
+
+    config_dir = provider_config.get("config_dir")
+    outcome = refresh_outcome(error, trace)
+    record: dict[str, Any] = {
+        "at": timestamp_to_iso(now),
+        "collected_at": collected_at,
+        "profile": redact_refresh_text(str(config_dir)) if config_dir else "~/.claude",
+        "outcome": outcome,
+        "duration_seconds": trace.get("duration_seconds"),
+        "timeout_seconds": trace.get("timeout_seconds"),
+        "timed_out": bool(trace.get("timed_out")),
+        "exit_status": trace.get("exit_status"),
+        "seconds_since_wake": seconds_since_wake(now),
+    }
+    if outcome == "ok":
+        return record
+    record["message"] = redact_refresh_text(str(error))
+    if "processes" in trace:
+        record["processes_at_timeout"] = list(trace["processes"])
+    record["stdout"] = refresh_answer_shape(trace.get("stdout"))
+    record["stderr_tail"] = refresh_output_tail(trace.get("stderr"))
+    # Did Claude Code fetch fresh limits during the run even though the run failed?
+    # (A run that fetched but never exited points away from the network.)
+    if cache_after is not None:
+        record["cache_fetched_seconds_after_start"] = round(
+            (cache_after["fetched_at_ms"] - started_ms) / 1000, 1)
+    record["cache_was_present"] = cache_before is not None
+    return record
+
+
+def keep_refresh_diagnostic(state: MutableMapping[str, Any], record: Mapping[str, Any], now: float) -> None:
+    """Append one record; drop those older than MAX_AGE, then all but the newest MAX_RECORDS."""
+
+    existing = state.get(REFRESH_DIAGNOSTICS_KEY)
+    records = [entry for entry in existing if isinstance(entry, Mapping)] if isinstance(existing, list) else []
+    records.append(dict(record))
+    cutoff = now - REFRESH_DIAGNOSTICS_MAX_AGE_SECONDS
+    records = [entry for entry in records
+               if (parse_iso_timestamp(entry.get("at")) or 0) >= cutoff]
+    state[REFRESH_DIAGNOSTICS_KEY] = records[-REFRESH_DIAGNOSTICS_MAX_RECORDS:]
 
 
 def claude_usage_rows(
@@ -1073,7 +1270,8 @@ def claude_usage_rows(
 
 
 def collect_claude_subscription_usage(
-    collected_at: str, provider_config: Mapping[str, Any], executable: Optional[Path]
+    collected_at: str, provider_config: Mapping[str, Any], executable: Optional[Path],
+    diagnostics: Optional[MutableMapping[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     if provider_config.get("subscription_usage", True) is not True:
         return [
@@ -1116,30 +1314,54 @@ def collect_claude_subscription_usage(
         return rows
 
     started_ms = time.time() * 1000
+    trace: dict[str, Any] = {}
+
+    def diagnose(error: Optional[BaseException], after: Optional[Mapping[str, Any]] = None) -> None:
+        # Never lets diagnostics change the collection's outcome.
+        if diagnostics is None or "duration_seconds" not in trace:
+            return
+        try:
+            if after is None and error is not None:
+                try:
+                    after = read_claude_usage_cache(cache_path)
+                except (OSError, ValueError):
+                    after = None
+            now = time.time()
+            keep_refresh_diagnostic(diagnostics, refresh_diagnostic_record(
+                collected_at, provider_config, trace, error, cache, after, started_ms, now), now)
+        except Exception:  # noqa: BLE001 - best effort by design
+            pass
+
     try:
         config_dir = provider_config.get("config_dir")
         run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)),
-                         account_config_dir(str(config_dir)) if config_dir else None)
+                         account_config_dir(str(config_dir)) if config_dir else None, trace)
         refreshed = read_claude_usage_cache(cache_path)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        diagnose(error)
         rows = [error_row(str(error))]
         if cache is not None and cache["same_account"]:
             rows += claude_usage_rows(collected_at, cache, "claude-usage-cache", "stale",
                                       "last reading Claude Code cached; the refresh failed")
         return rows
     if refreshed is None:
+        diagnose(RuntimeError("cached no usage"))
         return [error_row("claude /usage ran but cached no usage (is it signed in to a subscription?)")]
     if not refreshed["same_account"]:
+        diagnose(RuntimeError("cached usage belongs to another account"), refreshed)
         return [error_row("Claude Code's cached usage belongs to another account than the one signed in")]
     if refreshed["fetched_at_ms"] < started_ms - CLAUDE_USAGE_REFRESH_GRACE_MS:
         if started_ms - refreshed["fetched_at_ms"] <= CLAUDE_USAGE_REUSE_MS:
             # Claude Code reused its reading from the last hour: not a failure,
             # and still dated by when it was fetched.
+            diagnose(None, refreshed)
             return claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "ok")
         # Claude Code answered from its cache: offline, signed out, or blocked.
+        diagnose(StaleRefresh("claude /usage did not fetch fresh usage"), refreshed)
         return [error_row("claude /usage did not fetch fresh usage; showing its older cached reading")] + \
             claude_usage_rows(collected_at, refreshed, "claude-usage-cache", "stale",
                               "Claude Code did not refresh its usage")
+    diagnose(None, refreshed)
     return claude_usage_rows(collected_at, refreshed, "claude-usage-command", "ok")
 
 
