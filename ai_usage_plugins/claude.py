@@ -658,6 +658,8 @@ def collect_claude(
     del include_history
     if provider_config.get("refresh_diagnostics") is not True:
         state.pop(REFRESH_DIAGNOSTICS_KEY, None)  # diagnostics off: nothing is retained
+    else:
+        prune_refresh_diagnostics(state, time.time())  # age bound holds even when nothing runs
     rows: list[dict[str, Any]] = []
     executable = find_executable(provider_config, ["claude"])
     stats_setting = provider_config.get("stats_file", "~/.claude/stats-cache.json")
@@ -1066,10 +1068,13 @@ REFRESH_DIAGNOSTICS_DETAIL_BYTES = 1024
 REFRESH_DIAGNOSTICS_MAX_LINES = 8
 REFRESH_DIAGNOSTICS_LINE_CHARS = 200
 REFRESH_DIAGNOSTICS_MAX_PROCESSES = 12
-# The only fields kept from a JSON answer: its shape, never its text.
-REFRESH_DIAGNOSTICS_ANSWER_FIELDS = (
-    "type", "subtype", "is_error", "duration_ms", "duration_api_ms", "num_turns", "stop_reason",
-)
+# The only fields kept from a JSON answer, each only with its expected type: its shape,
+# never its text. A string field must also be a short lowercase identifier.
+REFRESH_DIAGNOSTICS_ANSWER_FIELDS = {
+    "type": "identifier", "subtype": "identifier", "stop_reason": "identifier", "is_error": "boolean",
+    "duration_ms": "number", "duration_api_ms": "number", "num_turns": "number",
+}
+REFRESH_DIAGNOSTICS_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 REFRESH_DIAGNOSTICS_REDACTIONS = (
     (re.compile(r"(?i)\bbearer\s+\S+"), "Bearer [redacted]"),
     (re.compile(r"(?i)\b([\w.-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential|session)[\w.-]*)"
@@ -1124,9 +1129,16 @@ def refresh_answer_shape(output: Any) -> dict[str, Any]:
         return shape
     shape["json"] = True
     if isinstance(answer, Mapping):
-        for field in REFRESH_DIAGNOSTICS_ANSWER_FIELDS:
+        for field, kind in REFRESH_DIAGNOSTICS_ANSWER_FIELDS.items():
             value = answer.get(field)
-            if isinstance(value, (bool, int, float)) or (isinstance(value, str) and len(value) <= 40):
+            if kind == "boolean" and isinstance(value, bool):
+                shape[field] = value
+            elif (kind == "number" and isinstance(value, (int, float)) and not isinstance(value, bool)
+                  and math.isfinite(value) and 0 <= value < 10 ** 12):
+                shape[field] = value
+            elif (kind == "identifier" and isinstance(value, str)
+                  and REFRESH_DIAGNOSTICS_IDENTIFIER.match(value)
+                  and redact_refresh_text(value) == value):
                 shape[field] = value
     return shape
 
@@ -1218,16 +1230,29 @@ def refresh_diagnostic_record(
     return record
 
 
-def keep_refresh_diagnostic(state: MutableMapping[str, Any], record: Mapping[str, Any], now: float) -> None:
-    """Append one record; drop those older than MAX_AGE, then all but the newest MAX_RECORDS."""
+def prune_refresh_diagnostics(state: MutableMapping[str, Any], now: float,
+                              added: Optional[Mapping[str, Any]] = None) -> None:
+    """Drop records older than MAX_AGE (or unreadable), then all but the newest MAX_RECORDS.
 
+    Runs on every opted-in collection, whether or not `/usage` runs, so age retention
+    never depends on another refresh being recorded."""
+
+    if REFRESH_DIAGNOSTICS_KEY not in state and added is None:
+        return
     existing = state.get(REFRESH_DIAGNOSTICS_KEY)
     records = [entry for entry in existing if isinstance(entry, Mapping)] if isinstance(existing, list) else []
-    records.append(dict(record))
+    if added is not None:
+        records.append(dict(added))
     cutoff = now - REFRESH_DIAGNOSTICS_MAX_AGE_SECONDS
     records = [entry for entry in records
                if (parse_iso_timestamp(entry.get("at")) or 0) >= cutoff]
     state[REFRESH_DIAGNOSTICS_KEY] = records[-REFRESH_DIAGNOSTICS_MAX_RECORDS:]
+
+
+def keep_refresh_diagnostic(state: MutableMapping[str, Any], record: Mapping[str, Any], now: float) -> None:
+    """Append one record, within the age and count bounds."""
+
+    prune_refresh_diagnostics(state, now, record)
 
 
 def claude_usage_rows(

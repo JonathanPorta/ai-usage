@@ -37,6 +37,51 @@ SECRETS = ("jonathan@example.com", "sk-ant-", "AAAAAAAAAAAAAAAAAAAA", "abcdefghi
            "/Users/someone", "eyJhbGci", "SECRETCODE")
 
 
+SENTINELS = ("private.person@example.com", "sk-ant-short", "my secret words", "Private_Name")
+
+# Exits 3 after a JSON answer with private text in every field the shape may keep.
+LEAKY_CLAUDE = """import json, sys
+print(json.dumps({"type": "private.person@example.com", "subtype": "sk-ant-short",
+                  "stop_reason": "my secret words", "is_error": "Private_Name",
+                  "duration_ms": "private.person@example.com", "duration_api_ms": True,
+                  "num_turns": "sk-ant-short", "result": "my secret words"}))
+sys.exit(3)
+"""
+VALID_CLAUDE = """import json, sys
+print(json.dumps({"type": "result", "subtype": "error_during_execution", "stop_reason": "end_turn",
+                  "is_error": True, "duration_ms": 1200, "duration_api_ms": 900.5, "num_turns": 1,
+                  "result": "my secret words"}))
+sys.exit(3)
+"""
+
+
+def az_once(body: Optional[str], *, cache_age: float = 2 * driver.HOUR,
+            seeded: Optional[list[dict[str, Any]]] = None, enabled: bool = True) -> dict[str, Any]:
+    """One `once` with only claude-az enabled; returns claude-az's saved state and the tripwire."""
+
+    def plan(box: driver.Sandbox) -> list[dict[str, Any]]:
+        box.write("home/claude-az/.claude.json", cache(driver.FIXED_TS - cache_age, 50))
+        executable = (box.python_executable("claude", body) if body is not None
+                      else str(box.root / "bin" / "no-such-claude"))
+        settings = {**AZ["settings"], "executable": executable, "timeout_seconds": 5}
+        if enabled:
+            settings["refresh_diagnostics"] = True
+        box.write_config({"codex": OFF, "claude": OFF, "antigravity": OFF, "gemini_cli": OFF, "grok": OFF},
+                         instances=[{**AZ, "settings": settings}])
+        if seeded is not None:
+            Path(box.paths["state_file"]).write_text(
+                json.dumps({"instances": {"claude-az": {KEY: seeded}}}), encoding="utf-8")
+        installed_collector(box, "2.4.0")
+        return [box.once()]
+
+    result = driver.run_scenario(REPO, plan)["results"][0]
+    return result["state"].get("instances", {}).get("claude-az", {})
+
+
+def days_ago(days: float) -> str:
+    return CLAUDE.timestamp_to_iso(driver.FIXED_TS - days * 86400)
+
+
 class RedactionTests(unittest.TestCase):
     def test_secrets_emails_and_home_paths_never_survive(self) -> None:
         tail = CLAUDE.refresh_output_tail(SECRET_STDERR, home="/Users/someone")
@@ -218,6 +263,40 @@ class CollectorTests(unittest.TestCase):
         [record] = state["instances"]["claude-az"][KEY]
         self.assertEqual((record["outcome"], record["timed_out"], record["profile"]),
                          ("timeout", True, "~/claude-az"))
+
+
+    def test_no_stdout_field_can_carry_private_text(self) -> None:
+        [record] = az_once(LEAKY_CLAUDE)[KEY]
+        self.assertEqual(record["outcome"], "exit_status")
+        self.assertEqual(record["stdout"]["json"], True)
+        self.assertEqual(set(record["stdout"]), {"bytes", "json"}, "every mistyped field is dropped")
+        text = json.dumps(record)
+        for sentinel in SENTINELS:
+            self.assertNotIn(sentinel, text)
+
+    def test_well_typed_status_fields_are_kept(self) -> None:
+        [record] = az_once(VALID_CLAUDE)[KEY]
+        shape = dict(record["stdout"])
+        shape.pop("bytes")
+        self.assertEqual(shape, {"json": True, "type": "result", "subtype": "error_during_execution",
+                                 "stop_reason": "end_turn", "is_error": True, "duration_ms": 1200,
+                                 "duration_api_ms": 900.5, "num_turns": 1})
+        self.assertNotIn("my secret words", json.dumps(record))
+
+    def test_expired_records_go_on_every_path_and_recent_ones_stay(self) -> None:
+        seeded = [{"at": days_ago(15), "outcome": "timeout"}, {"at": days_ago(13), "outcome": "timeout"}]
+        refreshing = FAKE_CLAUDE  # refreshes its account's cache and answers
+        for name, body, age in (("refresh", refreshing, 2 * driver.HOUR),
+                                ("fresh cache", None, 60),
+                                ("no executable", None, 2 * driver.HOUR)):
+            with self.subTest(name):
+                records = az_once(body, cache_age=age, seeded=seeded)[KEY]
+                self.assertEqual([r["at"] for r in records if r["outcome"] == "timeout"], [days_ago(13)])
+                self.assertEqual(len(records), 2 if name == "refresh" else 1,
+                                 "only a run that happened adds a record")
+
+    def test_switched_off_the_collector_drops_every_record(self) -> None:
+        self.assertNotIn(KEY, az_once(None, cache_age=60, seeded=[{"at": days_ago(1)}], enabled=False))
 
 
 if __name__ == "__main__":
