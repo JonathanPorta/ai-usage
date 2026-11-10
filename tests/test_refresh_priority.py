@@ -41,11 +41,26 @@ for priority in ("normal", "background"):
         pass
     out[priority] = {{"observed": trace.get("child_priority"), "reported": open({mark!r}).read().strip(),
                       "exit": trace.get("exit_status"), "run": trace.get("run_seconds")}}
+out["after"] = os.getpriority(4, 0)  # the band is restored after each refresh
 print(json.dumps(out))
 """
 
 
 class PrioritySelectionTests(unittest.TestCase):
+    @unittest.skipUnless(DARWIN, "macOS scheduling bands")
+    def test_a_normal_refresh_lifts_and_restores_only_a_band_the_process_entered(self) -> None:
+        probe = ("import os, sys; sys.path.insert(0, %r)\n"
+                 "from ai_usage_plugins import claude\n"
+                 "seen = []\n"
+                 "with claude.refresh_band('normal'): seen.append(os.getpriority(4, 0))\n"
+                 "os.setpriority(4, 0, 0x1000)\n"
+                 "with claude.refresh_band('normal'): seen.append(os.getpriority(4, 0))\n"
+                 "seen.append(os.getpriority(4, 0))\n"
+                 "with claude.refresh_band('background'): seen.append(os.getpriority(4, 0))\n"
+                 "print(seen)\n") % str(REPO)
+        result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.stdout.strip(), "[0, 0, 1, 1]", result.stderr)
+
     def test_only_a_daemon_launchd_started_enters_the_band(self) -> None:
         import ai_usage_service
         if DARWIN:
@@ -93,6 +108,7 @@ class BandTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             out = json.loads(result.stdout)
         self.assertEqual(out["band"], "background")
+        self.assertEqual(out["after"], 1, "the collector is back in the band after the refresh")
         # The sampler is best effort (a 2 s `ps`); the fixture's own `ps` is the truth.
         self.assertIn(out["self"], (4, None), "the daemon is in the background band")
         background, normal = out["background"], out["normal"]

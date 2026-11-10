@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import math
@@ -12,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional, Union
+from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional, Union
 
 from .base import CollectContext, ProviderDef, ProviderPlugin, SourceDef
 from .support import (
@@ -1034,6 +1035,30 @@ def usage_priority_preexec(priority: str) -> Optional[Callable[[], None]]:
     return apply
 
 
+@contextlib.contextmanager
+def refresh_band(priority: str) -> Iterator[None]:
+    """While a "normal" refresh runs, lift the collector itself out of the background band
+    too, then put it back: a starved parent can miss its child's answer and report a
+    timeout the child never caused. Only a band this process entered itself can be left."""
+
+    lifted = False
+    if sys.platform == "darwin" and priority == "normal":
+        try:
+            if os.getpriority(PRIO_DARWIN_PROCESS, 0):
+                os.setpriority(PRIO_DARWIN_PROCESS, 0, 0)
+                lifted = True
+        except OSError:
+            pass
+    try:
+        yield
+    finally:
+        if lifted:
+            try:
+                os.setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG)
+            except OSError:
+                pass
+
+
 def process_scheduling_priority(pid: int) -> Optional[int]:
     """The kernel's scheduling priority for `pid` as `ps -o pri` shows it (4 is the background band)."""
 
@@ -1059,7 +1084,7 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
     trace = trace if trace is not None else {}
     trace.update(timeout_seconds=timeout_seconds, timed_out=False, exit_status=None, priority=priority)
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
+    with refresh_band(priority), tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
         process = subprocess.Popen(
             [str(executable), *CLAUDE_USAGE_ARGUMENTS],
             stdin=subprocess.DEVNULL,
