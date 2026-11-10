@@ -17,6 +17,7 @@ import tempfile
 import time
 from typing import Any
 import unittest
+from unittest import mock
 
 CLAUDE = importlib.import_module("ai_usage_plugins.claude")
 KEY = CLAUDE.REFRESH_DIAGNOSTICS_KEY
@@ -130,8 +131,25 @@ class RecordTests(unittest.TestCase):
             self.assertEqual(failed["exit_status"], 2)
         for record in (timeout, failed):
             self.assertEqual(len(record["load_average"]), 3)
-            if DARWIN:
-                self.assertIsInstance(record["child_priority"], int)
+            # A nullable measurement: sampled one second in, None when the child was gone
+            # by then or `ps` could not say.
+            self.assertTrue(record["child_priority"] is None or isinstance(record["child_priority"], int))
+        if DARWIN:
+            self.assertIsInstance(timeout["child_priority"], int, "a child alive at one second is sampled")
+
+    def test_a_child_that_answers_within_a_second_is_not_sampled(self) -> None:
+        state: dict[str, Any] = {}
+        self.collect("sys.exit(2)\n", state, timeout_seconds=120)
+        [record] = state[KEY]
+        if record["run_seconds"] < 1:
+            self.assertIsNone(record["child_priority"])
+
+    def test_an_unavailable_sampler_leaves_the_priority_null(self) -> None:
+        state: dict[str, Any] = {}
+        with mock.patch.object(CLAUDE, "process_scheduling_priority", return_value=None):
+            self.collect("time.sleep(60)\n", state)
+        [record] = state[KEY]
+        self.assertEqual((record["outcome"], record["child_priority"]), ("timeout", None))
 
 
 if __name__ == "__main__":
