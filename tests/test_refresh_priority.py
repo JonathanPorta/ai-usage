@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -72,6 +73,12 @@ class PrioritySelectionTests(unittest.TestCase):
 @unittest.skipUnless(DARWIN, "macOS scheduling bands")
 class BandTests(unittest.TestCase):
     def test_a_background_daemon_runs_the_usage_child_at_normal_priority_only_when_asked(self) -> None:
+        # The probe itself runs in the background band, which a saturated Mac can starve for
+        # many minutes (measured: over 900 s at a load average of 150 on 10 cores). That is
+        # the very effect under study, not a defect, so the test runs only when it can finish.
+        load = os.getloadavg()[0] / (os.cpu_count() or 1)
+        if load > 4:
+            self.skipTest(f"load average {load:.1f} per CPU starves the background band")
         with tempfile.TemporaryDirectory(prefix="ai-usage-prio-") as temporary:
             root = Path(temporary)
             mark = root / "pri"
