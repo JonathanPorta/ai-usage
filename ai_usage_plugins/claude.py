@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import math
@@ -9,9 +10,10 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import time
-from typing import Any, Iterable, Mapping, MutableMapping, Optional, Union
+from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional, Union
 
 from .base import CollectContext, ProviderDef, ProviderPlugin, SourceDef
 from .support import (
@@ -1006,8 +1008,71 @@ def read_claude_usage_cache(path: Path) -> Optional[dict[str, Any]]:
     }
 
 
+# macOS scheduling (issue #31). The daemon keeps itself in the background band
+# (PRIO_DARWIN_BG); the `/usage` child leaves it ("normal") unless told otherwise.
+PRIO_DARWIN_PROCESS = 4
+PRIO_DARWIN_BG = 0x1000
+REFRESH_PRIORITIES = ("normal", "background")
+
+
+def usage_priority_preexec(priority: str) -> Optional[Callable[[], None]]:
+    """Set the child's darwin background state between fork and exec (macOS only).
+
+    Runs in the forked child, so it only makes one syscall and never raises: a
+    priority it cannot set leaves the child as it was, and the diagnostics record
+    the priority the child actually had."""
+
+    if sys.platform != "darwin" or priority not in REFRESH_PRIORITIES:
+        return None
+    value = 0 if priority == "normal" else PRIO_DARWIN_BG
+
+    def apply() -> None:
+        try:
+            os.setpriority(PRIO_DARWIN_PROCESS, 0, value)
+        except OSError:
+            pass
+
+    return apply
+
+
+@contextlib.contextmanager
+def refresh_band(priority: str) -> Iterator[None]:
+    """While a "normal" refresh runs, lift the collector itself out of the background band
+    too, then put it back: a starved parent can miss its child's answer and report a
+    timeout the child never caused. Only a band this process entered itself can be left."""
+
+    lifted = False
+    if sys.platform == "darwin" and priority == "normal":
+        try:
+            if os.getpriority(PRIO_DARWIN_PROCESS, 0):
+                os.setpriority(PRIO_DARWIN_PROCESS, 0, 0)
+                lifted = True
+        except OSError:
+            pass
+    try:
+        yield
+    finally:
+        if lifted:
+            try:
+                os.setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG)
+            except OSError:
+                pass
+
+
+def process_scheduling_priority(pid: int) -> Optional[int]:
+    """The kernel's scheduling priority for `pid` as `ps -o pri` shows it (4 is the background band)."""
+
+    try:
+        completed = subprocess.run(["ps", "-o", "pri=", "-p", str(pid)], capture_output=True, text=True,
+                                   timeout=2, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = completed.stdout.strip()
+    return int(value) if value.isdigit() else None
+
+
 def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optional[Path] = None,
-                     trace: Optional[dict[str, Any]] = None) -> None:
+                     trace: Optional[dict[str, Any]] = None, priority: str = "normal") -> None:
     """Run the locked-down `/usage` once; it refreshes the cache as a side effect.
 
     `trace`, when given, receives what the run did (duration, exit status, the
@@ -1017,9 +1082,9 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
 
     timeout_seconds = max(5, min(int(timeout_seconds), 120))
     trace = trace if trace is not None else {}
-    trace.update(timeout_seconds=timeout_seconds, timed_out=False, exit_status=None)
+    trace.update(timeout_seconds=timeout_seconds, timed_out=False, exit_status=None, priority=priority)
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
+    with refresh_band(priority), tempfile.TemporaryDirectory(prefix="ai-usage-claude-") as workdir:
         process = subprocess.Popen(
             [str(executable), *CLAUDE_USAGE_ARGUMENTS],
             stdin=subprocess.DEVNULL,
@@ -1029,13 +1094,27 @@ def run_claude_usage(executable: Path, timeout_seconds: int, config_dir: Optiona
             cwd=workdir,
             env=claude_usage_environment(config_dir),
             start_new_session=os.name == "posix",
+            preexec_fn=usage_priority_preexec(priority),
         )
         process_group = process.pid if os.name == "posix" else None
         try:
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
+            if trace.get("observe_priority"):
+                # Sample the child's priority once it has had a second to exec; a child
+                # that answers sooner needs no sample.
+                try:
+                    stdout, stderr = process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    trace["child_priority"] = process_scheduling_priority(process.pid)
+                    stdout, stderr = process.communicate(
+                        timeout=max(0.1, timeout_seconds - (time.monotonic() - started)))
+            else:
+                stdout, stderr = process.communicate(timeout=timeout_seconds)
             trace["exit_status"] = process.returncode
+            trace["run_seconds"] = round(time.monotonic() - started, 3)
         except subprocess.TimeoutExpired as timeout:
+            trace["run_seconds"] = round(time.monotonic() - started, 3)
             trace["timed_out"] = True
+            trace["child_exited"] = process.poll() is not None
             trace["stdout"], trace["stderr"] = timeout.output, timeout.stderr
             if process_group is not None:
                 trace["processes"] = process_group_commands(process_group)
@@ -1148,7 +1227,7 @@ def process_group_commands(process_group: int) -> list[str]:
 
     try:
         completed = subprocess.run(["ps", "-axo", "pgid=,comm="], capture_output=True, text=True,
-                                   timeout=1, check=False)
+                                   timeout=2, check=False)
     except (OSError, subprocess.SubprocessError):
         return []
     names: list[str] = []
@@ -1171,6 +1250,31 @@ def seconds_since_wake(now: float) -> Optional[float]:
     if completed.returncode != 0 or match is None or int(match.group(1)) <= 0:
         return None
     return round(now - int(match.group(1)), 1)
+
+
+def load_average() -> Optional[list[float]]:
+    """The 1, 5 and 15 minute load averages (None where unavailable)."""
+
+    try:
+        return [round(value, 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        return None
+
+
+def refresh_priority(provider_config: Mapping[str, Any], diagnostics: Optional[Mapping[str, Any]]) -> str:
+    """The priority for this account's `/usage` child: `refresh_priority` "normal" (the
+    default) or "background"; "alternate" (an A/B experiment, only with diagnostics on)
+    takes the arm its last recorded run did not."""
+
+    setting = provider_config.get("refresh_priority", "normal")
+    if setting in REFRESH_PRIORITIES:
+        return str(setting)
+    if setting == "alternate" and diagnostics is not None:
+        records = diagnostics.get(REFRESH_DIAGNOSTICS_KEY)
+        last = records[-1].get("priority") if isinstance(records, list) and records and \
+            isinstance(records[-1], Mapping) else None
+        return "background" if last == "normal" else "normal"
+    return "normal"
 
 
 def refresh_outcome(error: Optional[BaseException], trace: Mapping[str, Any]) -> str:
@@ -1213,7 +1317,13 @@ def refresh_diagnostic_record(
         "timed_out": bool(trace.get("timed_out")),
         "exit_status": trace.get("exit_status"),
         "seconds_since_wake": seconds_since_wake(now),
+        "priority": trace.get("priority"),
+        "child_priority": trace.get("child_priority"),
+        "run_seconds": trace.get("run_seconds"),
+        "load_average": load_average(),
     }
+    if trace.get("timed_out"):
+        record["child_exited"] = bool(trace.get("child_exited"))
     if outcome == "ok":
         return record
     record["message"] = redact_refresh_text(str(error))
@@ -1339,7 +1449,7 @@ def collect_claude_subscription_usage(
         return rows
 
     started_ms = time.time() * 1000
-    trace: dict[str, Any] = {}
+    trace: dict[str, Any] = {"observe_priority": diagnostics is not None}
 
     def diagnose(error: Optional[BaseException], after: Optional[Mapping[str, Any]] = None) -> None:
         # Never lets diagnostics change the collection's outcome.
@@ -1360,7 +1470,8 @@ def collect_claude_subscription_usage(
     try:
         config_dir = provider_config.get("config_dir")
         run_claude_usage(executable, int(provider_config.get("timeout_seconds", 30)),
-                         account_config_dir(str(config_dir)) if config_dir else None, trace)
+                         account_config_dir(str(config_dir)) if config_dir else None, trace,
+                         refresh_priority(provider_config, diagnostics))
         refreshed = read_claude_usage_cache(cache_path)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         diagnose(error)

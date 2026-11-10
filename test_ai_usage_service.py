@@ -1636,7 +1636,9 @@ for line in sys.stdin:
         self.assertEqual(plist["Label"], "codes.porta.ai-usage")
         self.assertTrue(plist["RunAtLoad"])
         self.assertTrue(plist["KeepAlive"])
-        self.assertEqual(plist["ProcessType"], "Background")
+        # Standard so the Claude /usage child can leave the background band; the daemon
+        # re-enters that band itself (issue #31).
+        self.assertEqual(plist["ProcessType"], "Standard")
         self.assertEqual(
             [str(Path(value).resolve()) if index in {0, 3} else value for index, value in enumerate(plist["ProgramArguments"][1:])],
             [str(installed.resolve()), "daemon", "--config", str(config.resolve())],

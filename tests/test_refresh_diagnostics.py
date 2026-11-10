@@ -227,7 +227,8 @@ class RunTests(unittest.TestCase):
             state)
         [record] = state[KEY]
         self.assertEqual(set(record), {"at", "collected_at", "profile", "outcome", "duration_seconds",
-                                       "timeout_seconds", "timed_out", "exit_status", "seconds_since_wake"})
+                                       "timeout_seconds", "timed_out", "exit_status", "seconds_since_wake",
+                                       "priority", "child_priority", "run_seconds", "load_average"})
         self.assertEqual((record["outcome"], record["exit_status"]), ("ok", 0))
 
     def test_without_a_state_nothing_is_recorded_and_a_fresh_cache_runs_nothing(self) -> None:

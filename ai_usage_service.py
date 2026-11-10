@@ -1541,7 +1541,11 @@ def build_launch_agent_plist(
         "AssociatedBundleIdentifiers": [APP_BUNDLE_IDENTIFIER],
         "RunAtLoad": True,
         "KeepAlive": True,
-        "ProcessType": "Background",
+        # Standard, not Background (issue #31): launchd's background type pins every child
+        # in the background band for good, so no refresh could ever leave it. The daemon
+        # puts itself back in that band (`enter_background_band`); only the Claude `/usage`
+        # child leaves it.
+        "ProcessType": "Standard",
         "ThrottleInterval": 30,
         "EnvironmentVariables": {"PATH": discovery_path()},
         "StandardOutPath": str(log_path),
@@ -2591,8 +2595,26 @@ def schedule_wait_seconds(action: str, next_due: Optional[float], now: float, ti
     return min(tick, max(next_due - now, 0.01))
 
 
+def enter_background_band() -> str:
+    """Put the daemon (and so every provider command it runs) in macOS's background band,
+    as launchd's Background process type did; the Claude `/usage` child opts out of it."""
+
+    if sys.platform != "darwin":
+        return "unchanged"
+    if os.getppid() != 1:
+        # Only the LaunchAgent (launchd is its parent) takes the band; a daemon run by
+        # hand or by tests keeps the priority it was started with.
+        return "unchanged (not started by launchd)"
+    try:
+        os.setpriority(4, 0, 0x1000)  # PRIO_DARWIN_PROCESS, this process, PRIO_DARWIN_BG
+    except OSError as error:
+        return f"unchanged ({error.strerror or error})"
+    return "background"
+
+
 def run_daemon(config_path: Path) -> int:
     stop_event = threading.Event()
+    band = enter_background_band()
 
     def request_stop(signum: int, frame: Any) -> None:
         del frame
@@ -2616,7 +2638,7 @@ def run_daemon(config_path: Path) -> int:
             if current_log_path != log_path:
                 configure_logging(log_path)
                 current_log_path = log_path
-                LOGGER.info("collector daemon started version=%s pid=%d", VERSION, os.getpid())
+                LOGGER.info("collector daemon started version=%s pid=%d priority=%s", VERSION, os.getpid(), band)
             interval = int(config["poll_interval_seconds"])
             if first_cycle and config.get("poll_on_start", True) is not True:
                 first_cycle = False
