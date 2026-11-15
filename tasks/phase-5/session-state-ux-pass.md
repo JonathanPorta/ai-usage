@@ -2,13 +2,17 @@
 Last updated: 2026-11-15
 
 **Status: phase 5 is in progress.** Requirements come from the owner's work package (2026-11-13).
-Execution was directed by the owner on 2026-11-15. Slice 1 (state only) is implemented and independently reviewed, in worktree
-`ux-state-slice`, based on `origin/main` at `39958af`. Its PR is not yet opened.
+Execution was directed by the owner on 2026-11-15. Slice 1 (state only) is PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41), commit
+`7b73412`, queued for review with all CI checks passing. Slice 2 (overview, header, cards) is
+implemented and reviewed, stacked on slice 1, with its PR being opened. Neither is approved,
+merged, installed or released.
 
 ### Current Position
-- **Working on:** Task 1.0 review: open and review the slice 1 PR.
-- **Status:** slice 1 implemented; PR not yet opened; not merged, installed or released.
-  Branch `jp/f/ux-policy-order-countdown`. No view change and no accepted baseline change.
+- **Working on:** Slice 2 PR (branch `jp/f/ux-overview-header-cards`), then review and merge of #41.
+- **Status:** slice 1 in PR #41, awaiting review. Slice 2 implemented, reviewed (one round, 15
+  findings fixed), PR being opened. Owner visual acceptance of slice 2 renders is outstanding;
+  accepted references in `docs/design/app/references` were not replaced.
+- **Blocked:** No
 - **Blocked:** No
 
 ### Key Decisions
@@ -37,29 +41,35 @@ Execution was directed by the owner on 2026-11-15. Slice 1 (state only) is imple
 - `PanelShownObserver` and `store.popoverOpened()`: the lifecycle used for order snapshots.
 
 ### What's Next
-1. Open and review the slice 1 PR.
-2. Slice 2 (overview, header, cards), which wires these APIs into views and changes renders and
-   needs the owner's visual acceptance. Not started.
+1. Open the slice 2 PR (`jp/f/ux-overview-header-cards`, stacked on slice 1), and queue it.
+2. Review and merge PR #41 (slice 1), then the slice 2 PR. Merge only on the `/prrq` gate or the
+   owner's direction.
+3. Slice 3 (provider detail quota-first order, Monitoring page order, empty states, History
+   navigation), then slice 4 (file-defined themes).
+4. Owner visual acceptance of slice 2 renders before any reference baseline is replaced.
+5. Native checks not yet run: keyboard focus reveal, drag-to-reorder, live VoiceOver, and the
+   transient "check finished" state.
 
 ### Validation results
-- Slice 1 (2026-11-15, combined tree): implemented and independently reviewed (one round, findings
-  fixed). PR not yet opened; not merged, installed or released.
-  - `make check`: Ran 375 tests, OK (skipped=1).
-  - `make fixture-check`: committed fixtures match the generator (fixture changes are additive keys).
-  - `make app-test`: Executed 111 tests, 0 failures.
-  - Renders: slice 1 output is byte-identical to `origin/main` (39958af) for all 106 fixture renders.
+- Slice 1 (PR #41, commit `7b73412`; 2026-11-15): all CI checks pass; queued for review.
+  Earlier combined-tree checks: `make check` Ran 375 tests, OK (skipped=1); `make fixture-check`
+  matches the generator (additive keys); `make app-test` Executed 111 tests, 0 failures; 106
+  fixture renders byte-identical to `origin/main` (39958af).
   - `make app-snapshot-check` fails for 42 renders on `origin/main` itself, before this work. That
-    drift from `docs/design/app/references` is unresolved, was not caused by slice 1, and baselines
-    were not touched.
-- Next: open and review the slice 1 PR; then slice 2 (overview, header, cards), which wires these
-  APIs into views and changes renders, needing the owner's visual acceptance.
-- Slice 2: not started.
+    drift from `docs/design/app/references` is unresolved, was not caused by slice 1, and
+    baselines were not touched.
+- Slice 2 (2026-11-15): `make app-test` Executed 121 tests, 0 failures; `make design-check
+  ARGS=--strict` 0 unwaived; `make design-build-check` pass; `make app-snapshot` wrote 136 images
+  (19 new scenarios) to `~/devel/ai-scratch/ai-usage-ux-pass/renders/slice2`. Python unchanged.
+  56 of the accepted references now differ (42 already differed on `main`). References were not
+  replaced and await the owner's visual acceptance.
 - Slice 3: not started.
 - Slice 4: not started.
 
 ### Blockers / Open Questions
 - Theme file user path: to choose after checking config ownership and installation (slice 4).
-- Location of "Arrange mode" (overview or Settings).
 - "Remove saved data..." is included only if the product already supports it.
-- Whether providers with no usage events have a `last_activity_at` value (checked in slice 1).
-- Issue #9 overlaps the reset-label spacing work (reconciled in slice 2).
+- Whether providers with no usage events have a `last_activity_at` value. Polled providers (Codex)
+  have none and sort after providers with known activity; nothing is fabricated (slice 1).
+- Issue #9 reconciliation is not recorded as done.
+- Resolved: "Arrange mode" lives in Settings (owner direction and slice 2 decision).

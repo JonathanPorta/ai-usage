@@ -77,7 +77,9 @@
         (`AIUsageCore/Tracking.swift`). Existing `Presentation.status()` strings are unchanged.
   - [x] 1.8 Decoding: new fields optional and tolerant of unknown enum values; old reports fall
         back to `enabled`. `AppStore.cardProviders` is the single list for cards and keyboard.
-  - [ ] 1.9 PR review and merge (not done).
+  - [~] 1.9 PR review and merge: PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41),
+        branch `jp/f/ux-policy-order-countdown`, commit `7b73412`. All CI checks pass. Queued for
+        review. Not approved, not merged, not installed, not released.
   - **Validation (2026-11-15, combined tree):**
     - `make check`: Ran 375 tests, OK (skipped=1).
     - `make fixture-check`: committed fixtures match the generator (fixture changes are additive
@@ -101,28 +103,47 @@
     - `git diff --stat` shows no change under `docs/design/app/references` and no SwiftUI view
       file changed.
 
-- [ ] 2.0 Overview: header indicators, cards, statistics popover, icon toolbar (NOT STARTED)
+- [~] 2.0 Overview: header indicators, cards, statistics popover, icon toolbar (IMPLEMENTED and
+  independently reviewed, one round, 15 findings fixed; PR being opened; branch
+  `jp/f/ux-overview-header-cards`, stacked on slice 1; not merged, installed or released)
   (AC-1, AC-4 to AC-11, AC-15, AC-16)
-  - [ ] 2.1 Overview title "My AI Usage"; remove the subtitle; reduce dividers and gaps.
-  - [ ] 2.2 Visible cards from the policy; Off cards removed on a successful save; Antigravity's
-        disabled card and "cached values are kept" copy removed from the overview.
-  - [ ] 2.3 ECG button opening Monitoring, with state symbol, color and text; collection-result
-        badge beside it, opening the latest collection details.
-  - [ ] 2.4 Success moves out of the full-width banner. Manual collection keeps busy and
-        completion feedback; duplicate requests are blocked.
-  - [ ] 2.5 Cards: quota first; all windows and model limits; countdowns with a dotted underline
-        and focus-reachable exact time; per-metric freshness; warning marker for partial failures.
-  - [ ] 2.6 Trophy button opening the statistics popover: today, recorded total with coverage
-        dates, peak day and value. "Lifetime" only when coverage is complete.
-  - [ ] 2.7 Icon-only toolbar (collect, History, Settings) with tooltips and labels; remove the
-        "Data read" footer.
-  - [ ] 2.8 Issue #9 status reconciled against the countdown layout.
-  - **Validates when:**
-    - Snapshot tests for light, dark, narrow and long-name scenes produce renders in the
-      worktree's `macos/build`; the renders are reported as "pending owner review".
-    - Keyboard-only walkthrough and VoiceOver labels are checked in a test or are reported as
-      outstanding.
-    - Turning off one Claude instance removes only its card (AC-1).
+  - [x] 2.1 "My AI Usage" title.
+  - [x] 2.2 Cards come from `AppStore.cardProviders`, with "Choose your providers" and
+        awaiting-detection empty states.
+  - [x] 2.3 ECG button opens Monitoring, with state badge and tooltip. Collection-result capsule
+        shows a count and opens a details popover. Collection issues are shown separately from
+        quota limits. Detection notices offer Keep history and Review provider settings.
+  - [x] 2.4 Banner only when no report loads or a manual check fails. Success is not a persistent
+        banner.
+  - [x] 2.5 Quota-first cards with one countdown formatter and a dotted underline. Exact time shows
+        on hover, focus or click. "Last known: resets in ..." under failed windows. "Reset due ·
+        awaiting update" and "Reset time unavailable" states. One issue marker per affected card.
+  - [x] 2.6 Trophy statistics popover: today, "Recorded total" with coverage, peak in 7 days,
+        last activity, token basis.
+  - [x] 2.7 Three icon-only toolbar buttons (collect, History, Settings).
+  - [x] 2.8 Settings: Auto/On/Off control with detected state, a fallback switch for older
+        collectors, and a Card order section with Move up/down, drag-to-reorder and "Use recent
+        activity order". Ordering controls live in Settings (Arrange mode decision).
+  - [ ] 2.9 Issue #9 reconciled against the countdown layout (not recorded as done).
+  - **Validation (2026-11-15):**
+    - `make app-test`: Executed 121 tests, 0 failures.
+    - `make design-check ARGS=--strict`: 0 unwaived.
+    - `make design-build-check`: pass.
+    - `make app-snapshot`: wrote 136 images (19 new scenarios, including one-off,
+      choose-providers, awaiting-detection, result-warning, success-at-limit, custom and recent
+      order, long-name, reset-past-unknown, collection details, statistics, and three settings
+      scenarios). Renders are kept at `~/devel/ai-scratch/ai-usage-ux-pass/renders/slice2`.
+    - Python is unchanged in slice 2.
+    - 56 of the accepted reference renders now differ (42 already differed on `main`). The
+      references in `docs/design/app/references` were NOT replaced and await the owner's visual
+      acceptance.
+  - **Outstanding:**
+    - Owner visual acceptance.
+    - Keyboard-focus reveal of the exact reset time and statistics, and drag-to-reorder, are
+      implemented but not exercised natively. Offscreen renders cannot show focus or drag.
+    - Popover contents are rendered standalone.
+    - No render of the transient "check finished" state.
+    - Live VoiceOver not run.
 
 - [ ] 3.0 Provider detail, Monitoring, empty states, History navigation (NOT STARTED)
   (AC-3, AC-5, AC-12, AC-13, AC-15, AC-16)
@@ -165,8 +186,9 @@
 
 ## Current Status
 
-- Slice 1 (1.0): implemented and independently reviewed (one round, findings fixed). PR not yet
-  opened. Not merged, installed or released. Subtasks done except 1.9 (PR review and merge).
-- Slices 2.0, 3.0 and 4.0: not started.
-- Validation results for slice 1: see 1.0 above (`make check`, `make fixture-check`,
-  `make app-test` passed; `make app-snapshot-check` has 42 pre-existing failures on `origin/main`).
+- Slice 1 (1.0): PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41), commit `7b73412`.
+  All CI checks pass; queued for review. Not approved, merged, installed or released.
+- Slice 2 (2.0): implemented and reviewed; PR being opened. Not merged, installed or released.
+  Owner visual acceptance is outstanding; references not replaced.
+- Slices 3.0 and 4.0: not started.
+- Validation results: see 1.0 and 2.0 above.

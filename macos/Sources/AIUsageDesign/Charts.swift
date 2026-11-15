@@ -109,12 +109,17 @@ public struct DayBarChart: View {
         if let selected, days.indices.contains(selected) {
             return Presentation.readout(provider, day: days[selected], asOf: provider.today?.asOf, today: today)
         }
-        return Presentation.chartCaption(provider, days: days)
+        return restingCaption
+    }
+
+    /// Mini (card) charts keep a short range/basis label; the peak lives in the statistics popover.
+    private var restingCaption: String {
+        style == .mini ? CardStatistics.rangeLabel(provider, days: days.count) : Presentation.chartCaption(provider, days: days)
     }
 
     /// Every text the readout can show: the caption and each day's readout.
     private var readouts: [String] {
-        [Presentation.chartCaption(provider, days: days)]
+        [restingCaption]
             + days.map { Presentation.readout(provider, day: $0, asOf: provider.today?.asOf, today: today) }
     }
 
@@ -122,7 +127,10 @@ public struct DayBarChart: View {
         Text(text)
             .font(style == .mini ? .auCaption : .auBody)
             .foregroundStyle(T.Color.muted.color)
-            .lineLimit(2)
+            // Cards reserve one line: no blank band under the mini chart.
+            .lineLimit(style == .mini ? 1 : 2)
+            .truncationMode(.tail)
+            .minimumScaleFactor(style == .mini ? 0.85 : 1)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

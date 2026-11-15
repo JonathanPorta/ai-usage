@@ -20,6 +20,8 @@ struct SettingsView: View {
     @State private var loadedPrices: [String: String] = [:]
     @State private var loginStatus = LoginItem.status
     @State private var loginError: String?
+    /// A tracking mode being saved, shown until the save ends.
+    @State private var pendingTracking: [String: TrackingMode] = [:]
 
     static let intervals: [(Int, String)] = [(900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
                                              (7200, "2 hours"), (14400, "4 hours"), (43200, "12 hours")]
@@ -38,6 +40,7 @@ struct SettingsView: View {
                         if let report = store.report {
                             collectorSection(report)
                             providersSection(report)
+                            cardOrderSection()
                         }
                         notificationsSection
                         appSection
@@ -114,7 +117,7 @@ struct SettingsView: View {
 
     private func providersSection(_ report: Report) -> some View {
         section("Providers") {
-            ForEach(report.providers) { provider in
+            ForEach(store.orderedProviders) { provider in
                 VStack(alignment: .leading, spacing: 4) {
                     if !Presentation.showsToggle(provider, in: report) {
                         // An older installed collector would never run it: nothing to turn on yet.
@@ -126,6 +129,8 @@ struct SettingsView: View {
                             }
                         }
                         .accessibilityElement(children: .combine)
+                    } else if report.collector.capabilities?.trackingPolicy == true {
+                        trackingRow(provider, report: report)
                     } else {
                         SwitchRow(isOn: Binding(
                             get: { provider.enabled },
@@ -133,6 +138,17 @@ struct SettingsView: View {
                         ), title: provider.name,
                            subtitle: subtitle(provider, report: report))
                         .disabled(store.isActing)
+                    }
+                    if let notice = store.detectionNotices.first(where: { $0.providerId == provider.id }) {
+                        HStack(spacing: T.Space.s2) {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(T.Color.warning.color)
+                                .accessibilityHidden(true)
+                            Text(notice.title).font(.auCaption).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: T.Space.s2)
+                            Button(DetectionNotice.Action.keepHistory.label) { store.acknowledgeDetection(notice) }
+                                .controlSize(.small)
+                                .accessibilityLabel("Keep \(provider.name) history")
+                        }
                     }
                     HStack(spacing: T.Space.s2) {
                         Text("Subscription $").font(.auCaption).foregroundStyle(T.Color.muted.color)
@@ -152,12 +168,85 @@ struct SettingsView: View {
                     }
                 }
                 .id("provider-\(provider.id)")
-                if provider.id != report.providers.last?.id { Divider() }
+                if provider.id != store.orderedProviders.last?.id { Divider() }
             }
-            Text("Turning a provider off keeps its cached data; it stops being checked. Prices are never compared with quota or reported cost.")
-                .font(.auCaption).foregroundStyle(T.Color.muted.color).fixedSize(horizontal: false, vertical: true)
             Divider()
             AddAccountView(report: report)
+        }
+    }
+
+    /// Auto / On / Off, with what detection found and what Auto is doing.
+    private func trackingRow(_ provider: Provider, report: Report) -> some View {
+        let saved = provider.trackingMode
+        let shown = pendingTracking[provider.id] ?? saved
+        // Local plugins keep an explicit choice: Auto is offered only if already saved.
+        let modes: [TrackingMode] = provider.isLocalPlugin && saved != .auto ? [.on, .off] : TrackingMode.allCases
+        let status = [SettingsTracking.detectionText(provider),
+                      SettingsTracking.statusText(provider, shown: shown, saving: pendingTracking[provider.id] != nil)]
+            .compactMap { $0 }.joined(separator: " · ")
+        return HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(provider.name).font(.auBody)
+                if let subtitle = subtitle(provider, report: report) {
+                    Text(subtitle).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !status.isEmpty {
+                    Text(status).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                }
+            }
+            Spacer(minLength: T.Space.s2)
+            Picker("\(provider.name) tracking", selection: Binding(
+                get: { shown == .unknown ? saved : shown },
+                set: { mode in saveTracking(provider, mode) }
+            )) {
+                ForEach(modes, id: \.self) { Text(SettingsTracking.shortLabel($0)).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
+            .disabled(store.isActing)
+            .accessibilityValue(status.isEmpty ? shown.label : "\(shown.label), \(status)")
+        }
+    }
+
+    private func saveTracking(_ provider: Provider, _ mode: TrackingMode) {
+        guard mode != provider.trackingMode, !store.isActing else { return }
+        pendingTracking[provider.id] = mode
+        Task {
+            await store.applySettings([.tracking(provider, mode)])
+            // Success or failure, the report's saved mode is shown again.
+            pendingTracking[provider.id] = nil
+        }
+    }
+
+    private func cardOrderSection() -> some View {
+        section("Card order") {
+            HStack {
+                Text(store.cardOrderMode == .custom ? "Custom" : "Recently used").font(.auBody)
+                    .accessibilityLabel("Card order: \(store.cardOrderMode == .custom ? "Custom" : "Recently used")")
+                Spacer()
+                if store.cardOrderMode == .custom {
+                    Button("Use recent activity order") { store.useRecentActivityOrder() }.controlSize(.small)
+                }
+            }
+            ForEach(store.orderedProviders) { provider in
+                HStack(spacing: T.Space.s2) {
+                    Text(provider.name).font(.auBody)
+                    if !provider.isOverviewVisible {
+                        Text("Hidden").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    }
+                    Spacer()
+                    if provider.isOverviewVisible {
+                        Button { store.moveCardUp(provider.id) } label: { Image(systemName: "chevron.up") }
+                            .controlSize(.small).disabled(!store.canMoveCard(provider.id, up: true))
+                            .accessibilityLabel("Move \(provider.name) up").help("Move up")
+                        Button { store.moveCardDown(provider.id) } label: { Image(systemName: "chevron.down") }
+                            .controlSize(.small).disabled(!store.canMoveCard(provider.id, up: false))
+                            .accessibilityLabel("Move \(provider.name) down").help("Move down")
+                    }
+                }
+                .contentShape(Rectangle())
+                .modifier(CardDragModifier(id: provider.id, enabled: provider.isOverviewVisible, store: store))
+            }
         }
     }
 
@@ -253,5 +342,30 @@ struct SwitchRow: View {
             Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Drag a visible Card order row onto another visible row. Uses the same Move up/down
+/// steps as the buttons, so the first drag selects the custom order.
+private struct CardDragModifier: ViewModifier {
+    let id: String
+    let enabled: Bool
+    let store: AppStore
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .draggable(id) { Text(store.cardProviders.first { $0.id == id }?.name ?? id).font(.auBody).padding(4) }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let dragged = items.first, dragged != id else { return false }
+                    let visible = store.cardProviders.map(\.id)
+                    guard var from = visible.firstIndex(of: dragged), let to = visible.firstIndex(of: id) else { return false }
+                    while from > to { store.moveCardUp(dragged); from -= 1 }
+                    while from < to { store.moveCardDown(dragged); from += 1 }
+                    return true
+                }
+        } else {
+            content
+        }
     }
 }
