@@ -59,7 +59,7 @@ struct PopoverRoot: View {
             switch screen {
             case let .detail(id)?:
                 if let provider = store.report?.provider(id) {
-                    ProviderDetailView(provider: provider, back: back, openHistory: { showHistory(id) },
+                    ProviderDetailView(provider: provider, back: back, openHistory: { showHistory(id, context: $0) },
                                        maxHeight: maxHeight, initialMetric: detailMetric)
                         .transition(transition)
                 }
@@ -108,10 +108,12 @@ struct PopoverRoot: View {
         screen = nil
     }
 
-    private func showHistory(_ providerId: String?) {
+    private func showHistory(_ providerId: String?) { showHistory(providerId, context: nil) }
+
+    private func showHistory(_ providerId: String?, context: HistoryContext?) {
         // History opens in its own window, so the popover closes behind it.
         StatusItem.toggle()
-        navigation.historyRequest = HistoryRequest(providerId: providerId)
+        navigation.historyRequest = HistoryRequest(providerId: providerId, context: context)
         openWindow(id: HistoryView.windowId)
         NSApp.activate(ignoringOtherApps: true)
     }

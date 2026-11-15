@@ -55,6 +55,8 @@ enum SnapshotRenderer {
                 try overviewStates(report, width: popoverWidth) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
+                try monitoringStates(report, width: popoverWidth) { try shoot($0, width: $1, height: $2, store: $3, $4) }
+                try detailStates(report, width: popoverWidth) { try shoot($0, width: $1, height: $2, store: $3, $4) }
                 try allToolsStates(report) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
@@ -376,6 +378,115 @@ enum SnapshotRenderer {
         try shoot("popover-settings-no-tracking-policy", width, nil, store(older), settings())
     }
 
+    /// Slice 3 Monitoring states, from fixture variants built here.
+    private static func monitoringStates(
+        _ report: Report, width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        func store(_ report: Report) -> AppStore { AppStore.preview(report, clock: report.generatedAt) }
+        func variant(_ change: (inout Report) -> Void) -> Report { var copy = report; change(&copy); return copy }
+        func page() -> AnyView { AnyView(PopoverRoot(initialScreen: .monitoring, screenHeight: 2400, uncapped: true)) }
+        func success(_ r: inout Report) {
+            r.collection.lastAttemptResult = .success
+            r.collection.lastSuccessAt = r.collection.lastAttemptAt
+            r.collection.failures = []
+            if let expected = r.collection.summary?.providersExpected {
+                r.collection.summary?.providersFresh = expected
+                r.collection.summary?.providersStale = 0
+                r.collection.summary?.providersPartly = 0
+                r.collection.summary?.providersFailed = 0
+            }
+            for i in r.providers.indices {
+                // Every source healthy, so the "updated" summary is truthful.
+                for s in r.providers[i].sources.indices { r.providers[i].sources[s].status = .ok }
+            }
+        }
+        let paused = variant { r in success(&r); r.schedule.state = "paused"; r.schedule.nextScheduledAt = nil }
+        try shoot("popover-monitoring-paused", width, nil, store(paused), page())
+        let stopped = variant { r in
+            success(&r); r.service.state = .stopped; r.service.pid = nil; r.service.disabled = true
+        }
+        try shoot("popover-monitoring-stopped", width, nil, store(stopped), page())
+        // Running, with Grok's billing failing and Claude's daily stats stale (the fixture), an hour after the last success.
+        let partial = variant { r in
+            r.collection.lastSuccessAt = r.collection.lastAttemptAt?.addingTimeInterval(-3600)
+        }
+        try shoot("popover-monitoring-partial", width, nil, store(partial), page())
+        let inactive = variant { r in
+            for id in ["antigravity", "gemini_cli"] {
+                guard let i = r.providers.firstIndex(where: { $0.id == id }) else { continue }
+                r.providers[i].tracking = .off; r.providers[i].trackingEffective = .inactive; r.providers[i].enabled = false
+                for s in r.providers[i].sources.indices { r.providers[i].sources[s].status = .off }
+            }
+            r.collection.summary?.providersExpected = 3
+        }
+        try shoot("popover-monitoring-inactive-expanded", width, nil, store(inactive), AnyView(
+            MonitoringView(back: {}, openDetail: { _ in }, maxHeight: 2400, collectionDetails: true, inactiveExpanded: true)
+                .frame(width: width).background(T.Color.background.color)))
+        let none = variant { r in
+            for i in r.providers.indices {
+                r.providers[i].tracking = .off; r.providers[i].trackingEffective = .inactive; r.providers[i].enabled = false
+            }
+            r.collection.summary?.providersExpected = 0
+            r.collection.summary?.providersFresh = 0
+            r.collection.failures = []
+        }
+        try shoot("popover-monitoring-no-active", width, nil, store(none), page())
+    }
+
+    /// Slice 3 provider detail empty states, the expanded chart key, and History
+    /// opened from a provider's detail, from fixture variants built here.
+    private static func detailStates(
+        _ report: Report, width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        func store(_ report: Report) -> AppStore { AppStore.preview(report, clock: report.generatedAt) }
+        func variant(_ id: String, _ change: (inout Provider) -> Void) -> Report {
+            var copy = report
+            if let i = copy.providers.firstIndex(where: { $0.id == id }) { change(&copy.providers[i]) }
+            return copy
+        }
+        func clearDays(_ provider: inout Provider, keepingFirst keep: Int = 0) {
+            for i in provider.days.indices where i >= keep && provider.days[i].state != .notCollected {
+                provider.days[i].state = .missing
+                provider.days[i].total = nil; provider.days[i].input = nil
+                provider.days[i].output = nil; provider.days[i].cacheRead = nil
+            }
+        }
+        func detail(_ id: String, metric: DetailMetric = .tokens, range: Int = 7, key: Bool = false) -> AnyView {
+            AnyView(DetailSnapshotHost(providerId: id, metric: metric, range: range, chartKeyOpen: key))
+        }
+        let off = variant("antigravity") { p in p.tracking = .off; p.trackingEffective = .inactive; p.enabled = false }
+        try shoot("detail-tracking-off", width, nil, store(off), detail("antigravity"))
+        let auto = variant("codex") { p in p.tracking = .auto; p.trackingEffective = .active }
+        try shoot("detail-tracking-auto", width, nil, store(auto), detail("codex"))
+        let never = variant("antigravity") { p in clearDays(&p); p.today = nil; p.modelsToday = [] }
+        try shoot("detail-no-usage", width, nil, store(never), detail("antigravity"))
+        let noToday = variant("codex") { p in p.today = nil; p.modelsToday = [] }
+        try shoot("detail-no-reading-today", width, nil, store(noToday), detail("codex"))
+        let oldOnly = variant("grok") { p in
+            if let first = p.days.firstIndex(where: \.hasValue) { clearDays(&p, keepingFirst: max(first + 1, 30)) }
+            p.today = nil; p.modelsToday = []
+        }
+        try shoot("detail-no-data-in-range", width, nil, store(oldOnly), detail("grok"))
+        try shoot("detail-no-data-in-range-30d", width, nil, store(oldOnly), detail("grok", range: 30))
+        let noPrice = variant("claude") { p in p.costs.subscription = nil }
+        try shoot("detail-missing-price", width, nil, store(noPrice), detail("claude"))
+        let noCost = variant("codex") { p in p.costs.reported = nil; p.costs.reportedNote = nil }
+        try shoot("detail-cost-not-reported", width, nil, store(noCost), detail("codex"))
+        try shoot("detail-chart-key-expanded", width, nil, nil, detail("claude", key: true))
+        if let quota = report.providers.first(where: { !$0.activeWindows.isEmpty }) {
+            try shoot("detail-chart-key-expanded-quota", width, nil, nil, detail(quota.id, metric: .quota, key: true))
+            // History as opened from that provider's detail on Quota: provider, metric, window and range kept.
+            let window = quota.activeWindows.last
+            let context = DetailPresentation.historyContext(quota, metric: .quota, tokenRange: 7,
+                                                            windowId: window?.id, quotaRange: window?.ranges.last)
+            try shoot("history-from-detail", 920, 1400, nil, AnyView(HistoryView(
+                providerId: context.providerId, metric: context.metric, tokenRange: context.tokenRange,
+                windowId: context.windowId, quotaRange: context.quotaRange)))
+        }
+    }
+
     private static func fetchLive() throws -> Report {
         let environment = CollectorEnvironment.resolve()
         let client = LiveReportClient(environment: environment)
@@ -404,5 +515,23 @@ enum SnapshotRenderer {
         host.cacheDisplay(in: host.bounds, to: rep)
         guard let png = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
         try png.write(to: file)
+    }
+}
+
+/// Provider detail rendered at its full height (no popover cap), for snapshots.
+private struct DetailSnapshotHost: View {
+    @Environment(AppStore.self) private var store
+    let providerId: String
+    let metric: DetailMetric
+    let range: Int
+    let chartKeyOpen: Bool
+
+    var body: some View {
+        if let provider = store.report?.provider(providerId) {
+            ProviderDetailView(provider: provider, back: {}, openHistory: { _ in }, maxHeight: 2400,
+                               initialMetric: metric, tokenRange: range, chartKeyOpen: chartKeyOpen)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(T.Color.background.color)
+        }
     }
 }

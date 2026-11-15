@@ -383,8 +383,16 @@ public struct QuotaLineChart: View {
                     RuleMark(x: .value("Reset", reset))
                         .foregroundStyle(T.Color.muted.color)
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                        .annotation(position: .top, alignment: .leading) {
-                            if reset == resets.last { Text("reset").font(.auChart).foregroundStyle(T.Color.muted.color) }
+                        // Inside the plot, beside the rule at its top (issue #9): never above
+                        // the chart where the range selector sits, and flipped to the rule's
+                        // left near the trailing edge so it stays inside the card.
+                        .annotation(position: resetLabelOnLeading(reset) ? .leading : .trailing, alignment: .top, spacing: 3) {
+                            if reset == resets.last {
+                                Text("reset").font(.auChart).foregroundStyle(T.Color.muted.color)
+                                    .padding(.horizontal, 2)
+                                    .background(T.Color.panel.color.opacity(0.85), in: RoundedRectangle(cornerRadius: 2))
+                                    .fixedSize()
+                            }
                         }
                 }
                 ForEach(points) { point in
@@ -447,6 +455,11 @@ public struct QuotaLineChart: View {
         .accessibilityElement()
         .accessibilityLabel("\(window.label), % \(window.basis == .remaining ? "remaining" : "used")")
         .accessibilityValue(readout(points))
+    }
+
+    /// The label goes left of a reset in the last fifth of the range.
+    private func resetLabelOnLeading(_ reset: Date) -> Bool {
+        reset.timeIntervalSince(start) / max(rangeSeconds, 1) > 0.8
     }
 
     private func step(_ delta: Int, _ count: Int) -> KeyPress.Result {

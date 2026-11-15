@@ -36,7 +36,9 @@ struct HistoryView: View {
     @State private var focusRingsVisible = false
 
     init(providerId: String? = nil, metric: ProviderDetailView.Metric = .tokens, tokenRange: Int = 30,
-         allTools: Bool = false, allRange: Int = 30) {
+         allTools: Bool = false, allRange: Int = 30, windowId: String? = nil, quotaRange: String? = nil) {
+        _windowId = State(initialValue: windowId)
+        _quotaRange = State(initialValue: quotaRange)
         _providerId = State(initialValue: providerId)
         _showsAll = State(initialValue: allTools)
         _allRange = State(initialValue: allRange)
@@ -86,9 +88,16 @@ struct HistoryView: View {
     }
 
     private func applyRequest() {
-        if let id = navigation.historyRequest?.providerId {
-            providerId = id
-            showsAll = false
+        guard let request = navigation.historyRequest, let id = request.providerId else { return }
+        providerId = id
+        showsAll = false
+        if let context = request.context, context.providerId == id {
+            // Opened from a provider's detail: keep its metric, window and ranges.
+            metric = context.metric
+            tokenRange = context.tokenRange
+            windowId = context.windowId
+            quotaRange = context.quotaRange
+        } else {
             metric = .tokens
         }
     }
@@ -222,13 +231,16 @@ struct HistoryView: View {
                     SetupNotice(provider: provider)
                 } else {
                     HistoryEmptyState(provider: provider, availability: availability, range: tokenRange,
-                                      showAll: { tokenRange = 90 })
+                                      showRange: { tokenRange = $0 })
                 }
             }
             if Presentation.historyAvailability(provider, days: provider.days) == .data {
                 VStack(alignment: .leading, spacing: T.Space.s2) {
                     SectionLabel("Accounting")
-                    Panel { AccountingView(provider: provider, now: now) }
+                    Panel {
+                        AccountingView(provider: provider, now: now,
+                                       addPrice: { ProviderSettingsRoute.open(provider.id, navigation: navigation) })
+                    }
                 }
             }
         }
@@ -395,6 +407,7 @@ struct TokenHistory: View {
     let days: [Day]
     let today: String
     let compact: Bool
+    @State private var keyOpen = false
 
     var body: some View {
         let measured = days.filter { $0.hasValue }
@@ -414,7 +427,10 @@ struct TokenHistory: View {
             Panel {
                 VStack(alignment: .leading, spacing: T.Space.s2) {
                     DayBarChart(provider: provider, days: days, style: .full, today: today)
-                    DayChartLegend(split: provider.usage.hasSplit)
+                    ChartKey(isExpanded: $keyOpen) {
+                        DayChartLegend(split: provider.usage.hasSplit)
+                        Text(about(notCollected: notCollected))
+                    }
                 }
             }
             if let cache = cacheTotal {
@@ -422,7 +438,6 @@ struct TokenHistory: View {
                     .font(.auCaption).foregroundStyle(T.Color.muted.color)
                     .accessibilityLabel("Cache reads over \(days.count) days: \(Format.tokens(cache)), counted separately from input and output")
             }
-            AboutNumbers(text: about(notCollected: notCollected))
             SectionLabel("Daily detail")
             DailyTable(provider: provider, days: days.reversed(), today: today)
         }
@@ -507,81 +522,34 @@ private struct HistoryEmptyState: View {
     let provider: Provider
     let availability: Presentation.HistoryAvailability
     let range: Int
-    let showAll: () -> Void
+    let showRange: (Int) -> Void
 
     var body: some View {
+        let copy = DetailPresentation.chartEmpty(provider, days: Presentation.recentDays(provider, count: range), range: range,
+                                                 ranges: [90])
         Panel {
-            VStack(alignment: .leading, spacing: T.Space.s3) {
-                Label(title, systemImage: symbol).font(.auLead).labelStyle(.titleAndIcon)
-                Text(message).font(.auBody).foregroundStyle(T.Color.muted.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: T.Space.s2) { actions }
-                    .disabled(store.isActing || store.isCollecting)
+            VStack(spacing: T.Space.s2) {
+                if let copy {
+                    CopyEmptyState(copy, action: run)
+                        .disabled(store.isActing || store.isCollecting)
+                }
                 ActionBanner()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, T.Space.s2)
+            .frame(maxWidth: .infinity)
         }
         .accessibilityElement(children: .contain)
     }
 
-    private var title: String {
-        switch availability {
-        case .trackingDisabled: return "Tracking is off for \(provider.name)"
-        case .notDetected: return "\(provider.name) not detected"
-        case .notConfigured: return "\(provider.name) is not set up"
-        case .noUsageRecorded: return "No usage recorded yet"
-        case .noneInRange: return "No usage in the last \(range) days"
-        case .data: return ""
-        }
-    }
-
-    private var symbol: String {
-        switch availability {
-        case .trackingDisabled: return "pause.circle"
-        case .notDetected: return "questionmark.circle"
-        case .notConfigured: return "wrench.and.screwdriver"
-        case .noUsageRecorded, .noneInRange, .data: return "calendar"
-        }
-    }
-
-    private var message: String {
-        switch availability {
-        case .trackingDisabled:
-            return "The collector doesn’t check \(provider.name), so nothing is recorded. Turning tracking on lets it look for \(provider.name) at its next check; it doesn’t install anything."
-        case .notDetected:
-            return "Tracking is on, but the collector didn’t find \(provider.name) on this Mac at its last check. Usage appears here once \(provider.name) is installed and used."
-        case .notConfigured:
-            return Presentation.setupText(provider) ?? "\(provider.name) needs setting up before it can be read."
-        case .noUsageRecorded:
-            return provider.setup == .waiting
-                ? (Presentation.setupText(provider) ?? "Waiting for the first reading.")
-                : "Tracking is on and \(provider.name) was found, but no usage has been recorded yet."
-        case .noneInRange:
-            return "\(provider.name) has earlier history, but nothing was recorded in this range."
-        case .data:
-            return ""
-        }
-    }
-
-    @ViewBuilder
-    private var actions: some View {
-        switch availability {
-        case .trackingDisabled:
-            Button("Enable tracking") {
-                Task { await store.applySettings([.enabling(provider, true)]) }
+    private func run(_ action: EmptyCopy.Action) {
+        switch action {
+        case let .widenRange(days), let .openHistoryRange(days): showRange(days)
+        case .enableTracking:
+            Task {
+                await store.applySettings([DetailPresentation.trackingChange(
+                    provider, on: true, supportsPolicy: DetailPresentation.supportsPolicy(store.report))])
             }
-            .buttonStyle(.borderedProminent).controlSize(.small)
-        case .notDetected, .notConfigured:
-            Button("Check again") { Task { _ = await store.collectNow() } }.controlSize(.small)
-            Button("Provider settings…") { ProviderSettingsRoute.open(provider.id, navigation: navigation) }
-                .controlSize(.small)
-        case .noUsageRecorded:
-            Button("Check again") { Task { _ = await store.collectNow() } }.controlSize(.small)
-        case .noneInRange:
-            if range < 90 { Button("Show 90 days", action: showAll).controlSize(.small) }
-        case .data:
-            EmptyView()
+        case .providerSettings: ProviderSettingsRoute.open(provider.id, navigation: navigation)
+        case .checkAgain: Task { _ = await store.collectNow() }
         }
     }
 }
@@ -594,10 +562,13 @@ private struct SetupNotice: View {
     let provider: Provider
 
     var body: some View {
-        if !provider.enabled || provider.setup == .disabled {
+        if DetailPresentation.isTrackingOff(provider) || !provider.enabled {
             notice("Tracking is off for \(provider.name); earlier history is shown.") {
-                Button("Enable tracking") {
-                    Task { await store.applySettings([.enabling(provider, true)]) }
+                Button("Turn on tracking") {
+                    Task {
+                        await store.applySettings([DetailPresentation.trackingChange(
+                            provider, on: true, supportsPolicy: DetailPresentation.supportsPolicy(store.report))])
+                    }
                 }
             }
         } else if provider.setup == .notDetected || provider.setup == .notConfigured {
@@ -627,6 +598,7 @@ struct QuotaHistory: View {
     let now: Date
     let compact: Bool
     let gap: TimeInterval
+    @State private var keyOpen = false
 
     var body: some View {
         let seconds = RangeText.seconds(range)
@@ -639,8 +611,21 @@ struct QuotaHistory: View {
                 ("\(resets.count)", "Resets in range"),
                 (Format.moment(window.measuredAt, now: now), "Latest reading"),
             ])
-            Panel { QuotaLineChart(window: window, rangeSeconds: seconds, now: now, gapSeconds: gap) }
-            AboutNumbers(text: "Percentage \(window.basis == .remaining ? "remaining" : "used") in \(provider.name)’s \(window.label.lowercased()). Readings are snapshots: they are plotted, never added up\(window.derived ? "; remaining is derived from the reported % used" : "").")
+            if let reset = Presentation.quotaReset(window, now: now) {
+                HStack(spacing: 4) {
+                    Image(systemName: Symbols.clock).accessibilityHidden(true)
+                    ResetLabel(reset.countdown)
+                }
+                .font(.auCaption).foregroundStyle(reset.lastKnown ? T.Color.warning.color : T.Color.muted.color)
+            }
+            Panel {
+                VStack(alignment: .leading, spacing: T.Space.s2) {
+                    QuotaLineChart(window: window, rangeSeconds: seconds, now: now, gapSeconds: gap)
+                    ChartKey(isExpanded: $keyOpen) {
+                        Text("Percentage \(window.basis == .remaining ? "remaining" : "used") in \(provider.name)’s \(window.label.lowercased()). Readings are snapshots: they are plotted, never added up\(window.derived ? "; remaining is derived from the reported % used" : ""). A dashed rule marks a reset; a dashed tail means the latest reading is stale.")
+                    }
+                }
+            }
             SectionLabel("Readings")
             Panel(padding: 0) {
                 VStack(spacing: 0) {

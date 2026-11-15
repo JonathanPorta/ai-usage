@@ -366,13 +366,22 @@ public enum HeaderFacts {
                         breakdown([(summary.providersUpdated, "updated"), (summary.providersPartly, "partly"),
                                    (summary.providersFailed, "failed")]))
         }
-        if expected == 0 { return fact(.noActiveProviders, "No active providers") }
-        let fresh = summary.providersFresh ?? 0
-        let stale = summary.providersStale ?? 0
-        if fresh == expected { return fact(.success, "\(fresh) of \(expected) active providers updated") }
-        let detail = breakdown([(fresh, "fresh"), (stale, "stale"), (summary.providersPartly, "partly"),
-                                (summary.providersFailed, "failed")])
-        let allFailed = fresh == 0 && stale == 0 && summary.providersPartly == 0 && summary.providersFailed > 0
-        return fact(allFailed ? .failed : .attention, "\(providers(expected)) checked", detail)
+        // The denominator and every count come from the same active providers and source
+        // statuses the Monitoring page lists, so the two can never disagree.
+        _ = expected
+        let active = report?.providers.filter(MonitoringPage.isActive) ?? []
+        if active.isEmpty { return fact(.noActiveProviders, "No active providers") }
+        var counts: [MonitoringPage.ProviderHealth: Int] = [:]
+        for provider in active { counts[MonitoringPage.health(provider), default: 0] += 1 }
+        func n(_ h: MonitoringPage.ProviderHealth) -> Int { counts[h] ?? 0 }
+        let summaryFresh = (summary.providersFresh ?? 0) >= active.count
+        if n(.fresh) == active.count && summaryFresh {
+            return fact(.success, "\(active.count) of \(active.count) active providers updated")
+        }
+        let detail = breakdown([(n(.fresh), "fresh"), (n(.stale), "stale"), (n(.waiting), "waiting"),
+                                (n(.missing), "missing"), (n(.signIn), "sign-in needed"), (n(.failed), "failed")])
+        let allFailed = n(.failed) + n(.signIn) == active.count
+        return fact(allFailed ? .failed : .attention, "\(providers(active.count)) checked",
+                    detail.isEmpty ? "\(active.count) fresh" : detail)
     }
 }

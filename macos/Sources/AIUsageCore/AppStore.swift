@@ -316,9 +316,11 @@ public final class AppStore {
         }
     }
 
-    public func applySettings(_ changes: [ConfigChange]) async {
-        guard !changes.isEmpty else { return }
-        await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+    /// Returns how the save ended; nil when it did not run (nothing to save, or another action was running).
+    @discardableResult
+    public func applySettings(_ changes: [ConfigChange]) async -> ActionState? {
+        guard !changes.isEmpty else { return nil }
+        return await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
     }
 
     /// Adds an account through the collector.

@@ -194,8 +194,15 @@ final class HeaderFactsTests: XCTestCase {
 
     func testResults() throws {
         var report = try base()
-        summary(&report, expected: 0, fresh: 0, stale: 0)
-        XCTAssertEqual(HeaderFacts.result(report).kind, .noActiveProviders)
+        // Four active providers with healthy sources; the fifth (Gemini) is off.
+        for i in report.providers.indices {
+            for j in report.providers[i].sources.indices { report.providers[i].sources[j].status = .ok }
+        }
+        report.set("gemini_cli") { $0.enabled = false }
+        var none = report
+        for i in none.providers.indices { none.providers[i].enabled = false }
+        summary(&none, expected: 0, fresh: 0, stale: 0)
+        XCTAssertEqual(HeaderFacts.result(none).kind, .noActiveProviders)
 
         summary(&report, expected: 4, fresh: 4, stale: 0)
         let fresh = HeaderFacts.result(report)
@@ -203,19 +210,21 @@ final class HeaderFactsTests: XCTestCase {
         XCTAssertEqual(fresh.severity, .ok)
         XCTAssertEqual(fresh.text, "4 of 4 active providers updated")
 
-        summary(&report, expected: 4, fresh: 3, stale: 1)
+        // A stale source can never be counted as updated, whatever the summary claims.
+        report.set("claude") { $0.sources[0].status = .stale }
         let stale = HeaderFacts.result(report)
         XCTAssertEqual(stale.kind, .attention)
         XCTAssertEqual(stale.text, "4 providers checked")
         XCTAssertEqual(stale.detail, "3 fresh · 1 stale")
         XCTAssertFalse(stale.text.contains("updated"))
 
-        summary(&report, expected: 4, fresh: 2, stale: 0, partly: 1, failed: 1)
+        report.set("grok") { $0.sources[0].status = .failed }
+        report.set("codex") { $0.sources[0].status = .notDetected }
         let partly = HeaderFacts.result(report)
         XCTAssertEqual(partly.kind, .attention)
-        XCTAssertEqual(partly.detail, "2 fresh · 1 partly · 1 failed")
+        XCTAssertEqual(partly.detail, "1 fresh · 1 stale · 1 missing · 1 failed")
 
-        summary(&report, expected: 2, fresh: 0, stale: 0, failed: 2)
+        for id in ["claude", "codex", "antigravity"] { report.set(id) { $0.sources[0].status = .failed } }
         XCTAssertEqual(HeaderFacts.result(report).kind, .failed)
         XCTAssertEqual(HeaderFacts.result(report).severity, .critical)
 
@@ -227,16 +236,19 @@ final class HeaderFactsTests: XCTestCase {
         XCTAssertEqual(old.text, "4 providers checked")
         XCTAssertEqual(old.kind, .success)
 
-        var none = try base()
-        none.collection.lastAttemptAt = nil
-        none.collection.summary = nil
-        XCTAssertEqual(HeaderFacts.result(none).kind, .none)
+        var empty = try base()
+        empty.collection.lastAttemptAt = nil
+        empty.collection.summary = nil
+        XCTAssertEqual(HeaderFacts.result(empty).kind, .none)
     }
 
     func testPausedAfterSuccessAndMonitoringWithPartialFailureCoexist() throws {
         var paused = try base()
         paused.schedule.state = "paused"
-        summary(&paused, expected: 3, fresh: 3, stale: 0)
+        for i in paused.providers.indices {
+            for j in paused.providers[i].sources.indices { paused.providers[i].sources[j].status = .ok }
+        }
+        summary(&paused, expected: 5, fresh: 5, stale: 0)
         XCTAssertEqual(HeaderFacts.monitoring(paused, collecting: false, now: paused.generatedAt).state, .paused)
         XCTAssertEqual(HeaderFacts.result(paused).kind, .success)
 
