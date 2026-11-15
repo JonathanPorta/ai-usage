@@ -15,7 +15,7 @@ import tempfile
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, MutableMapping, Optional, Union
 
-from .base import CollectContext, ProviderDef, ProviderPlugin, SourceDef
+from .base import CollectContext, ProviderDef, ProviderPlugin, SourceDef, tracking_policy
 from .support import (
     timestamp_to_iso,
     expand_path,
@@ -1563,7 +1563,8 @@ def instance_settings(explicit: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("config_dir must be a non-empty string: the account's CLAUDE_CONFIG_DIR")
     directory = account_config_dir(config_dir)
     derived = {
-        **copy.deepcopy(DEFAULT_SETTINGS),
+        # No `enabled`: an added account without a policy of its own is Auto (issue #8).
+        **{key: value for key, value in copy.deepcopy(DEFAULT_SETTINGS).items() if key != "enabled"},
         "stats_file": str(directory / "stats-cache.json"),
         "projects_dir": str(directory / "projects"),
         "usage_cache_file": str(directory / ".claude.json"),
@@ -1575,7 +1576,7 @@ def refresh_dir(settings: Mapping[str, Any]) -> Optional[tuple[str, str]]:
     """The folder `/usage` refreshes: an added account's CLAUDE_CONFIG_DIR, or the default
     account's ~/.claude (it always runs with CLAUDE_CONFIG_DIR removed). None when the
     account is disabled or its plan limits are off, so it never runs `claude`."""
-    if settings.get("enabled", True) is not True or settings.get("subscription_usage", True) is not True:
+    if tracking_policy(settings) == "off" or settings.get("subscription_usage", True) is not True:
         return None
     config_dir = settings.get("config_dir")
     if config_dir:

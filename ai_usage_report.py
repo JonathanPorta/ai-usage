@@ -924,6 +924,8 @@ def build_report(
         # Local plugins (~/.ai-usage/plugins) are collected by 2.4.0 and newer.
         "external_plugins": installed_version is not None
         and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION,
+        # Providers carry tracking, tracking_effective, detection and last_activity_at.
+        "tracking_policy": True,
     }
     pause_requested = config.get("poll_paused") is True
 
@@ -956,6 +958,30 @@ def build_report(
                 if row.metric == "session_files_deferred":
                     deferred[pid] = deferred.get(pid, 0) + (number(row.value) or 0)
 
+    # Tracking policy per instance (issue #8): what the collector did and saw on its own
+    # last run, read from its state file (read only). The report never probes itself:
+    # the app's PATH is not the LaunchAgent's.
+    try:
+        collector_state = collector.load_state(collector.state_path_for(config))
+    except (OSError, ValueError):
+        collector_state = {}
+    recorded_tracking = collector_state.get(collector.TRACKING_STATE_KEY)
+    has_records = isinstance(recorded_tracking, dict)
+    recorded_tracking = recorded_tracking if isinstance(recorded_tracking, dict) else {}
+    account_by_id = {account.id: account for account in collector.accounts(config, discovery)}
+    billed = {row.provider for row in scan.billing}
+    tracking: dict[str, dict[str, Any]] = {}
+    for pid in states:
+        account = account_by_id.get(pid)
+        if account is None:
+            continue
+        settings = collector.account_settings(config, account, discovery)
+        resolved = recorded_resolution(collector.account_tracking(account, settings), account,
+                                       recorded_tracking.get(pid), has_records)
+        provider_history = bool(scan.usage.get(pid)) or bool(scan.quota.get(pid)) or pid in billed
+        resolved["detection"]["saved_data"] = bool(resolved["detection"]["saved_data"] or provider_history)
+        tracking[pid] = resolved
+
     # Configured enablement wins for providers the latest attempt hasn't seen yet.
     for pid, state in states.items():
         if state.definition.external and not collector.external_configured(config, pid):
@@ -967,13 +993,33 @@ def build_report(
             for source in state.sources.values():
                 source.status = "off"
             continue
-        settings = collector.settings_for(config, pid)
-        if settings.get("enabled", True) is not True and state.setup != "disabled":
+        policy = tracking[pid]["policy"] if pid in tracking else "auto"
+        effective = tracking[pid]["effective"] if pid in tracking else "active"
+        if policy == "off" and state.setup != "disabled":
             state.enabled = False
             state.setup = "disabled"
             state.setup_note = "Turned off in the collector config; cached values are kept."
             for source in state.sources.values():
                 source.status = "off"
+        elif policy == "off":
+            state.enabled = False
+        elif effective == "inactive":
+            # Auto, and the CLI isn't installed: not collected; recorded history is kept.
+            state.enabled = False
+            state.setup = "not_detected"
+            state.setup_note = "Not found on this Mac; tracking is Auto, so it isn't collected."
+            for source in state.sources.values():
+                source.status = "not_detected"
+        elif effective == "pending":
+            state.enabled = False
+        else:
+            state.enabled = True
+            if state.setup == "disabled":
+                # Turned back on since its last check: nothing has been read yet.
+                state.setup = "waiting"
+                state.setup_note = None
+                for source in state.sources.values():
+                    source.status = "waiting"
     added_ids = {account.id for account in collector.accounts(config, discovery) if account.added}
     # An older installed collector ignores local plugins: say so instead of "not found".
     if installed_version is not None and installed_version < collector.EXTERNAL_PLUGINS_MIN_VERSION:
@@ -1072,7 +1118,7 @@ def build_report(
          "message": f"provider module failed to load: {collector.PLUGIN_LOAD_ERRORS[account.type]}", "auth": False}
         for account in collector.accounts(config)
         if account.type in collector.PLUGIN_LOAD_ERRORS
-        and collector.settings_for(config, account.id).get("enabled", True) is True
+        and collector.account_tracking(account, collector.settings_for(config, account.id)) != "off"
     ]
     if load_failures and not cycle_failures:
         collection["failures"] = [*collection["failures"], *load_failures]
@@ -1224,10 +1270,20 @@ def build_report(
         if missing_days and definition.id in loss_dates and set(missing_days) & loss_dates[definition.id]:
             state.notes.append("A session log rotated before it was read; affected days are shown as missing, not zero.")
 
+        resolved = tracking.get(definition.id) or {
+            "policy": "auto", "effective": "active",
+            "detection": {"installed": None, "requirement": "executable", "saved_data": bool(usage_rows)}}
         providers_out.append({
             "id": definition.id, "type": definition.type, "name": definition.name, "product": definition.product,
             **({"external": True} if definition.external else {}),
             "enabled": state.enabled, "setup": state.setup, "setup_note": state.setup_note,
+            "tracking": resolved["policy"],
+            "tracking_effective": resolved["effective"],
+            "detection": {"installed": resolved["detection"]["installed"],
+                          "requirement": resolved["detection"]["requirement"],
+                          "saved_data": bool(resolved["detection"].get("saved_data"))},
+            # The newest usage event's own time: never a read, collection or quota time.
+            "last_activity_at": iso(max(event_times)) if event_times else None,
             "usage": {
                 "status": usage_status, "stale_cause": usage_cause,
                 "becomes_stale_at": iso(usage_next[0]) if usage_next else None,
@@ -1243,6 +1299,26 @@ def build_report(
             "costs": costs,
             "sources": sources_out,
             "notes": state.notes,
+        })
+
+    # Fresh/stale/failed outcomes of the latest check, over every instance expected to
+    # take part (effective active), including one that failed before returning rows.
+    summary = collection["summary"]
+    if summary is not None:
+        outcome_attempt = None if completions else latest
+        outcomes: list[dict[str, str]] = []
+        for definition in definitions:
+            if tracking.get(definition.id, {}).get("effective", "active") != "active":
+                continue
+            outcomes.append({"id": definition.id,
+                             "outcome": attempt_outcome(states[definition.id], outcome_attempt,
+                                                        latest_results.get(definition.id))})
+        outcomes.extend({"id": failure["provider"], "outcome": "failed"} for failure in load_failures)
+        summary.update({
+            "providers_expected": len(outcomes),
+            "providers_fresh": sum(1 for o in outcomes if o["outcome"] == "fresh"),
+            "providers_stale": sum(1 for o in outcomes if o["outcome"] == "stale"),
+            "outcomes": outcomes,
         })
 
     # Bundled modules that failed to load, then local plugin folders that are invalid.
@@ -1274,6 +1350,56 @@ def build_report(
         "providers": providers_out,
         "groups": build_groups(providers_out),
     }
+
+
+def recorded_resolution(policy: str, account: Any, record: Any, has_records: bool) -> dict[str, Any]:
+    """Policy, detection and effective state from the collector's record of its last run.
+
+    A saved Off hides at once and a saved On shows at once; otherwise the record decides.
+    With no record: Off is inactive; an older collector (no records at all) collected
+    everything not disabled, so active; else pending until the collector has run."""
+    requirement = "none" if account.external else "executable"
+    record = record if isinstance(record, dict) else None
+    detection = {"installed": None, "requirement": requirement, "saved_data": False}
+    if record is not None:
+        detection = {"installed": record.get("installed") if record.get("installed") in (True, False) else None,
+                     "requirement": record.get("requirement") if record.get("requirement") in
+                     ("executable", "none") else requirement,
+                     "saved_data": record.get("saved_data") is True}
+    if policy == "off":
+        effective = "inactive"
+    elif policy == "on":
+        effective = "active"
+    elif record is not None and record.get("policy") == policy and record.get("effective") in (
+            "active", "inactive", "pending"):
+        effective = str(record["effective"])
+    elif record is not None and record.get("last_observed") in ("active", "inactive"):
+        effective = str(record["last_observed"])
+    elif account.external:
+        effective = "active"  # no install requirement: Auto is active
+    elif not has_records:
+        effective = "active"
+    else:
+        effective = "pending"
+    return {"policy": policy, "detection": detection, "effective": effective}
+
+
+def attempt_outcome(state: ProviderState, attempt: Optional[Attempt], legacy: Optional[str]) -> str:
+    """'fresh' | 'stale' | 'partly' | 'failed' for one expected provider in `attempt`.
+
+    `evaluate_attempt`'s 'updated' only means no hard failure: it is fresh only when every
+    source the attempt applied to read successfully, and stale when one is stale or waiting.
+    No rows, or no source attempted, is stale: nothing new was read."""
+    if attempt is None or not attempt.provider_rows(state.definition.id):
+        return "stale"
+    if legacy == "failed":
+        return "failed"
+    if legacy == "partly":
+        return "partly"
+    if legacy != "updated":
+        return "stale"
+    applicable = [s for s in state.sources.values() if s.last_attempt_at == attempt.at and s.status != "off"]
+    return "fresh" if applicable and all(s.status == "ok" for s in applicable) else "stale"
 
 
 def evaluate_ok(attempt: Attempt, state: ProviderState) -> bool:

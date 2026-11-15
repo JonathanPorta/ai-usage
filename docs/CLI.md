@@ -45,9 +45,12 @@ The installed collector is `collector.py` plus its provider package
 
 - `poll_paused=true|false`;
 - `poll_interval_seconds=N` (60 to 604800);
-- `providers.<id>.enabled=true|false`;
+- `providers.<id>.tracking="auto"|"on"|"off"` (issue #8), or the legacy
+  `providers.<id>.enabled=true|false`, which is stored as `tracking` `"on"`/`"off"`. `tracking` is canonical; the writer keeps
+  `enabled` as a mirror for an older installed collector (on: true, off: false, auto: removed).
+  The command echoes the keys as sent;
 - `providers.<id>.monthly_subscription_usd=N|null`;
-- `instances.<id>.enabled=true|false` and `instances.<id>.monthly_subscription_usd=N|null` (an added account, 2.3.0).
+- `instances.<id>.tracking="auto"|"on"|"off"` (or legacy `enabled=true|false`) and `instances.<id>.monthly_subscription_usd=N|null` (an added account, 2.3.0).
 - `providers.<id>.enabled=true|false`, `providers.<id>.monthly_subscription_usd=N|null` and
   `providers.<id>.timeout_seconds=N` for a local plugin (2.4.0). The timeout can only lower the
   plugin's own.
@@ -159,7 +162,8 @@ reported*. It never means zero.
     "installed_version": "2.1.0",      // VERSION read from the LaunchAgent's script; null if unknown
     "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true,
                       "instances": false,          // the installed collector collects added accounts (2.3.0+)
-                      "external_plugins": false }, // ... and runs local plugins (2.4.0+)
+                      "external_plugins": false,   // ... and runs local plugins (2.4.0+)
+                      "tracking_policy": true },   // providers carry tracking/detection keys
     "plugin_errors": { "plugins/broken": "plugins/broken/plugin.json: protocol must be 1" }
                                  // present only when a bundled module failed to load or a local plugin folder is invalid
   },
@@ -189,7 +193,14 @@ reported*. It never means zero.
     ],
     "summary": {
       "providers_attempted": 4, "providers_updated": 4, "providers_partly": 0,
-      "providers_failed": 0, "skipped": ["Gemini CLI"]
+      "providers_failed": 0, "skipped": ["Gemini CLI"],
+      // Legacy "updated" means no hard failure, not fresh. Added with tracking_policy:
+      "providers_expected": 4,            // instances active for this run, incl. one that failed
+                                          // before returning rows; off/inactive/pending never count.
+                                          // 0 means no active providers, not "0 of 0 updated"
+      "providers_fresh": 3,               // every applicable source read successfully
+      "providers_stale": 1,               // no hard failure, but a source stale or waiting (or no rows)
+      "outcomes": [{"id": "codex", "outcome": "fresh"}]  // fresh | stale | partly | failed
     }
   },
   "providers": [ /* Provider, in display order: codex, claude, antigravity, grok, gemini_cli,
@@ -208,9 +219,23 @@ reported*. It never means zero.
                                // as name, and its plugin's type, e.g. {"id": "claude-az", "type": "claude"}
                                // A local plugin (2.4.0+): its folder name is its id and type, and it carries
                                // "external": true (absent on every other provider)
-  "enabled": true,
+  "enabled": true,             // true exactly when tracking_effective is "active"
   "setup": "ready",            // ready | not_detected | disabled | not_configured | waiting
   "setup_note": null,
+  // Tracking policy (collector.capabilities.tracking_policy; all optional for older readers):
+  "tracking": "on",            // auto | on | off: `tracking`, else legacy `enabled` (true on, false off),
+                               // else auto (a local plugin: off)
+  "tracking_effective": "active", // off -> inactive; on -> active; auto -> active when installed or when
+                               // nothing must be installed, inactive when not installed (not collected,
+                               // history kept), else the collector's last known state, else pending.
+                               // Taken from the collector's own record of its last run (state file),
+                               // never probed by the reporter. No record: off inactive; an older
+                               // collector's state (no records at all) active; otherwise pending
+  "detection": {"installed": true, "requirement": "executable", "saved_data": true},
+                               // installed: an executable found now (null: unknown, or requirement "none");
+                               // saved_data: readable local logs/caches or recorded history rows
+  "last_activity_at": "2026-09-29T16:27:00Z", // newest usage event time; never a read, collection or
+                               // quota time; null when no events are recorded
   "usage": {
     "status": "current",       // current | stale | none
     "stale_cause": null,       // failed | not_collected | source_old | null

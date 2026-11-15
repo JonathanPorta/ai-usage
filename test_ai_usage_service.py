@@ -2458,7 +2458,9 @@ class MenuAppCommandTests(unittest.TestCase):
         written = json.loads(self.case.config.read_text(encoding="utf-8"))
         self.assertIs(written["poll_paused"], True)
         self.assertEqual(written["providers"]["codex"]["monthly_subscription_usd"], 25)
-        self.assertIs(written["providers"]["grok"]["enabled"], False)
+        # A legacy `enabled` write is stored as the canonical policy (issue #8).
+        self.assertEqual(written["providers"]["grok"]["tracking"], "off")
+        self.assertIs(written["providers"]["grok"]["enabled"], False, "mirrored for an older collector")
         self.assertEqual(written["x_custom"], {"kept": [1, 2, 3]}, "unrelated keys must survive")
         self.assertEqual(written["providers"]["codex"]["executable_names"], ["my-codex"])
         self.assertEqual(written["paths"], config["paths"])

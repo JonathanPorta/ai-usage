@@ -419,7 +419,7 @@ class InstallLifecycleTests(unittest.TestCase):
                         "--set", "providers.codex.enabled=false"],
                        env=self.case.environment(), capture_output=True, text=True, check=True)
         self.assertTrue(self.config.is_symlink())
-        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"providers": {"codex": {"enabled": False}}})
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"providers": {"codex": {"enabled": False, "tracking": "off"}}})
 
 
 if __name__ == "__main__":

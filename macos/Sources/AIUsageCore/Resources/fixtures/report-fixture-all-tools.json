@@ -17,7 +17,8 @@
       "service_control": true,
       "settings": true,
       "instances": true,
-      "external_plugins": true
+      "external_plugins": true,
+      "tracking_policy": true
     }
   },
   "thresholds": {
@@ -58,6 +59,35 @@
       "providers_failed": 0,
       "skipped": [
         "Claude (old)"
+      ],
+      "providers_expected": 6,
+      "providers_fresh": 2,
+      "providers_stale": 3,
+      "outcomes": [
+        {
+          "id": "codex",
+          "outcome": "fresh"
+        },
+        {
+          "id": "claude",
+          "outcome": "stale"
+        },
+        {
+          "id": "antigravity",
+          "outcome": "fresh"
+        },
+        {
+          "id": "grok",
+          "outcome": "partly"
+        },
+        {
+          "id": "gemini_cli",
+          "outcome": "stale"
+        },
+        {
+          "id": "claude-az",
+          "outcome": "stale"
+        }
       ]
     }
   },
@@ -70,6 +100,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": null,
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -3802,6 +3840,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:27:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -9998,6 +10044,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T15:22:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -10507,6 +10561,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:37:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -13357,6 +13419,14 @@
       "enabled": true,
       "setup": "not_detected",
       "setup_note": "Not found on this Mac at the last check.",
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": false
+      },
+      "last_activity_at": null,
       "usage": {
         "status": "none",
         "stale_cause": null,
@@ -13740,6 +13810,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:28:40Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -15931,6 +16009,14 @@
       "enabled": false,
       "setup": "disabled",
       "setup_note": "Turned off in the collector config; cached values are kept.",
+      "tracking": "off",
+      "tracking_effective": "inactive",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-16T22:30:20Z",
       "usage": {
         "status": "stale",
         "stale_cause": "not_collected",

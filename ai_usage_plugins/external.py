@@ -65,9 +65,9 @@ UTC_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2
 
 # Settings the owner's config controls; a manifest can't default them, so it can
 # never turn execution on.
-RESERVED_SETTINGS = ("enabled", "timeout_seconds", "monthly_subscription_usd")
+RESERVED_SETTINGS = ("enabled", "tracking", "timeout_seconds", "monthly_subscription_usd")
 # Collector settings that aren't sent to the plugin.
-COLLECTOR_ONLY_SETTINGS = ("enabled", "monthly_subscription_usd")
+COLLECTOR_ONLY_SETTINGS = ("enabled", "tracking", "monthly_subscription_usd")
 USAGE_PROFILES = ("daily_total", "events", "none")
 QUOTA_PROFILES = ("used", "remaining", "none")
 EVENT_METRICS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
@@ -350,8 +350,8 @@ def validate_manifest(manifest: Any, name: str, label: str) -> dict[str, Any]:
         if not isinstance(key, str) or not key or len(key) > LABEL_MAX or has_control_characters(key):
             raise ManifestError(f"{label}: default_settings has an invalid key")
         if key in RESERVED_SETTINGS:
-            raise ManifestError(f"{label}: default_settings may not set enabled, timeout_seconds "
-                                "or monthly_subscription_usd")
+            raise ManifestError(f"{label}: default_settings may not set enabled, tracking, "
+                                "timeout_seconds or monthly_subscription_usd")
         if not (value is None or isinstance(value, (str, bool)) or is_number(value)):
             raise ManifestError(f"{label}: default_settings values must be strings, numbers, booleans or null")
     report = manifest.get("report")

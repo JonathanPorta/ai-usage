@@ -103,8 +103,13 @@ public final class AppStore {
         config: ConfigWriting = NoConfigWriter(),
         clock: @escaping @Sendable () -> Date = Date.init,
         cacheURL: URL? = nil,
-        fingerprint: @escaping @Sendable ([URL]) -> SourceFingerprint = SourceFingerprint.of
+        fingerprint: @escaping @Sendable ([URL]) -> SourceFingerprint = SourceFingerprint.of,
+        preferences: PreferencesStoring = InMemoryPreferences()
     ) {
+        self.preferences = preferences
+        cardOrderMode = preferences.string(forKey: PreferenceKey.cardOrderMode).flatMap(CardOrderMode.init) ?? .recent
+        customCardOrder = preferences.strings(forKey: PreferenceKey.customCardOrder) ?? []
+        acknowledgedDetections = Set(preferences.strings(forKey: PreferenceKey.acknowledgedDetections) ?? [])
         self.environment = environment
         self.reporter = reporter
         self.collector = collector
@@ -124,7 +129,8 @@ public final class AppStore {
             // Sandbox runs (AI_USAGE_SERVICE=skip) must never reach the real launchd domain.
             service: environment.skipServiceProbe ? NoServiceControl() : LiveServiceControl(environment: environment),
             config: LiveConfigWriter(environment: environment),
-            cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json")
+            cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json"),
+            preferences: UserDefaultsPreferences()
         )
     }
 
@@ -173,6 +179,7 @@ public final class AppStore {
     /// Popover opened: never collects, and only re-reads when the collector's files
     /// changed since the last scan. The service probe is cheap and always runs.
     public func popoverOpened() {
+        snapshotRecentOrder()
         Task {
             await probeService()
             await refreshIfSourcesChanged()
@@ -377,7 +384,95 @@ public final class AppStore {
         isCachedReport = cached
         phase = .ready
         revision += 1
+        if recentOrderSnapshot == nil { snapshotRecentOrder() }
+        if !cached { pruneDetectionAcknowledgements() }
         if !cached, let report { onSnapshotChange?(report) }
+    }
+
+    // MARK: Card order, visibility and detection notices
+
+    @ObservationIgnored private let preferences: PreferencesStoring
+    public private(set) var cardOrderMode: CardOrderMode
+    /// Saved instance-id order for `.custom`; includes hidden instances so they keep their slot.
+    public private(set) var customCardOrder: [String]
+    /// The automatic order taken when the popover opened; data refreshes never change it.
+    public private(set) var recentOrderSnapshot: [String]?
+    public private(set) var acknowledgedDetections: Set<String>
+
+    /// Every report provider in display order (hidden ones included).
+    public var orderedProviders: [Provider] {
+        guard let providers = report?.providers else { return [] }
+        switch cardOrderMode {
+        case .custom: return CardOrdering.arrange(providers, by: customCardOrder)
+        case .recent: return CardOrdering.arrange(providers, by: recentOrderSnapshot ?? CardOrdering.recent(providers))
+        }
+    }
+
+    /// The one list both the overview cards and keyboard navigation use: visible, in display order.
+    public var cardProviders: [Provider] { orderedProviders.filter(\.isOverviewVisible) }
+
+    /// A report is loaded but no provider is visible: show "Choose your providers".
+    /// Excludes first run: while any provider is pending, see `isAwaitingDetection`.
+    public var needsProviderChoice: Bool { report != nil && cardProviders.isEmpty && !isAwaitingDetection }
+
+    /// Some provider's effective state is still pending (detection not known yet).
+    public var isAwaitingDetection: Bool {
+        report?.providers.contains { $0.trackingMode != .off && $0.effectiveTracking == .pending } ?? false
+    }
+
+    public func canMoveCard(_ id: String, up: Bool) -> Bool {
+        let visible = cardProviders.map(\.id)
+        guard let index = visible.firstIndex(of: id) else { return false }
+        return up ? index > 0 : index < visible.count - 1
+    }
+
+    public func moveCardUp(_ id: String) { moveCard(id, by: -1) }
+    public func moveCardDown(_ id: String) { moveCard(id, by: 1) }
+
+    /// Swaps with the adjacent visible card; the first manual move selects the custom order.
+    private func moveCard(_ id: String, by offset: Int) {
+        let visible = cardProviders.map(\.id)
+        guard let index = visible.firstIndex(of: id), visible.indices.contains(index + offset) else { return }
+        let neighbour = visible[index + offset]
+        var full = CardOrdering.merged(cardOrderMode == .custom ? customCardOrder : orderedProviders.map(\.id),
+                                       with: report?.providers ?? [])
+        guard let a = full.firstIndex(of: id), let b = full.firstIndex(of: neighbour) else { return }
+        full.swapAt(a, b)
+        customCardOrder = full
+        cardOrderMode = .custom
+        preferences.set(full, forKey: PreferenceKey.customCardOrder)
+        preferences.set(CardOrderMode.custom.rawValue, forKey: PreferenceKey.cardOrderMode)
+    }
+
+    /// "Use recent activity order". The saved custom order is kept for nothing else; recent applies now.
+    public func useRecentActivityOrder() {
+        cardOrderMode = .recent
+        preferences.set(CardOrderMode.recent.rawValue, forKey: PreferenceKey.cardOrderMode)
+        snapshotRecentOrder()
+    }
+
+    private func snapshotRecentOrder() {
+        guard let providers = report?.providers else { return }
+        recentOrderSnapshot = CardOrdering.recent(providers)
+    }
+
+    public var detectionNotices: [DetectionNotice] {
+        guard let report else { return [] }
+        return DetectionNotice.notices(report, acknowledged: acknowledgedDetections)
+    }
+
+    /// Keep history (or opening settings): hides the notice until its condition changes.
+    public func acknowledgeDetection(_ notice: DetectionNotice) {
+        acknowledgedDetections.insert(notice.acknowledgementKey)
+        preferences.set(acknowledgedDetections.sorted(), forKey: PreferenceKey.acknowledgedDetections)
+    }
+
+    private func pruneDetectionAcknowledgements() {
+        guard let report, !acknowledgedDetections.isEmpty else { return }
+        let kept = DetectionNotice.pruned(acknowledgedDetections, for: report)
+        guard kept != acknowledgedDetections else { return }
+        acknowledgedDetections = kept
+        preferences.set(kept.sorted(), forKey: PreferenceKey.acknowledgedDetections)
     }
 
     /// Current Collect now progress, when the installed collector reports it.

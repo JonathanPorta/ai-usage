@@ -14,6 +14,20 @@ from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional
 
 Row = dict[str, Any]
 
+# Per-account tracking policy (issue #8). `tracking` is canonical; a legacy `enabled`
+# is read only when `tracking` is absent: true -> on, anything else -> off.
+TRACKING_POLICIES = ("auto", "on", "off")
+
+
+def tracking_policy(settings: Mapping[str, Any], default: str = "auto") -> str:
+    """An account's tracking policy from its explicit settings. Pure and repeatable."""
+    value = settings.get("tracking")
+    if value in TRACKING_POLICIES:
+        return str(value)
+    if "enabled" in settings:
+        return "on" if settings.get("enabled") is True else "off"
+    return default
+
 
 @dataclass(frozen=True)
 class CollectContext:

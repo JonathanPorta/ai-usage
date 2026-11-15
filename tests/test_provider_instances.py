@@ -452,7 +452,7 @@ class TwoAccountCollectionTests(unittest.TestCase):
         self.assertEqual(tokens(poll_rows(second, first), "claude"), 3, "the default account keeps collecting")
         self.assertEqual(tokens(poll_rows(third, second), "claude-az"), 1000, "re-enabled: only the new message")
         config = json.loads(document["results"][4]["text"])
-        self.assertEqual(config["instances"][0], {**AZ, "settings": {**AZ["settings"], "enabled": True}})
+        self.assertEqual(config["instances"][0], {**AZ, "settings": {**AZ["settings"], "enabled": True, "tracking": "on"}})
 
     def test_a_failing_account_is_one_error_row_and_the_other_is_unchanged(self) -> None:
         healthy = poll_rows(self.run_plan([self.once()])["results"][0])
@@ -602,7 +602,7 @@ class InstanceCommandTests(unittest.TestCase):
         self.assertEqual(oct(self.config.stat().st_mode & 0o777), oct(0o640), "the mode is kept")
         listed = json.loads(self.cli("instance", "list").stdout)
         self.assertEqual(listed, [{"id": "claude-az", "plugin": "claude", "label": "Claude (az)", "enabled": True,
-                                   "settings": {"config_dir": str(self.account)}}])
+                                   "tracking": "auto", "settings": {"config_dir": str(self.account)}}])
         self.assertEqual(json.loads(self.cli("instance", "disable", "claude-az").stdout), {"id": "claude-az", "enabled": False})
         self.assertFalse(json.loads(self.cli("instance", "list").stdout)[0]["enabled"])
         self.cli("instance", "enable", "claude-az")
