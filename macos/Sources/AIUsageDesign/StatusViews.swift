@@ -44,7 +44,7 @@ public struct StatusRow: View {
         }
     }
 
-    private var background: Color {
+    private var background: ThemedColor {
         switch summary.tone {
         case .attention, .stopped: return T.Color.dangerBackground.color
         default: return .clear
@@ -82,11 +82,11 @@ public struct NoticeBanner: View {
         }
     }
 
-    private var foreground: Color {
+    private var foreground: ThemedColor {
         notice.tone == .failure ? T.Color.danger.color : notice.tone == .info ? T.Color.accent.color : T.Color.warning.color
     }
 
-    private var background: Color {
+    private var background: ThemedColor {
         notice.tone == .failure ? T.Color.dangerBackground.color : notice.tone == .info ? T.Color.accentBackground.color : T.Color.warningBackground.color
     }
 

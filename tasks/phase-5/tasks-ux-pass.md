@@ -77,9 +77,10 @@
         (`AIUsageCore/Tracking.swift`). Existing `Presentation.status()` strings are unchanged.
   - [x] 1.8 Decoding: new fields optional and tolerant of unknown enum values; old reports fall
         back to `enabled`. `AppStore.cardProviders` is the single list for cards and keyboard.
-  - [~] 1.9 PR review and merge: PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41),
-        branch `jp/f/ux-policy-order-countdown`, commit `7b73412`. All CI checks pass. Queued for
-        review. Not approved, not merged, not installed, not released.
+  - [x] 1.9 Implementation done. PR review and merge still open: PR
+        [#41](https://github.com/JonathanPorta/ai-usage/pull/41) (base main, branch
+        `jp/f/ux-policy-order-countdown`, commit `7b73412`), CI green, queued for review. Open,
+        not approved, not merged, not installed, not released.
   - **Validation (2026-11-15, combined tree):**
     - `make check`: Ran 375 tests, OK (skipped=1).
     - `make fixture-check`: committed fixtures match the generator (fixture changes are additive
@@ -104,9 +105,11 @@
       file changed.
 
 - [~] 2.0 Overview: header indicators, cards, statistics popover, icon toolbar (IMPLEMENTED and
-  independently reviewed, one round, 15 findings fixed; PR being opened; branch
-  `jp/f/ux-overview-header-cards`, stacked on slice 1; not merged, installed or released)
-  (AC-1, AC-4 to AC-11, AC-15, AC-16)
+  independently reviewed, one round, 15 findings fixed; PR [#42](https://github.com/JonathanPorta/ai-usage/pull/42),
+  base #41's branch, branch `jp/f/ux-overview-header-cards`; open, not merged, installed or
+  released) (AC-1, AC-4 to AC-11, AC-15, AC-16)
+  - Note (2026-11-15): #42's "PR test gate" fails only because ProofGlass did not admit the macOS
+    lane for the stacked PR. Linux and spec/design legs pass.
   - [x] 2.1 "My AI Usage" title.
   - [x] 2.2 Cards come from `AppStore.cardProviders`, with "Choose your providers" and
         awaiting-detection empty states.
@@ -124,7 +127,8 @@
   - [x] 2.8 Settings: Auto/On/Off control with detected state, a fallback switch for older
         collectors, and a Card order section with Move up/down, drag-to-reorder and "Use recent
         activity order". Ordering controls live in Settings (Arrange mode decision).
-  - [ ] 2.9 Issue #9 reconciled against the countdown layout (not recorded as done).
+  - [x] 2.9 Issue #9 countdown layout work is in slice 3 (reset annotation inside the chart card;
+        see 3.0). Its visual acceptance is open.
   - **Validation (2026-11-15):**
     - `make app-test`: Executed 121 tests, 0 failures.
     - `make design-check ARGS=--strict`: 0 unwaived.
@@ -144,51 +148,75 @@
     - Popover contents are rendered standalone.
     - No render of the transient "check finished" state.
     - Live VoiceOver not run.
+  - **Outstanding (2026-11-15):** owner visual acceptance of the slice 2 renders is open.
 
-- [ ] 3.0 Provider detail, Monitoring, empty states, History navigation (NOT STARTED)
-  (AC-3, AC-5, AC-12, AC-13, AC-15, AC-16)
-  - [ ] 3.1 Detail header: title, On/Off status and toggle (no change to Auto by opening the page),
-        History action. Save failure restores the prior state with feedback.
-  - [ ] 3.2 Detail order: quota, usage and chart, today, cost and accounting, then collapsed
-        sources and diagnostics. "Chart key" disclosure under the graph.
-  - [ ] 3.3 Detection notice: one per provider, "Saved usage found. We couldn't find this CLI.",
-        Keep history (default) and Review provider settings. Dismissal persists by provider id
-        and condition signature.
-  - [ ] 3.4 Monitoring order: Collection, Schedule, Provider sources, Service, Saved data. Source
-        groups with symbols; exact times on hover or focus; inactive sources in a collapsed group.
-  - [ ] 3.5 Empty states per the work package table; subscription price shown faded and linked to
-        the provider's Settings field.
-  - [ ] 3.6 History opens with the provider selected and the metric and range kept where
-        compatible.
-  - **Validates when:**
-    - Model tests cover each empty-state copy and action, and that a price never substitutes for
-      reported cost.
-    - A test shows that a repeated condition does not repost the notice, and that a changed
-      condition does.
-    - Snapshot renders of detail, Monitoring and the empty states are recorded as "pending owner
-      review".
+- [~] 3.0 Provider detail, Monitoring, empty states, History navigation (IMPLEMENTED; agent review
+  one round, fixed; PR [#43](https://github.com/JonathanPorta/ai-usage/pull/43), base #42's branch;
+  open, not merged, installed or released) (AC-3, AC-5, AC-12, AC-13, AC-15, AC-16)
+  - [x] 3.1 Detail header with On/Off switch and "Open in history window". Tracking off reads as
+        last known.
+  - [x] 3.2 Detail order: quota, usage, today, cost, collapsed sources. Collapsed Chart key.
+  - [x] 3.3 Detection notices: Keep history and Review provider settings kept, as in slice 2.
+  - [x] 3.4 Monitoring ordered Collection, Schedule, Provider sources, Service, Saved data. The
+        collection summary counts the page's active providers once each by worst source; this also
+        drives the overview indicator.
+  - [x] 3.5 Empty states implemented.
+  - [x] 3.6 History opens with provider, metric and range, and keeps both actions for
+        not-detected and not-configured providers.
+  - [x] 3.7 Reset annotation inside the chart card (issue #9; visual acceptance pending).
+  - **Validation (2026-11-15):** `make app-test` 147 tests, 0 failures; 168 renders.
+  - **Known limits:** "cost isn't reported" is chosen by matching plugin note text (no report
+    flag). Antigravity's "normal, not stale" note sits under a Stale label when tracking is off.
+    The detail switch draws gray in offscreen renders, as the accepted Settings baselines do.
+  - **Outstanding:** owner visual acceptance; PR review and merge.
 
-- [ ] 4.0 File-defined themes (NOT STARTED) (AC-14, AC-15, AC-16)
-  - [ ] 4.1 Choose the user file path after checking config ownership and installation behavior.
-  - [ ] 4.2 Versioned schema (`version: 1`) with semantic roles and light/dark variants; partial
-        schemes inherit missing roles.
-  - [ ] 4.3 Resolution: built-in defaults, then global scheme, then provider-instance override.
-        Targets by stable instance id.
-  - [ ] 4.4 Validation of schema, colors and references. An invalid edit keeps the last valid
-        theme and shows a concise diagnostic.
-  - [ ] 4.5 Settings shows the active assignment, with Open theme file and Reload.
-  - [ ] 4.6 Contrast and status meaning checked for each role in both appearances.
-  - **Validates when:**
-    - Tests cover a missing file (defaults), a partial scheme, an invalid file (previous valid
-      theme kept), and a per-instance override for one of two Claude accounts.
-    - A contrast test passes for every role in both appearances.
-    - Reinstall keeps user schemes and assignments (a sandboxed check).
+- [~] 4.0 File-defined themes (IMPLEMENTED; agent review one round, six findings fixed; slice 4 PR
+  opening from `jp/f/ux-file-defined-themes`, base #43's branch; not merged, installed or released)
+  (AC-14, AC-15, AC-16)
+  - [x] 4.1 Theme file: `<app state dir>/themes.json`, that is
+        `~/Library/Application Support/AI Usage/themes.json`. `AI_USAGE_STATE_DIR` redirects it.
+  - [x] 4.2 Format version 1: `global`, `providers` (instance id to scheme) and `schemes`
+        (light/dark role to #RRGGBB). Roles are the semantic token names; `surface` is an alias of
+        `panel`. Missing roles and appearances inherit.
+  - [x] 4.3 Resolution: built-in, then global, then provider instance.
+  - [x] 4.4 Invalid file keeps the last valid theme, including across restart via
+        `themes.last-valid.json`. Deleting the file returns to built-in. Non-blocking contrast and
+        status-similarity warnings. Data-only, 64 KB cap, regular files only.
+  - [x] 4.5 Settings Theme section with "Open theme file" and "Reload themes". Docs in `docs/THEMES.md`.
+  - [x] 4.6 The generator emits token names and roles. Colors resolve from the SwiftUI environment,
+        with a per-provider scope on cards, detail and the History provider page. The All view stays
+        on global series colors.
+  - **Validation (2026-11-15):** `make app-test` 173 tests, 0 failures; `make design-build-check`,
+    `design-check --strict` and `spec-check --strict` pass; 186 renders. With no theme file, 162
+    of 168 pre-existing renders are byte-identical to slice 3. The other 6 are Settings renders
+    showing the new Theme section.
+  - **Known limits:** system controls keep system colors. The History sidebar row stays on the
+    global scheme. The status look-alike threshold (sRGB distance 48) is the implementer's choice.
+  - **Not exercised natively:** Open theme file and Reload in the running app.
+  - **Outstanding:** owner visual acceptance; PR review and merge.
 
 ## Current Status
 
-- Slice 1 (1.0): PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41), commit `7b73412`.
-  All CI checks pass; queued for review. Not approved, merged, installed or released.
-- Slice 2 (2.0): implemented and reviewed; PR being opened. Not merged, installed or released.
-  Owner visual acceptance is outstanding; references not replaced.
-- Slices 3.0 and 4.0: not started.
-- Validation results: see 1.0 and 2.0 above.
+- Slice 1 (1.0): PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41) (base main), CI
+  green. Open; not approved, merged, installed or released.
+- Slice 2 (2.0): PR [#42](https://github.com/JonathanPorta/ai-usage/pull/42) (base #41's branch).
+  The "PR test gate" fails only because ProofGlass did not admit the macOS lane for the stacked PR;
+  the Linux and spec/design legs pass. Open; not merged, installed or released.
+- Slice 3 (3.0): PR [#43](https://github.com/JonathanPorta/ai-usage/pull/43) (base #42's branch).
+  Open; not merged, installed or released.
+- Slice 4 (4.0): PR being opened from `jp/f/ux-file-defined-themes` (base #43's branch). Not
+  merged, installed or released.
+- Merge order: #41, then #42, #43 and the slice 4 PR. Retarget each to `main` after its base
+  merges, and re-run CI then.
+- Outstanding overall:
+  - owner review and approval of the four PRs;
+  - owner visual acceptance of the new renders. After that, `docs/design/app/references` and
+    `SHA256SUMS` can be regenerated in one docs/baseline PR. 56 references differed after slices
+    2 and 3; 42 of them already differed on `main`;
+  - native checks not run: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme open and
+    reload, and the detail switch tint;
+  - installing the new app and collector over the live installation (a separate owner action);
+  - the collector's Python changes are only in #41.
+- Renders: `~/devel/ai-scratch/ai-usage-ux-pass/renders/slice2`, `slice3`, `slice4`.
+- Tracker: `Projects/AI Usage/Tracker` in the personal notes repo (notes-personal #92 merged; a
+  further tracker PR follows).

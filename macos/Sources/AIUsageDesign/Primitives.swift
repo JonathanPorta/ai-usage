@@ -69,8 +69,8 @@ public struct StatTile: View {
 /// Horizontal meter (quota windows, model shares).
 public struct Meter: View {
     private let fraction: Double
-    private let tint: Color
-    public init(fraction: Double, tint: Color = T.Color.meterFill.color) {
+    private let tint: ThemedColor
+    public init(fraction: Double, tint: ThemedColor = T.Color.meterFill.color) {
         self.fraction = fraction
         self.tint = tint
     }
@@ -123,7 +123,7 @@ public struct ToneLabel: View {
         self.tone = tone
     }
 
-    public static func color(_ tone: Tone) -> Color {
+    public static func color(_ tone: Tone) -> ThemedColor {
         switch tone {
         case .healthy: return T.Color.success.color
         case .warning: return T.Color.warning.color

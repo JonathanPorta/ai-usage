@@ -66,7 +66,7 @@ struct MonitoringView: View {
         }
     }
 
-    private func caption(_ text: String, tone: Color = T.Color.muted.color) -> some View {
+    private func caption(_ text: String, tone: ThemedColor = T.Color.muted.color) -> some View {
         Text(text).font(.auCaption).foregroundStyle(tone).fixedSize(horizontal: false, vertical: true)
     }
 
@@ -248,7 +248,7 @@ struct MonitoringView: View {
 
     private func sourceRow(_ row: MonitoringPage.SourceRow) -> some View {
         let badge = row.badge
-        let color: Color = switch badge.kind {
+        let color: ThemedColor = switch badge.kind {
         case .healthy: T.Color.success.color
         case .stale, .signIn: T.Color.warning.color
         case .failed: T.Color.danger.color

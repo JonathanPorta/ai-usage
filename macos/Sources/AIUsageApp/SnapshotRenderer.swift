@@ -21,7 +21,7 @@ enum SnapshotRenderer {
             func shoot<V: View>(_ name: String, width: CGFloat, height: CGFloat? = nil, store: AppStore? = nil, _ view: V) throws {
                 for dark in [false, true] {
                     let file = directory.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png")
-                    try render(view.environment(store ?? defaultStore).environment(navigation), width: width, height: height, dark: dark, to: file)
+                    try render(view.modifier(StoreTheme()).environment(store ?? defaultStore).environment(navigation), width: width, height: height, dark: dark, to: file)
                     written.append(file.lastPathComponent)
                 }
             }
@@ -60,6 +60,7 @@ enum SnapshotRenderer {
                 try allToolsStates(report) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
+                try themeStates(width: popoverWidth) { try shoot($0, width: $1, height: $2, store: $3, $4) }
             }
             print("snapshot: wrote \(written.count) images to \(directory.path)")
             exit(0)
@@ -487,6 +488,66 @@ enum SnapshotRenderer {
         }
     }
 
+    /// File-defined themes, from in-memory documents parsed by the real parser (no theme
+    /// file is read; the invalid-file case writes only to a fresh temporary directory).
+    private static func themeStates(
+        width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        let two = try Report.twoAccountFixture()
+        let schemes = """
+        "schemes": {
+          "slate": {
+            "light": { "background": "#EEF1F4", "panel": "#FBFCFD", "line": "#D3D9E0", "accent": "#1769AA",
+                       "accentBackground": "#E1ECF7", "series1": "#1769AA", "series2": "#7A4FB5" },
+            "dark": { "background": "#1E2227", "panel": "#2A2F36", "line": "#3E454E", "accent": "#80B7F7",
+                      "accentBackground": "#22364D", "series1": "#80B7F7", "series2": "#C9B4F5" }
+          },
+          "warm": {
+            "light": { "accent": "#9A4A24", "accentSoft": "#B9714D", "accentBackground": "#F8EAE1", "panel": "#FFFBF7" },
+            "dark": { "accent": "#EAAF86", "accentSoft": "#C98A62", "accentBackground": "#45302A", "panel": "#352E2A" }
+          },
+          "violet": {
+            "light": { "accent": "#7245B8", "accentSoft": "#8F6BCB", "accentBackground": "#F1EBFA", "panel": "#FCFAFF" },
+            "dark": { "accent": "#B39AEF", "accentSoft": "#9479D6", "accentBackground": "#342A4A", "panel": "#312D3A" }
+          }
+        }
+        """
+        func state(_ json: String) throws -> ThemeState {
+            switch ThemeParser.parse(Data(json.utf8)) {
+            case let .success(document): return ThemeState(document: document, fileExists: true)
+            case let .failure(error): throw CocoaError(.coderInvalidValue, userInfo: [NSDebugDescriptionErrorKey: "\(error)"])
+            }
+        }
+        let global = try state(#"{"version": 1, "global": "slate", \#(schemes)}"#)
+        let perProvider = try state(#"{"version": 1, "global": "slate", "providers": {"claude": "warm", "claude-az": "violet", "retired-account": "warm"}, \#(schemes)}"#)
+        func store(_ report: Report, _ theme: ThemeState) -> AppStore {
+            let store = AppStore.preview(report, clock: report.generatedAt)
+            store.previewTheme(theme)
+            return store
+        }
+        try shoot("theme-overview-global", width, nil, store(two, global), AnyView(PopoverRoot(screenHeight: 1200)))
+        try shoot("theme-overview-providers", width, nil, store(two, perProvider), AnyView(PopoverRoot(screenHeight: 1200)))
+        try shoot("theme-detail-provider", width, nil, store(two, perProvider),
+                  AnyView(PopoverRoot(initialScreen: .detail("claude-az"), detailMetric: .quota, screenHeight: 1000)))
+        try shoot("theme-detail-provider-tokens", width, nil, store(two, perProvider),
+                  AnyView(PopoverRoot(initialScreen: .detail("claude"), screenHeight: 1000)))
+        try shoot("theme-history-provider", 920, 1400, store(two, perProvider), AnyView(HistoryView(providerId: "claude")))
+        try shoot("theme-history-all-tools", 920, 2300, store(two, perProvider), AnyView(HistoryView(allTools: true, allRange: 30)))
+        try shoot("theme-settings", width, nil, store(two, perProvider),
+                  AnyView(SettingsView(back: {}, maxHeight: 4000).background(T.Color.background.color)))
+        // A bad edit (a malformed color) after a valid file: the last valid theme stays, with one diagnostic.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ai-usage-theme-snapshot-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent(ThemeLoader.fileName)
+        try Data(##"{"version": 1, "global": "slate", "schemes": {"slate": {"light": {"panel": "#F3F5F"}}}}"##.utf8).write(to: file)
+        let invalid = ThemeLoader.load(file, previous: perProvider)
+        try shoot("theme-settings-invalid", width, nil, store(two, invalid),
+                  AnyView(SettingsView(back: {}, maxHeight: 4000).background(T.Color.background.color)))
+        try shoot("theme-overview-invalid", width, nil, store(two, invalid), AnyView(PopoverRoot(screenHeight: 1200)))
+    }
+
     private static func fetchLive() throws -> Report {
         let environment = CollectorEnvironment.resolve()
         let client = LiveReportClient(environment: environment)
@@ -532,6 +593,7 @@ private struct DetailSnapshotHost: View {
                                initialMetric: metric, tokenRange: range, chartKeyOpen: chartKeyOpen)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(T.Color.background.color)
+                .themeScope(providerId)
         }
     }
 }

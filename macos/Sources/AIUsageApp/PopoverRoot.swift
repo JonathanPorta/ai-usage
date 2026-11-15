@@ -61,6 +61,7 @@ struct PopoverRoot: View {
                 if let provider = store.report?.provider(id) {
                     ProviderDetailView(provider: provider, back: back, openHistory: { showHistory(id, context: $0) },
                                        maxHeight: maxHeight, initialMetric: detailMetric)
+                        .themeScope(provider.id)
                         .transition(transition)
                 }
             case .monitoring?:

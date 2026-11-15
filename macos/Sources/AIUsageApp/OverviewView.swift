@@ -118,7 +118,7 @@ struct OverviewView: View {
             .help(monitoring.text)
     }
 
-    private func monitoringTint(_ state: MonitoringFact.State) -> Color {
+    private func monitoringTint(_ state: MonitoringFact.State) -> ThemedColor {
         switch state {
         case .monitoring: return T.Color.success.color
         case .checking, .paused: return T.Color.accent.color
@@ -163,7 +163,7 @@ struct OverviewView: View {
 
     private var resultIndicator: some View {
         let issues = issues
-        let tint: Color = {
+        let tint: ThemedColor = {
             switch issues.level {
             case .critical: return T.Color.danger.color
             case .warning: return T.Color.warning.color
@@ -243,6 +243,7 @@ struct OverviewView: View {
                         ProviderCard(provider: provider, now: now, today: report.today, checking: checking(provider),
                                      issue: Presentation.cardIssue(provider, in: report),
                                      open: { openDetail(provider.id) })
+                            .themeScope(provider.id)
                             .focused($focus, equals: .card(provider.id))
                             .id(provider.id)
                     }
@@ -433,7 +434,7 @@ struct CollectionDetailsView: View {
         .frame(width: 320, alignment: .leading)
     }
 
-    private func item<Actions: View>(symbol: String, tint: Color, title: String, detail: String,
+    private func item<Actions: View>(symbol: String, tint: ThemedColor, title: String, detail: String,
                                      @ViewBuilder actions: () -> Actions) -> some View {
         HStack(alignment: .top, spacing: T.Space.s2) {
             Image(systemName: symbol).foregroundStyle(tint).frame(width: 16)

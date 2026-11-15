@@ -1,5 +1,6 @@
 import AIUsageCore
 import AIUsageDesign
+import AppKit
 import ServiceManagement
 import SwiftUI
 
@@ -44,6 +45,7 @@ struct SettingsView: View {
                         }
                         notificationsSection
                         appSection
+                        ThemeSettingsSection(providers: store.report == nil ? [] : store.orderedProviders)
                     }
                     .padding(T.Space.s4)
                 }
@@ -368,4 +370,91 @@ private struct CardDragModifier: ViewModifier {
             content
         }
     }
+}
+
+/// Settings → Theme: what themes.json assigns, any problem with it, and the two actions.
+/// Assignments are edited in the file (docs/THEMES.md); Reload applies them immediately.
+struct ThemeSettingsSection: View {
+    @Environment(AppStore.self) private var store
+    let providers: [Provider]
+    @State private var openError: String?
+
+    var body: some View {
+        let theme = store.theme
+        let known = Set(providers.map(\.id))
+        let elsewhere = theme.assignments.filter { !known.contains($0.key) }.sorted { $0.key < $1.key }
+        let warnings = ThemeContrast.warnings(theme, defaults: T.Color.roleDefaults)
+        VStack(alignment: .leading, spacing: T.Space.s2) {
+            SectionLabel("Theme")
+            Panel {
+                VStack(alignment: .leading, spacing: T.Space.s3) {
+                    row("Global", theme.globalScheme)
+                    ForEach(providers) { provider in
+                        row(provider.name, theme.assignments[provider.id], id: provider.id)
+                    }
+                    ForEach(elsewhere, id: \.key) { id, scheme in
+                        row(id, scheme, note: "not in this report; applies when it returns")
+                    }
+                    if let diagnostic = theme.diagnostic {
+                        ToneLabel(diagnostic, symbol: Symbols.attention, tone: .danger)
+                            .font(.auCaption).fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(warnings, id: \.self) { warning in
+                        ToneLabel(warning, symbol: Symbols.attention, tone: .warning)
+                            .font(.auCaption).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let openError {
+                        ToneLabel(openError, symbol: Symbols.failure, tone: .danger)
+                            .font(.auCaption).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(caption(theme))
+                        .font(.auCaption).foregroundStyle(T.Color.muted.color).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: T.Space.s2) {
+                        Button("Open theme file") { open() }
+                        Button("Reload themes") { store.reloadThemes() }
+                    }
+                    .controlSize(.small)
+                    .disabled(store.themeFileURL == nil)
+                }
+            }
+        }
+    }
+
+    private func row(_ title: String, _ scheme: String?, id: String? = nil, note: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: T.Space.s2) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.auBody)
+                if let detail = note ?? id.map({ "id \($0)" }) {
+                    Text(detail).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                }
+            }
+            Spacer()
+            Text(scheme ?? (id == nil ? "Built-in colors" : "Global")).font(.auBody)
+                .foregroundStyle(scheme == nil ? T.Color.muted.color : T.Color.text.color)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func caption(_ theme: ThemeState) -> String {
+        let place = store.themeFileURL.map { $0.path } ?? "themes.json in the app’s state folder"
+        return theme.fileExists
+            ? "From \(place). Edit it, then choose Reload themes; no restart needed."
+            : "No theme file yet: built-in colors. Open theme file creates \(place) with example schemes."
+    }
+
+    private func open() {
+        do {
+            guard let url = try store.prepareThemeFile() else { return }
+            openError = nil
+            NSWorkspace.shared.open(url)
+        } catch {
+            openError = "Could not create the theme file: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Applies the store's theme (global scheme) to a scene's whole view tree.
+struct StoreTheme: ViewModifier {
+    @Environment(AppStore.self) private var store
+    func body(content: Content) -> some View { content.theme(store.theme) }
 }

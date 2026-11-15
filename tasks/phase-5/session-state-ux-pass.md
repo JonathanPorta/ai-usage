@@ -2,18 +2,17 @@
 Last updated: 2026-11-15
 
 **Status: phase 5 is in progress.** Requirements come from the owner's work package (2026-11-13).
-Execution was directed by the owner on 2026-11-15. Slice 1 (state only) is PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41), commit
-`7b73412`, queued for review with all CI checks passing. Slice 2 (overview, header, cards) is
-implemented and reviewed, stacked on slice 1, with its PR being opened. Neither is approved,
-merged, installed or released.
+Execution was directed by the owner on 2026-11-15. As of 2026-11-15, all four slices are implemented and each has an open PR, stacked in order:
+#41 (slice 1, base main, CI green), #42 (slice 2, base #41's branch), #43 (slice 3, base #42's
+branch), and the slice 4 PR (being opened from `jp/f/ux-file-defined-themes`, base #43's branch).
+None is approved, merged, installed or released.
 
 ### Current Position
-- **Working on:** Slice 2 PR (branch `jp/f/ux-overview-header-cards`), then review and merge of #41.
-- **Status:** slice 1 in PR #41, awaiting review. Slice 2 implemented, reviewed (one round, 15
-  findings fixed), PR being opened. Owner visual acceptance of slice 2 renders is outstanding;
-  accepted references in `docs/design/app/references` were not replaced.
-- **Blocked:** No
-- **Blocked:** No
+- **Working on:** review and merge of the stack, in order. Each PR is retargeted to `main` after
+  its base merges, and CI is re-run then.
+- **Status:** all four PRs open, none approved. The #42 "PR test gate" fails only because ProofGlass
+  did not admit the macOS lane for the stacked PR; its Linux and spec/design legs pass.
+- **Blocked:** No, except that the owner's review and approval are needed to merge.
 
 ### Key Decisions
 - The owner's work package is the requirements source; its proposed defaults are adopted
@@ -41,14 +40,14 @@ merged, installed or released.
 - `PanelShownObserver` and `store.popoverOpened()`: the lifecycle used for order snapshots.
 
 ### What's Next
-1. Open the slice 2 PR (`jp/f/ux-overview-header-cards`, stacked on slice 1), and queue it.
-2. Review and merge PR #41 (slice 1), then the slice 2 PR. Merge only on the `/prrq` gate or the
-   owner's direction.
-3. Slice 3 (provider detail quota-first order, Monitoring page order, empty states, History
-   navigation), then slice 4 (file-defined themes).
-4. Owner visual acceptance of slice 2 renders before any reference baseline is replaced.
-5. Native checks not yet run: keyboard focus reveal, drag-to-reorder, live VoiceOver, and the
-   transient "check finished" state.
+1. Check review state of #41 (`prrq status`, `gh pr view 41`). When approved and green, merge it.
+2. Retarget #42 to `main`, re-run CI, then continue down the stack (#43, then the slice 4 PR).
+   Merge only on the `/prrq` gate or the owner's direction.
+3. Collect the owner's visual acceptance of the new renders. Then regenerate
+   `docs/design/app/references` and `SHA256SUMS` in one docs/baseline PR.
+4. Native checks not yet run: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme open
+   and reload, and the detail switch tint. Also the transient "check finished" state.
+5. Installing the new app and collector over the live installation is a separate owner action.
 
 ### Validation results
 - Slice 1 (PR #41, commit `7b73412`; 2026-11-15): all CI checks pass; queued for review.
@@ -63,13 +62,22 @@ merged, installed or released.
   (19 new scenarios) to `~/devel/ai-scratch/ai-usage-ux-pass/renders/slice2`. Python unchanged.
   56 of the accepted references now differ (42 already differed on `main`). References were not
   replaced and await the owner's visual acceptance.
-- Slice 3: not started.
-- Slice 4: not started.
+- Slice 3 (PR #43, 2026-11-15): `make app-test` 147 tests, 0 failures; 168 renders. Agent review
+  one round, fixed.
+- Slice 4 (2026-11-15): `make app-test` 173 tests, 0 failures; `make design-build-check`,
+  `design-check --strict` and `spec-check --strict` pass; 186 renders. With no theme file, 162 of
+  168 pre-existing renders are byte-identical to slice 3; the other 6 are Settings renders showing
+  the new Theme section. Agent review one round, six findings fixed. Open and Reload were not
+  exercised in the running app.
 
 ### Blockers / Open Questions
-- Theme file user path: to choose after checking config ownership and installation (slice 4).
-- "Remove saved data..." is included only if the product already supports it.
+- Resolved: theme file path is `~/Library/Application Support/AI Usage/themes.json` (redirected by
+  `AI_USAGE_STATE_DIR`).
+- Resolved: "Arrange mode" lives in Settings.
+- Resolved: no "Remove saved data..." route was built. None exists in the product, and it is not
+  required.
 - Whether providers with no usage events have a `last_activity_at` value. Polled providers (Codex)
   have none and sort after providers with known activity; nothing is fabricated (slice 1).
-- Issue #9 reconciliation is not recorded as done.
-- Resolved: "Arrange mode" lives in Settings (owner direction and slice 2 decision).
+- Known limits, to decide later: "cost isn't reported" is matched on plugin note text; the status
+  look-alike threshold (sRGB distance 48) is the implementer's choice.
+- Issue #9: reset annotation shipped inside the chart card in slice 3, pending visual acceptance.

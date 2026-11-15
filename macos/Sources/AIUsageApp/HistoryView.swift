@@ -66,6 +66,8 @@ struct HistoryView: View {
                     } else if let report = store.report, let provider = selected(report) {
                         main(report: report, provider: provider, compact: compact)
                             .padding(T.Space.s5)
+                            // The provider's own scheme, if any, colors its page and series.
+                            .themeScope(provider.id)
                     } else {
                         Text(store.report == nil ? "Reading collector data…" : "Pick a provider.")
                             .font(.auBody).foregroundStyle(T.Color.muted.color)

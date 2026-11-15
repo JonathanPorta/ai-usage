@@ -16,7 +16,7 @@ public struct QuotaCell: View {
 
     private var stale: Bool { window.status == .stale }
 
-    private var tint: Color {
+    private var tint: ThemedColor {
         if stale { return T.Color.muted.color }
         if window.limit != nil { return T.Color.meterWarning.color }
         return T.Color.meterFill.color
@@ -123,6 +123,7 @@ public struct QuotaCell: View {
 public struct ResetLabel: View {
     private let countdown: ResetCountdown
     @State private var showingExact = false
+    @Environment(\.themePalette) private var palette
     @FocusState private var focused: Bool
 
     public init(_ countdown: ResetCountdown) { self.countdown = countdown }
@@ -131,7 +132,7 @@ public struct ResetLabel: View {
         if let exact = countdown.exact {
             Button { showingExact.toggle() } label: {
                 Text(countdown.text)
-                    .underline(true, pattern: .dot, color: T.Color.muted.color.opacity(0.7))
+                    .underline(true, pattern: .dot, color: T.Color.muted.color.opacity(0.7).color(palette))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .contentShape(Rectangle())
