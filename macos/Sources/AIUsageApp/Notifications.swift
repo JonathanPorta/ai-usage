@@ -10,7 +10,7 @@ enum NotificationCenterBridge {
     static let failuresKey = "notifyFailures"
 
     static var preferences: NotificationPreferences {
-        let defaults = UserDefaults.standard
+        let defaults = AppDefaults.shared
         return NotificationPreferences(
             limits: defaults.object(forKey: limitsKey) as? Bool ?? true,
             failures: defaults.object(forKey: failuresKey) as? Bool ?? true)
@@ -60,12 +60,12 @@ final class SystemNotificationCenter: NotificationCenterClient {
 final class UserDefaultsDeliveredStore: DeliveredAlertStore {
     private let key = "deliveredNotificationKeys"
 
-    var deliveredKeys: Set<String> { Set(UserDefaults.standard.stringArray(forKey: key) ?? []) }
+    var deliveredKeys: Set<String> { Set(AppDefaults.shared.stringArray(forKey: key) ?? []) }
 
     func markDelivered(_ alertKey: String) {
-        var keys = UserDefaults.standard.stringArray(forKey: key) ?? []
+        var keys = AppDefaults.shared.stringArray(forKey: key) ?? []
         guard !keys.contains(alertKey) else { return }
         keys.append(alertKey)
-        UserDefaults.standard.set(Array(keys.suffix(500)), forKey: key)
+        AppDefaults.shared.set(Array(keys.suffix(500)), forKey: key)
     }
 }

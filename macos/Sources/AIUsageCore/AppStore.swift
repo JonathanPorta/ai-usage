@@ -137,7 +137,7 @@ public final class AppStore {
             service: environment.skipServiceProbe ? NoServiceControl() : LiveServiceControl(environment: environment),
             config: LiveConfigWriter(environment: environment),
             cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json"),
-            preferences: UserDefaultsPreferences(),
+            preferences: UserDefaultsPreferences(AppDefaults.shared),
             // Beside the report cache: survives app replacement and collector reinstall.
             themeDirectory: environment.stateDirectory
         )
