@@ -65,8 +65,11 @@ public struct QuotaCell: View {
                         ResetLabel(reset.countdown)
                             .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
                     } else {
-                        Text(caption.text).lineLimit(1)
+                        // Up to two lines so a long caption ("Reset time unavailable ·
+                        // measured …") stays readable; the full text is also on hover.
+                        Text(caption.text).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
+                            .help(caption.text)
                     }
                 }
                 .font(.auCaption)
