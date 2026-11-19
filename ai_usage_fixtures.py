@@ -410,13 +410,17 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_accoun
     }
     if second_account:
         (root / "claude-az").mkdir(exist_ok=True)
+        # Explicitly On, as the built-ins are: their CLI is absent here, so Auto would hide them.
         config["instances"] = [{**SECOND_ACCOUNT, "settings": {
-            "config_dir": str(root / "claude-az"), "executable": str(root / "bin" / "claude")}}]
+            "config_dir": str(root / "claude-az"), "executable": str(root / "bin" / "claude"),
+            "tracking": "on"}}]
     for extra in SCENARIOS[scenario]["extra_accounts"] if scenario else []:
         (root / extra["id"]).mkdir(exist_ok=True)
-        settings = {"config_dir": str(root / extra["id"]), "executable": str(root / "bin" / "claude")}
+        settings = {"config_dir": str(root / extra["id"]), "executable": str(root / "bin" / "claude"),
+                    "tracking": "on"}
         if extra.get("disabled"):
-            settings["enabled"] = False
+            settings["enabled"] = False  # legacy spelling, kept: it must still read as Off
+            del settings["tracking"]
         config.setdefault("instances", []).append(
             {"id": extra["id"], "plugin": "claude", "label": extra["label"], "settings": settings})
     if local_plugin:

@@ -80,6 +80,15 @@ def copy_tree(destination: Path) -> Path:
     return destination
 
 
+# Additions of the tracking policy (UX pass slice 1), checked in tests/test_tracking_policy.py.
+TRACKING_SUMMARY_KEYS = ("providers_expected", "providers_fresh", "providers_stale", "outcomes")
+TRACKING_PROVIDER_KEYS = ("tracking", "tracking_effective", "detection", "last_activity_at")
+
+
+def legacy(value: dict, keys: tuple) -> dict:
+    return {key: item for key, item in value.items() if key not in keys}
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_shared_service_code_names_no_provider(self) -> None:
         found = provider_literals((REPO / "ai_usage_service.py").read_text(encoding="utf-8"))
@@ -207,9 +216,13 @@ class FailureIsolationTests(unittest.TestCase):
             "provider": "claude", "source": "collector", "kind": "plugin",
             "at": expected["collection"]["last_attempt_at"],
             "message": "provider module failed to load: RuntimeError: claude module is broken", "auth": False}])
-        self.assertEqual(collection["summary"], {**expected["collection"]["summary"],
-                                                 "providers_updated": 4, "providers_failed": 1})
-        self.assertEqual(report["providers"], [{**p, "type": p["id"]} for p in expected["providers"] if p["id"] != "claude"])
+        self.assertEqual(legacy(collection["summary"], TRACKING_SUMMARY_KEYS),
+                         {**expected["collection"]["summary"], "providers_updated": 4, "providers_failed": 1})
+        self.assertIn({"id": "claude", "outcome": "failed"}, collection["summary"]["outcomes"],
+                      "a provider that failed before returning rows is still expected")
+        self.assertEqual(collection["summary"]["providers_expected"], 5)
+        self.assertEqual([legacy(p, TRACKING_PROVIDER_KEYS) for p in report["providers"]],
+                         [{**p, "type": p["id"]} for p in expected["providers"] if p["id"] != "claude"])
 
     def test_a_turned_off_provider_that_fails_to_load_is_not_a_failure(self) -> None:
         # claude is turned off in this scenario, so its broken module changes no status.
@@ -224,7 +237,10 @@ class FailureIsolationTests(unittest.TestCase):
         expected = collection(golden)
         # Its display name lives in the module that failed, so it can't be listed as skipped.
         expected["summary"]["skipped"].remove("Claude Code")
-        self.assertEqual(collection(observed), expected)
+        found = collection(observed)
+        self.assertNotIn("claude", [o["id"] for o in found["summary"]["outcomes"]], "off is never a failure")
+        found["summary"] = legacy(found["summary"], TRACKING_SUMMARY_KEYS)
+        self.assertEqual(found, expected)
 
     def test_a_provider_whose_collect_raises_is_one_error_row_and_others_still_collect(self) -> None:
         observed = self.run_with_broken(

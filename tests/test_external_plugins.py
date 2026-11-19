@@ -324,6 +324,8 @@ class DiscoveryTests(unittest.TestCase):
             "duplicate-csv": (duplicate_csv, "csv_source must be a unique"),
             "default-enabled": (lambda m: m["default_settings"].__setitem__("enabled", True),
                                 "default_settings may not set enabled"),
+            "default-tracking": (lambda m: m["default_settings"].__setitem__("tracking", "on"),
+                                 "default_settings may not set enabled, tracking"),
             "default-timeout": (lambda m: m["default_settings"].__setitem__("timeout_seconds", 5),
                                 "default_settings may not set enabled"),
             "default-price": (lambda m: m["default_settings"].__setitem__("monthly_subscription_usd", 1),
@@ -554,7 +556,8 @@ class EnablementTests(unittest.TestCase):
         result = self.box.cli("plugin", "enable", "example")
         self.assertEqual(result.returncode, 0, result.stderr)
         config = self.box.raw_config()
-        self.assertEqual(config["providers"]["example"], {"enabled": True})
+        self.assertEqual(config["providers"]["example"], {"tracking": "on", "enabled": True},
+                         "the canonical policy, mirrored for an older collector")
         self.assertEqual(config["extra_key"], 1)
         self.assertEqual(self.box.config_path.stat().st_mode & 0o777, 0o640)
         self.box.once()
@@ -599,7 +602,7 @@ class EnablementTests(unittest.TestCase):
         result = self.box.cli("plugin", "disable", "gone")
         self.assertEqual(result.returncode, 0, result.stderr)
         for name in ("valid", "broken", "gone"):
-            self.assertIs(self.box.raw_config()["providers"][name]["enabled"], False)
+            self.assertEqual(self.box.raw_config()["providers"][name], {"enabled": False, "tracking": "off"})
         self.box.once()
         self.box.once()
         for name in ("valid", "broken", "gone"):

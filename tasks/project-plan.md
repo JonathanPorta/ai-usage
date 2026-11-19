@@ -15,7 +15,7 @@ doesn't wait on AC-13, because phase 4 depends only on phase 2. It is merged (#2
 was installed on the personal Mac; the owner accepted its renders (AC-10) and passed its live
 check (AC-11) on 2026-11-02 ([session state](phase-4/session-state-all-view.md)). Release
 remains a separate decision. Each phase gets its own PRD and acceptance-criteria gate,
-and this plan does not widen their scope.
+and this plan does not widen their scope. Phase 5's PRD ([PRD](phase-5/prd-ux-pass.md)) adopts the owner's UX work package and was directed for execution by the owner on 2026-11-15.
 
 ## Project Brief
 
@@ -89,6 +89,12 @@ killed and reported. Reinstall leaves the folder alone.
 **Objective:** stacked bars by canonical/parent type across instances.
 **Entry:** Phase 2 exit (canonical type exists).
 **Exit:** All view renders; visual acceptance by the owner.
+
+### Phase 5: Overview, Detail, Monitoring and Themes UX Pass
+**Objective:** make the overview useful at a glance and carry one hierarchy through provider detail, Monitoring, Settings and History, with file-defined themes.
+**Entry:** Phase 4 exit (accepted 2026-11-02). Execution directed by the owner on 2026-11-15.
+**Exit:** AC-1 to AC-16 of [the phase-5 PRD](phase-5/prd-ux-pass.md) met, with the owner's visual review of changed renders before any accepted baseline is replaced.
+**Features:** per-instance tracking policy (builds on #8), card ordering, reset countdowns, header and collection-result models, overview and detail redesign, file-defined themes. Reset-label spacing (#9) is reconciled with the countdown work.
 
 ## Dependency Map
 

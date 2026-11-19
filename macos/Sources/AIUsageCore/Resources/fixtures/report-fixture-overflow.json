@@ -17,7 +17,8 @@
       "service_control": true,
       "settings": true,
       "instances": true,
-      "external_plugins": true
+      "external_plugins": true,
+      "tracking_policy": true
     }
   },
   "thresholds": {
@@ -56,7 +57,48 @@
       "providers_updated": 7,
       "providers_partly": 1,
       "providers_failed": 0,
-      "skipped": []
+      "skipped": [],
+      "providers_expected": 9,
+      "providers_fresh": 2,
+      "providers_stale": 6,
+      "outcomes": [
+        {
+          "id": "codex",
+          "outcome": "fresh"
+        },
+        {
+          "id": "claude",
+          "outcome": "stale"
+        },
+        {
+          "id": "antigravity",
+          "outcome": "fresh"
+        },
+        {
+          "id": "grok",
+          "outcome": "partly"
+        },
+        {
+          "id": "gemini_cli",
+          "outcome": "stale"
+        },
+        {
+          "id": "claude-az",
+          "outcome": "stale"
+        },
+        {
+          "id": "claude-lab",
+          "outcome": "stale"
+        },
+        {
+          "id": "claude-oss",
+          "outcome": "stale"
+        },
+        {
+          "id": "claude-ci",
+          "outcome": "stale"
+        }
+      ]
     }
   },
   "providers": [
@@ -68,6 +110,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": null,
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -3800,6 +3850,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:27:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -9996,6 +10054,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T15:22:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -10505,6 +10571,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:37:00Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -13355,6 +13429,14 @@
       "enabled": true,
       "setup": "not_detected",
       "setup_note": "Not found on this Mac at the last check.",
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": false
+      },
+      "last_activity_at": null,
       "usage": {
         "status": "none",
         "stale_cause": null,
@@ -13738,6 +13820,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T16:28:40Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -15927,6 +16017,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T15:30:20Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -16346,6 +16444,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-28T18:30:21Z",
       "usage": {
         "status": "current",
         "stale_cause": null,
@@ -16760,6 +16866,14 @@
       "enabled": true,
       "setup": "ready",
       "setup_note": null,
+      "tracking": "on",
+      "tracking_effective": "active",
+      "detection": {
+        "installed": null,
+        "requirement": "executable",
+        "saved_data": true
+      },
+      "last_activity_at": "2026-09-29T09:30:22Z",
       "usage": {
         "status": "current",
         "stale_cause": null,

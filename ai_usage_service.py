@@ -46,7 +46,9 @@ if _COLLECTOR_DIR not in sys.path:
 
 import ai_usage_plugins  # noqa: E402
 from ai_usage_plugins import external  # noqa: E402
-from ai_usage_plugins.base import CollectContext, ProviderPlugin  # noqa: E402
+from ai_usage_plugins.base import (  # noqa: E402
+    TRACKING_POLICIES, CollectContext, ProviderPlugin, tracking_policy,
+)
 from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fixtures use them)
     COMMON_EXECUTABLE_DIRS,
     atomic_write_bytes,
@@ -156,8 +158,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "state_file": "~/.ai-usage/state.json",
         "cache_dir": "~/.ai-usage/cache",
     },
+    # No default `enabled`: a provider without a policy of its own is Auto (issue #8),
+    # while a config that says `enabled` keeps that explicit choice.
     "providers": {
-        name: copy.deepcopy(dict(plugin.default_settings)) for name, plugin in PLUGINS.items()
+        name: {key: copy.deepcopy(value) for key, value in plugin.default_settings.items() if key != "enabled"}
+        for name, plugin in PLUGINS.items()
     },
 }
 
@@ -220,9 +225,17 @@ def validate_config(config: Mapping[str, Any]) -> None:
     providers = config.get("providers")
     if not isinstance(providers, Mapping):
         raise ValueError("providers must be an object")
+    for name, entry in providers.items():
+        if isinstance(entry, Mapping):
+            validate_tracking(entry, f"providers.{name}")
     validate_instances(config)
     validate_external_entries(config)
     validate_configured_paths(config)
+
+
+def validate_tracking(settings: Mapping[str, Any], where: str) -> None:
+    if "tracking" in settings and settings["tracking"] not in TRACKING_POLICIES:
+        raise ValueError(f"{where}.tracking must be one of: {', '.join(TRACKING_POLICIES)}")
 
 
 # Added instances (phase 2): `instances` holds accounts beyond each plugin's built-in
@@ -292,6 +305,7 @@ def validate_instances(config: Mapping[str, Any]) -> None:
         settings = entry.get("settings", {})
         if not isinstance(settings, Mapping):
             raise ValueError(f"{where}.settings must be an object")
+        validate_tracking(settings, f"{where}.settings")
         plugin = PLUGINS.get(plugin_id)
         if plugin is None:
             continue  # reported as this account's error row when it is collected
@@ -372,7 +386,9 @@ def account_settings(config: Mapping[str, Any], account: Account,
         plugin = discovery.plugins.get(account.id)
         own = provider_config(config, account.id)
         merged = {**(plugin.default_settings if plugin else {}), **own}
-        merged["enabled"] = own.get("enabled") is True
+        # Only an explicit choice runs one: with neither key it is Off, not Auto.
+        merged["tracking"] = tracking_policy(own, default="off")
+        merged["enabled"] = merged["tracking"] != "off"
         return merged
     if not account.added:
         return provider_config(config, account.id)
@@ -963,6 +979,100 @@ def provider_names() -> list[str]:
     return [name for name in ai_usage_plugins.BUNDLED if name in PLUGINS or name in PLUGIN_LOAD_ERRORS]
 
 
+# --------------------------------------------------------------------------- tracking policy
+# Installed now (an executable found) and saved local data are separate evidence: a
+# missing usage file never means a missing CLI, and old files never mean an installed one.
+TRACKING_STATE_KEY = "tracking"
+
+
+def account_tracking(account: Account, settings: Mapping[str, Any]) -> str:
+    """The account's policy: its own `tracking`, else legacy `enabled`, else Auto
+    (external plugins: Off, since only an explicit choice may run third-party code)."""
+    return tracking_policy(settings, default="off" if account.external else "auto")
+
+
+def detect_installation(account: Account, settings: Mapping[str, Any]) -> dict[str, Any]:
+    """{"installed": True | False | None, "requirement": "executable" | "none"}. Runs nothing.
+
+    External plugins declare no install requirement: their own executable is the plugin,
+    not a provider CLI, so they report requirement "none" and installed None."""
+    if account.external:
+        return {"installed": None, "requirement": "none"}
+    plugin = PLUGINS.get(account.type)
+    if plugin is None:
+        return {"installed": None, "requirement": "executable"}
+    if not plugin.executable_names and not settings.get("executable"):
+        return {"installed": None, "requirement": "none"}
+    try:
+        found = find_executable(settings, list(plugin.executable_names))
+    except Exception:  # an unreadable PATH entry is unknown, not absent
+        return {"installed": None, "requirement": "executable"}
+    return {"installed": found is not None, "requirement": "executable"}
+
+
+def local_saved_data(account: Account, settings: Mapping[str, Any]) -> bool:
+    """Whether readable local logs or caches exist for the account. Runs nothing."""
+    plugin = PLUGINS.get(account.type)
+    if account.external or plugin is None:
+        return False
+    try:
+        extra = plugin.doctor_extra(settings)
+    except Exception:
+        return False
+    return any(bool(value) for key, value in extra.items()
+               if key.endswith("_readable") or key == "session_log_count")
+
+
+def effective_tracking(policy: str, detection: Mapping[str, Any], last_known: Optional[str] = None,
+                       load_error: bool = False) -> str:
+    """"active" | "inactive" | "pending" from the policy and what detection saw now.
+
+    Auto with unknown detection keeps the last known effective state; with none, pending.
+    A provider whose module failed to load stays active unless Off, so its failure shows."""
+    if policy == "off":
+        return "inactive"
+    if policy == "on" or load_error or detection.get("requirement") == "none":
+        return "active"
+    installed = detection.get("installed")
+    if installed is True:
+        return "active"
+    if installed is False:
+        return "inactive"
+    return last_known if last_known in ("active", "inactive") else "pending"
+
+
+def last_known_tracking(state: Mapping[str, Any], account_id: str) -> Optional[str]:
+    recorded = state.get(TRACKING_STATE_KEY)
+    entry = recorded.get(account_id) if isinstance(recorded, Mapping) else None
+    # Only an observed state (Auto with a definite probe) seeds it; Off/On never do.
+    value = entry.get("last_observed") if isinstance(entry, Mapping) else None
+    return value if value in ("active", "inactive") else None
+
+
+def observed_tracking(resolved: Mapping[str, Any]) -> Optional[str]:
+    """The effective state when this run observed it, not when a policy forced it."""
+    detection = resolved["detection"]
+    if resolved["policy"] != "auto" or resolved["effective"] == "pending":
+        return None
+    if detection.get("installed") is None and detection.get("requirement") != "none":
+        return None  # carried over from the last observation, not observed now
+    return str(resolved["effective"])
+
+
+def resolve_tracking(account: Account, settings: Mapping[str, Any],
+                     state: Mapping[str, Any]) -> dict[str, Any]:
+    """The account's policy, detection evidence and effective state. Runs nothing."""
+    policy = account_tracking(account, settings)
+    # Off is never probed: nothing it reports would change, and it stays deterministic.
+    detection = detect_installation(account, settings) if policy != "off" else {
+        "installed": None, "requirement": "none" if account.external else "executable"}
+    if policy == "auto" and detection["installed"] is not True:
+        detection["saved_data"] = local_saved_data(account, settings)
+    effective = effective_tracking(policy, detection, last_known_tracking(state, account.id),
+                                   load_error=account.type in PLUGIN_LOAD_ERRORS and not account.external)
+    return {"policy": policy, "detection": detection, "effective": effective}
+
+
 def collect_snapshot(
     config: Mapping[str, Any],
     include_history: bool,
@@ -976,16 +1086,43 @@ def collect_snapshot(
              if not account.external or external_configured(config, account.id)]
 
     rows: list[dict[str, Any]] = []
-    enabled = [
-        account.id for account in every
-        if account_settings(config, account, discovery).get("enabled", True) is True
-    ]
+    resolved = {account.id: resolve_tracking(account, account_settings(config, account, discovery), state)
+                for account in every}
+    previous = state.get(TRACKING_STATE_KEY)
+    previous = previous if isinstance(previous, Mapping) else {}
+    # What this run did and saw, per configured account; entries for removed ones are dropped.
+    recorded: dict[str, Any] = {}
+    for name, tracking in resolved.items():
+        entry: dict[str, Any] = {
+            "policy": tracking["policy"], "effective": tracking["effective"],
+            "installed": tracking["detection"]["installed"],
+            "requirement": tracking["detection"]["requirement"],
+            "saved_data": bool(tracking["detection"].get("saved_data")),
+            "observed_at": collected_at,
+        }
+        observed = observed_tracking(tracking)
+        if observed is None:
+            observed = last_known_tracking(state, name)
+            before = previous.get(name)
+            if observed is not None and isinstance(before, Mapping) and before.get("last_observed_at"):
+                entry["last_observed_at"] = before["last_observed_at"]
+        else:
+            entry["last_observed_at"] = collected_at
+        if observed is not None:
+            entry["last_observed"] = observed
+        recorded[name] = entry
+    state[TRACKING_STATE_KEY] = recorded
+    enabled = [account.id for account in every if resolved[account.id]["effective"] == "active"]
     for account in every:
         name = account.id
         settings = account_settings(config, account, discovery)
         if progress is not None and name in enabled:
             progress(name, enabled.index(name) + 1, len(enabled))
-        if settings.get("enabled", True) is not True:
+        if resolved[name]["effective"] != "active" and resolved[name]["policy"] != "off":
+            # Auto and not installed (or not yet known): nothing is run or written, and
+            # its recorded history stays as it is.
+            continue
+        if resolved[name]["policy"] == "off":
             rows.append(
                 metric_row(
                     collected_at,
@@ -1085,7 +1222,8 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     for account in accounts(config, discovery):
         name = account.id
         settings = account_settings(config, account, discovery)
-        enabled = settings.get("enabled", True) is True
+        policy = account_tracking(account, settings)
+        enabled = policy != "off"
         if account.external:
             plugin = discovery.plugins.get(name)
             results[name] = {
@@ -1096,6 +1234,7 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
                 "directory": str(external.plugins_root() / name),
                 "external": True,
                 "type": name,
+                "tracking": policy, "installed": None, "requirement": "none",
                 **({"plugin_error": external_problem(discovery, name)} if plugin is None else {}),
             }
             continue
@@ -1129,7 +1268,12 @@ def detect_providers(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         )
         results[name] = {
             "enabled": enabled,
+            # Legacy: an executable or local data. `installed` and `saved_data` keep them apart.
             "detected": bool(executable or source_available),
+            "tracking": policy,
+            "installed": executable is not None,
+            "requirement": "executable",
+            "saved_data": source_available,
             "executable": str(executable) if executable else None,
             **extra,
             **identity,
@@ -1466,7 +1610,7 @@ def prepare_integration_plans(
             settings_path,
             spec.field,
             spec.desired(settings, wrapper_path),
-            settings.get("enabled", True) is True
+            tracking_policy(settings) != "off"
             and settings.get(spec.enable_setting, True) is True,
             find_executable(settings, list(plugin.executable_names)),
             previous_integration_record(ownership, name),
@@ -2057,7 +2201,8 @@ def stop_service() -> dict[str, Any]:
     return wait_for_service_state(lambda current: current["state"] in ("stopped", "not_installed"))
 
 
-CONFIGURABLE_PROVIDER_KEYS = {"enabled", "monthly_subscription_usd"}
+# `enabled` is the legacy spelling of `tracking`; it is stored as tracking on/off.
+CONFIGURABLE_PROVIDER_KEYS = {"enabled", "tracking", "monthly_subscription_usd"}
 # An external plugin's timeout can also be lowered (never raised past its manifest's).
 CONFIGURABLE_EXTERNAL_KEYS = CONFIGURABLE_PROVIDER_KEYS | {"timeout_seconds"}
 
@@ -2141,11 +2286,31 @@ def parse_config_assignment(assignment: str) -> tuple[list[str], Any]:
     if parts[2:] and parts[2] in CONFIGURABLE_PROVIDER_KEYS:
         if parts[2] == "enabled" and not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false")
+        if parts[2] == "tracking" and value not in TRACKING_POLICIES:
+            raise ValueError(f"{key} must be one of: {', '.join(TRACKING_POLICIES)}")
         if parts[2] == "monthly_subscription_usd" and value is not None and (
             isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or value < 0
         ):
             raise ValueError(f"{key} must be a non-negative number or null")
+    return parts, value
+
+
+def mirror_enabled(entry: dict[str, Any], policy: Any) -> None:
+    """`enabled` mirrors `tracking` for an older installed collector, which reads only it
+    (and treats a missing one as true): on -> true, off -> false, auto -> removed."""
+    if policy == "on":
+        entry["enabled"] = True
+    elif policy == "off":
+        entry["enabled"] = False
+    else:
+        entry.pop("enabled", None)
+
+
+def canonical_assignment(parts: list[str], value: Any) -> tuple[list[str], Any]:
+    """Older apps still write `enabled`: it is stored as the canonical `tracking`."""
+    if parts[2:] == ["enabled"]:
+        return [*parts[:2], "tracking"], "on" if value is True else "off"
     return parts, value
 
 
@@ -2157,6 +2322,11 @@ def check_external_assignments(config_path: Path, parsed: list[tuple[list[str], 
     or already configured, even with its folder missing or invalid."""
     changes = [(parts[1], parts[2], value) for parts, value in parsed
                if parts[0] == "providers" and parts[1] not in ai_usage_plugins.BUNDLED]
+
+    def turns_on(name: str, key: str, value: Any) -> bool:
+        parts, canonical = canonical_assignment(["providers", name, key], value)
+        return parts[2] == "tracking" and canonical != "off"
+
     if not changes:
         return
     config = load_config(config_path)
@@ -2167,13 +2337,13 @@ def check_external_assignments(config_path: Path, parsed: list[tuple[list[str], 
         if not known:
             # Neither discovered nor configured: refused as before local plugins existed.
             raise ValueError(f"providers.{name}.{key} is not a setting the menu app may change")
-        if key == "enabled" and value is True or key == "timeout_seconds":
+        if turns_on(name, key, value) or key == "timeout_seconds":
             if plugin is None:
                 raise ValueError(f"{name} can't be turned on: {external_problem(discovery, name)}")
             if key == "timeout_seconds" and value > plugin.timeout_seconds:
                 raise ValueError(f"providers.{name}.timeout_seconds can't exceed the plugin's own "
                                  f"{plugin.timeout_seconds}")
-    if any(key == "enabled" and value is True for _name, key, value in changes):
+    if any(turns_on(*change) for change in changes):
         require_external_support()
 
 
@@ -2182,17 +2352,21 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
 
     Writes are serialized with a lock beside the config, validated against the
     full merged config before replacing the file, and keep mode 0600."""
-    parsed = [parse_config_assignment(item) for item in assignments]
-    if not parsed:
+    given = [parse_config_assignment(item) for item in assignments]
+    if not given:
         raise ValueError("no settings given")
-    if any(parts[0] == "instances" and parts[2] == "enabled" and value is True for parts, value in parsed):
+    parsed = [canonical_assignment(parts, value) for parts, value in given]
+    if any(parts[0] == "instances" and parts[2] == "tracking" and value != "off" for parts, value in parsed):
         require_instance_support()
-    check_external_assignments(config_path, parsed)
+    check_external_assignments(config_path, given)
 
     def apply(updated: dict[str, Any]) -> None:
         for parts, value in parsed:
             if parts[0] == "instances":
-                instance_entry(updated, parts[1]).setdefault("settings", {})[parts[2]] = value
+                entry_settings = instance_entry(updated, parts[1]).setdefault("settings", {})
+                entry_settings[parts[2]] = value
+                if parts[2] == "tracking":
+                    mirror_enabled(entry_settings, value)
                 continue
             node = updated
             for part in parts[:-1]:
@@ -2202,9 +2376,12 @@ def configure(config_path: Path, assignments: list[str]) -> dict[str, Any]:
                     node[part] = child
                 node = child
             node[parts[-1]] = value
+            if parts[-1] == "tracking":
+                mirror_enabled(node, value)
 
     update_config(config_path, apply)
-    return {".".join(parts): value for parts, value in parsed}
+    # Echoed as given: a legacy `enabled` assignment reads back as it was sent.
+    return {".".join(parts): value for parts, value in given}
 
 
 def update_config(config_path: Path, apply: Callable[[dict[str, Any]], None]) -> None:
@@ -2280,7 +2457,8 @@ def list_instances(config_path: Path) -> list[dict[str, Any]]:
     config = load_config(config_path)
     return [
         {"id": account.id, "plugin": account.type, "label": account.label,
-         "enabled": account_settings(config, account).get("enabled", True) is True,
+         "enabled": tracking_policy(account_settings(config, account)) != "off",
+         "tracking": tracking_policy(account_settings(config, account)),
          "settings": dict(next(e for e in configured_instances(config) if e["id"] == account.id).get("settings", {}))}
         for account in accounts(config) if account.added
     ]
@@ -2302,6 +2480,7 @@ def list_plugins(config_path: Path) -> dict[str, Any]:
                                               else "missing"),
             "configured": external_configured(config, account.id),
             "enabled": settings.get("enabled") is True,
+            "tracking": settings.get("tracking"),
         }
         if plugin is not None:
             entry.update(name=plugin.report.name, executable=str(plugin.executable),
@@ -2791,9 +2970,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_argument(configure_parser)
     configure_parser.add_argument(
         "--set", action="append", default=[], metavar="KEY=JSON",
-        help="poll_paused, poll_interval_seconds, providers.<name>.enabled|monthly_subscription_usd, "
-        "instances.<id>.enabled|monthly_subscription_usd, "
-        "providers.<local plugin>.enabled|monthly_subscription_usd|timeout_seconds",
+        help="poll_paused, poll_interval_seconds, providers.<name>.tracking|enabled|monthly_subscription_usd, "
+        "instances.<id>.tracking|enabled|monthly_subscription_usd, "
+        "providers.<local plugin>.tracking|enabled|monthly_subscription_usd|timeout_seconds "
+        "(tracking is auto, on or off; legacy enabled=true|false is stored as tracking on|off)",
     )
     plugin_parser = subparsers.add_parser(
         "plugin",

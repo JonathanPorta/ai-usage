@@ -63,7 +63,8 @@ def az_once(body: Optional[str], *, cache_age: float = 2 * driver.HOUR,
         box.write("home/claude-az/.claude.json", cache(driver.FIXED_TS - cache_age, 50))
         executable = (box.python_executable("claude", body) if body is not None
                       else str(box.root / "bin" / "no-such-claude"))
-        settings = {**AZ["settings"], "executable": executable, "timeout_seconds": 5}
+        # Explicitly On: "no executable" must still be collected (Auto would skip it).
+        settings = {**AZ["settings"], "executable": executable, "timeout_seconds": 5, "tracking": "on"}
         if enabled:
             settings["refresh_diagnostics"] = True
         box.write_config({"codex": OFF, "claude": OFF, "antigravity": OFF, "gemini_cli": OFF, "grok": OFF},

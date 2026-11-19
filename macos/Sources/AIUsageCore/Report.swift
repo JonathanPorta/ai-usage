@@ -84,6 +84,8 @@ public struct CollectorInfo: Codable, Equatable, Sendable {
         public var instances: Bool?
         /// The installed collector runs local plugins (`~/.ai-usage/plugins`, 2.4.0+). Absent before 2.4.0.
         public var externalPlugins: Bool?
+        /// Collector understands `tracking` auto/on/off (absent in older collectors).
+        public var trackingPolicy: Bool?
     }
 
     /// Whether Settings may offer "Add account…".
@@ -140,6 +142,25 @@ public struct CollectionState: Codable, Equatable, Sendable {
         public var providersPartly: Int
         public var providersFailed: Int
         public var skipped: [String]
+        // Freshness-aware counters; absent from older collectors.
+        public var providersExpected: Int?
+        public var providersFresh: Int?
+        public var providersStale: Int?
+        public var outcomes: [ProviderOutcome]?
+    }
+
+    public struct ProviderOutcome: Codable, Equatable, Sendable {
+        public enum Kind: String, Codable, Sendable {
+            case fresh, stale, partly, failed
+            /// A value from a newer collector; never counted as fresh.
+            case unknown
+
+            public init(from decoder: Decoder) throws {
+                self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+            }
+        }
+        public var id: String
+        public var outcome: Kind
     }
 }
 
@@ -168,6 +189,11 @@ public struct Provider: Codable, Equatable, Identifiable, Sendable {
     public var costs: Costs
     public var sources: [Source]
     public var notes: [String]
+    // Tracking policy evidence; absent from older collectors (see `Tracking.swift`).
+    public var tracking: TrackingMode?
+    public var trackingEffective: TrackingEffective?
+    public var detection: Detection?
+    public var lastActivityAt: Date?
 
     public var isActive: Bool { enabled && setup == .ready }
     public var canonicalType: String { type ?? id }

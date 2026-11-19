@@ -73,15 +73,23 @@ class ParityTests(unittest.TestCase):
     def test_the_intentional_changes_are_exactly_the_declared_ones(self) -> None:
         # Phases 2 to 4's whole output difference from the baseline: a new key needs a PRD change first.
         self.assertEqual(sorted(driver.INTENTIONAL_CHANGES), [
+            "configure.text.providers[*].enabled",
             "csv[claude].usage_source_age_seconds",
+            "default_config.providers[*].enabled",
+            "doctor_json.stdout[*].tracking",
             "doctor_json.stdout[*].type",
+            "load_config.return.providers[*].enabled",
+            "once.state.tracking",
             "once.stdout.appended_rows",
+            "report.collection.summary.outcomes",
             "report.collector.capabilities.external_plugins",
             "report.collector.capabilities.instances",
+            "report.collector.capabilities.tracking_policy",
             "report.collector.csv_rows",
             "report.collector.installed_version",
             "report.collector.version",
             "report.groups",
+            "report.providers[*].tracking",
             "report.providers[*].type",
             "report.providers[claude] failed refresh",
             "report.providers[claude].quota.*measured_at",

@@ -82,6 +82,14 @@ public enum ConfigChange: Equatable, Sendable {
     /// An added account's settings live in its `instances` entry.
     case accountEnabled(String, Bool)
     case accountMonthlySubscription(String, Double?)
+    /// Canonical tracking policy (`auto` / `on` / `off`); supersedes the legacy `enabled` key.
+    case providerTracking(String, TrackingMode)
+    case accountTracking(String, TrackingMode)
+
+    /// The tracking change for a report provider: a built-in's or an added account's.
+    public static func tracking(_ provider: Provider, _ mode: TrackingMode) -> ConfigChange {
+        provider.isAddedAccount ? .accountTracking(provider.id, mode) : .providerTracking(provider.id, mode)
+    }
 
     /// The enable change for a report provider: a built-in's or an added account's.
     public static func enabling(_ provider: Provider, _ value: Bool) -> ConfigChange {
@@ -101,6 +109,8 @@ public enum ConfigChange: Equatable, Sendable {
         case let .monthlySubscription(id, value): return Self.price("providers.\(id)", value)
         case let .accountEnabled(id, value): return "instances.\(id).enabled=\(value)"
         case let .accountMonthlySubscription(id, value): return Self.price("instances.\(id)", value)
+        case let .providerTracking(id, mode): return "providers.\(id).tracking=\"\(mode.rawValue)\""
+        case let .accountTracking(id, mode): return "instances.\(id).tracking=\"\(mode.rawValue)\""
         }
     }
 

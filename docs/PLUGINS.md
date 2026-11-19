@@ -291,7 +291,7 @@ What the collector does guards against **mistakes and faults**, not hostile code
 | --- | --- |
 | `executable` | A relative path inside the folder; no `..`, no absolute path |
 | `timeout_seconds` | 1–120, default 30. `providers.<id>.timeout_seconds` may lower it, never raise it |
-| `default_settings` | A flat object of JSON scalars, sent under the owner's `providers.<id>` values. It may not contain `enabled`, `timeout_seconds` or `monthly_subscription_usd`, so a manifest can never turn execution on. An integer must be within ±2^53 |
+| `default_settings` | A flat object of JSON scalars, sent under the owner's `providers.<id>` values. It may not contain `enabled`, `tracking`, `timeout_seconds` or `monthly_subscription_usd`, so a manifest can never turn execution on. An integer must be within ±2^53 |
 | `report.usage` | `daily_total` (per-day totals, shown like Codex's), `events` (input/output events, shown like Claude's), or `none` |
 | `report.quota` | `used` (percent used, like Claude Code and Grok), `remaining` (percent remaining, like Antigravity), or `none` |
 | `report.sources` | 1–4 sources: `id` (`^[a-z][a-z0-9_]{0,31}$`), `role` (`usage` or `quota`), `label`, `kind`, and a unique `csv_source`. A usage or quota profile other than `none` needs a source of that role. Each quota source keeps its own status: one source failing never makes another's windows stale. When two quota sources report the same `scope`, the windows' ids become `<source id>-<scope>` |
@@ -387,8 +387,14 @@ never passes credentials to it.
 
 ### Enablement and lifecycle
 
-A plugin runs only when `config.json` has `providers.<id>.enabled: true`.
-Discovery, a manifest default or a missing key never turn it on.
+A plugin runs only when `config.json` has `providers.<id>.tracking` `"on"` or `"auto"`, or the
+legacy `providers.<id>.enabled: true` (the writer stores `tracking` and mirrors it in `enabled`). Discovery, a
+manifest default or a missing key never turn it on: with neither key a local plugin is Off.
+
+**Detection contract.** A local plugin declares no install requirement: its executable is the
+plugin itself, not a provider CLI. The report gives it `detection.requirement: "none"` and
+`detection.installed: null`, and Auto is active for it. A plugin reports an unavailable tool
+through its own rows (or a failure row), never through the collector assuming a binary.
 
 | Config for the id | Folder | Rows each poll |
 | --- | --- | --- |

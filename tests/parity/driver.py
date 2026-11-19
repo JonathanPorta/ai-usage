@@ -100,6 +100,11 @@ class Sandbox:
         return str(self.root / relative)
 
     def write_config(self, providers: dict[str, Any], **extra: Any) -> None:
+        # Explicitly enabled, as the baseline's default config wrote every provider: since
+        # the tracking policy (issue #8) a provider with neither key is Auto, which no
+        # longer collects one whose CLI is absent. The baseline reads both the same way.
+        providers = {name: ({"enabled": True, **entry} if isinstance(entry, dict) and "enabled" not in entry
+                            else entry) for name, entry in providers.items()}
         value = {"poll_interval_seconds": 3600, "paths": self.paths, "providers": providers, **extra}
         self.config.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
@@ -588,7 +593,134 @@ INTENTIONAL_CHANGES = {
     "report.providers[claude].quota.windows[*].becomes_stale_*": "from the fetch time when that ages the reading out first",
     "report.providers[claude] failed refresh": "a kept cache after a failed /usage refresh is stale (failed), "
                                                "its source failed with the error, and the collection lists it",
+    # The tracking policy (issue #8; UX pass slice 1). Every scenario provider is explicitly
+    # enabled or disabled (Sandbox.write_config), so collection itself is unchanged.
+    "default_config.providers[*].enabled": "removed: a provider without a policy of its own is Auto",
+    "load_config.return.providers[*].enabled": "no longer merged in from the defaults",
+    "configure.text.providers[*].enabled": "a written `enabled` also stores `tracking` on/off",
+    "doctor_json.stdout[*].tracking": "added: tracking, installed, requirement and saved_data on enabled entries",
+    "once.state.tracking": "added: each account's last known effective tracking state",
+    "report.collector.capabilities.tracking_policy": "added: true",
+    "report.providers[*].tracking": "added: tracking, tracking_effective, detection and last_activity_at",
+    "report.collection.summary.outcomes": "added: providers_expected, providers_fresh, providers_stale "
+                                          "and per-provider outcomes",
 }
+
+
+def scenario_providers(name: str) -> dict[str, Any]:
+    """The scenario's provider config as written (rebuilt in a throwaway sandbox)."""
+    with tempfile.TemporaryDirectory(prefix="ai-usage-parity-config-") as temporary:
+        box = Sandbox(Path(temporary) / "probe")
+        SCENARIOS[name](box)
+        if not box.config.exists():
+            return {}
+        return json.loads(box.config.read_text(encoding="utf-8")).get("providers", {})
+
+
+BUILT_IN_IDS = ("codex", "claude", "antigravity", "gemini_cli", "grok")
+TOKEN_METRICS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cached_read_tokens",
+                 "cache_creation_input_tokens", "cache_creation_tokens", "daily_tokens", "daily_model_tokens")
+
+
+def scenario_tracking(entry: Any) -> tuple[str, Optional[bool]]:
+    """(policy, installed) for a scenario provider: explicit enabled, and an executable
+    that a scenario writes only when it exists."""
+    entry = entry if isinstance(entry, dict) else {}
+    if entry.get("tracking") in ("on", "off"):
+        policy = entry["tracking"]
+    else:
+        policy = "on" if entry.get("enabled", True) is True else "off"
+    return policy, (bool(entry.get("executable")) if policy != "off" else None)
+
+
+def expected_outcome(provider: dict[str, Any], attempt_at: Optional[str]) -> str:
+    applicable = [s for s in provider["sources"] if s["last_attempt_at"] == attempt_at and attempt_at
+                  and s["status"] != "off"]
+    if not applicable:
+        return "stale"
+    failed = sum(s["status"] in ("failed", "auth") for s in applicable)
+    if failed:
+        return "failed" if failed == len(applicable) else "partly"
+    return "fresh" if all(s["status"] == "ok" for s in applicable) else "stale"
+
+
+def apply_tracking(name: str, result: dict[str, Any], providers: dict[str, Any],
+                   latest_csv: list[dict[str, Any]], written: dict[str, str]) -> None:
+    """The tracking-policy additions, derived from the scenario config and golden output."""
+    if result["op"] == "default_config":
+        value = json.loads(result["text"])
+        for entry in value["providers"].values():
+            entry.pop("enabled", None)
+        result["text"] = json.dumps(value, indent=2) + ("\n" if result["text"].endswith("\n") else "")
+        if isinstance(result.get("value"), dict):
+            for entry in result["value"]["providers"].values():
+                entry.pop("enabled", None)
+    if result["op"] in ("configure", "load_config"):
+        if result.get("text"):
+            value = json.loads(result["text"])
+            for pid, policy in written.items():
+                value["providers"][pid]["enabled"] = policy == "on"  # the mirror, in place
+                value["providers"][pid]["tracking"] = policy
+            result["text"] = json.dumps(value, indent=2) + ("\n" if result["text"].endswith("\n") else "")
+        if isinstance(result.get("return"), dict) and "providers" in result["return"]:
+            for pid in BUILT_IN_IDS:
+                entry = result["return"]["providers"].get(pid)
+                raw = providers.get(pid, {})
+                if isinstance(entry, dict) and pid not in written and not (isinstance(raw, dict) and "enabled" in raw):
+                    entry.pop("enabled", None)
+                if pid in written and isinstance(entry, dict):
+                    entry["enabled"] = written[pid] == "on"
+                    entry["tracking"] = written[pid]
+    if result["op"] == "doctor_json" and result.get("return") == 0:
+        entries = json.loads(result["stdout"])
+        for pid, entry in entries.items():
+            if entry.get("enabled") and not entry.get("external") and not entry.get("load_error"):
+                entry.update(tracking="on", installed=entry.get("executable") is not None,
+                             requirement="executable",
+                             saved_data=any(bool(v) for k, v in entry.items()
+                                            if k.endswith("_readable") or k == "session_log_count"))
+        result["stdout"] = json.dumps(entries, indent=2, sort_keys=True) + "\n"
+    if result["op"] == "once" and isinstance(result.get("state"), dict):
+        tracking = {}
+        for pid in BUILT_IN_IDS:
+            policy, installed = scenario_tracking(providers.get(pid))
+            if pid in written:
+                policy, installed = written[pid], scenario_tracking({**providers[pid], "enabled": True})[1]
+            # Explicit policies only: forced states, so no last observation is recorded.
+            tracking[pid] = {"effective": "active" if policy == "on" else "inactive", "policy": policy,
+                             "installed": installed, "requirement": "executable", "saved_data": False,
+                             "observed_at": FIXED_NOW}
+        result["state"]["tracking"] = tracking
+    report = result.get("report") if result["op"] == "report" else None
+    if report:
+        report["collector"]["capabilities"]["tracking_policy"] = True
+        now = report["generated_at"]
+        for provider in report["providers"]:
+            pid = provider["id"]
+            policy, installed = scenario_tracking(providers.get(pid))
+            rows = [r for r in latest_csv if r["provider"] == pid]
+            history = any(
+                (r["category"] == "usage" and r["metric"] in TOKEN_METRICS
+                 and r["record_kind"] in ("event_total", "delta", "period_total"))
+                or (r["category"] == "quota" and r["metric"] in ("used_percent", "remaining_percent")
+                    and r["record_kind"] == "snapshot")
+                or (r["category"] == "billing" and r["metric"] == "on_demand_used") for r in rows)
+            events = [re.sub(r"\.\d+Z$", "Z", r["collected_at"]) for r in rows if r["category"] == "usage" and r["metric"] in TOKEN_METRICS
+                      and r["record_kind"] in ("event_total", "delta") and r["collected_at"] <= now]
+            provider.update({
+                "tracking": policy, "tracking_effective": "active" if policy == "on" else "inactive",
+                "detection": {"installed": installed, "requirement": "executable", "saved_data": history},
+                "last_activity_at": max(events) if events else None,
+            })
+        summary = report["collection"]["summary"]
+        if summary is not None:
+            attempt_at = report["collection"]["last_attempt_at"]
+            outcomes = [{"id": p["id"], "outcome": expected_outcome(p, attempt_at)}
+                        for p in report["providers"] if p["tracking_effective"] == "active"]
+            summary.update(providers_expected=len(outcomes),
+                           providers_fresh=sum(o["outcome"] == "fresh" for o in outcomes),
+                           providers_stale=sum(o["outcome"] == "stale" for o in outcomes),
+                           outcomes=outcomes)
 
 
 # The stale-quota correction (tasks/phase-2/fix-stale-quota-reporting.md) adds one
@@ -699,7 +831,11 @@ def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
     earlier = [result["csv"] for result in document["results"][:changed_from] if result.get("csv")]
     written = sum(row["transaction_index"] == "0" for row in earlier[-1]) if earlier else 0
     latest_csv: list[dict[str, Any]] = earlier[-1] if earlier else []
-    for result in document["results"][changed_from:]:
+    providers = scenario_providers(name)
+    tracking_written: dict[str, str] = {}
+    for index, result in enumerate(document["results"]):
+        if index < changed_from:
+            continue
         if result.get("csv") and name in CLAUDE_USAGE_AGE_SECONDS:
             result["csv"] = add_claude_usage_age(result["csv"], CLAUDE_USAGE_AGE_SECONDS[name], written)
         if result.get("csv"):
@@ -730,6 +866,12 @@ def expected(name: str, changed_from: int = 0) -> dict[str, Any]:
             for key, entry in entries.items():
                 entry["type"] = key
             result["stdout"] = json.dumps(entries, indent=2, sort_keys=True) + "\n"
+        if result["op"] == "configure" and not result.get("error"):
+            for assignment in result.get("return") or {}:
+                parts = assignment.split(".")
+                if parts[0] == "providers" and parts[-1] == "enabled":
+                    tracking_written[parts[1]] = "on" if result["return"][assignment] is True else "off"
+        apply_tracking(name, result, providers, latest_csv, tracking_written)
     return document
 
 
