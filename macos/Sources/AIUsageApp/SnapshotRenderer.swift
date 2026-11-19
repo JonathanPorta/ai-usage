@@ -52,6 +52,9 @@ enum SnapshotRenderer {
                 try localPluginStates(width: popoverWidth) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
+                try overviewStates(report, width: popoverWidth) { name, width, height, store, view in
+                    try shoot(name, width: width, height: height, store: store, view)
+                }
                 try allToolsStates(report) { name, width, height, store, view in
                     try shoot(name, width: width, height: height, store: store, view)
                 }
@@ -252,6 +255,125 @@ enum SnapshotRenderer {
             return group
         }
         try shoot("history-all-tools-no-usage", 920, 1500, store(empty), AnyView(page()))
+    }
+
+    /// Slice 2 overview states and slice 2 Settings states, from fixture variants built here.
+    private static func overviewStates(
+        _ report: Report, width: CGFloat,
+        shoot: (String, CGFloat, CGFloat?, AppStore?, AnyView) throws -> Void
+    ) throws {
+        func store(_ report: Report) -> AppStore { AppStore.preview(report, clock: report.generatedAt) }
+        func variant(_ change: (inout Report) -> Void) -> Report { var copy = report; change(&copy); return copy }
+        func index(_ r: Report, _ id: String) -> Int { r.providers.firstIndex { $0.id == id }! }
+        func overview(_ height: CGFloat = 1200) -> AnyView { AnyView(PopoverRoot(screenHeight: height)) }
+        func settings() -> AnyView { AnyView(PopoverRoot(initialScreen: .settings, screenHeight: 2400, uncapped: true)) }
+        func form(_ view: some View) -> AnyView { AnyView(view.padding(T.Space.s4).background(T.Color.background.color)) }
+
+        let oneOff = variant { r in
+            let i = index(r, "antigravity")
+            r.providers[i].tracking = .off; r.providers[i].trackingEffective = .inactive; r.providers[i].enabled = false
+        }
+        try shoot("popover-overview-one-off", width, nil, store(oneOff), overview())
+        let allInactive = variant { r in
+            for i in r.providers.indices { r.providers[i].tracking = .auto; r.providers[i].trackingEffective = .inactive }
+        }
+        try shoot("popover-overview-choose-providers", width, nil, store(allInactive), overview())
+        let awaiting = variant { r in
+            for i in r.providers.indices { r.providers[i].tracking = .auto; r.providers[i].trackingEffective = .pending }
+        }
+        try shoot("popover-overview-awaiting-detection", width, nil, store(awaiting), overview())
+        // Stale + partial failure: the result indicator carries a warning badge.
+        let stale = variant { r in
+            r.collection.lastAttemptResult = .partial
+            let i = index(r, "claude")
+            if var failure = r.collection.failures.first {
+                failure.provider = "claude"; failure.source = "quota"; failure.message = "usage endpoint returned 503"
+                r.collection.failures.append(failure)
+            }
+            r.providers[i].quota.windows[0].status = .stale
+            r.providers[i].quota.windows[0].staleCause = .failed
+        }
+        let staleStore = store(stale)
+        try shoot("popover-overview-result-warning", width, nil, staleStore, overview())
+        let issues = OverviewIssues(report: staleStore.report, now: stale.generatedAt, detections: staleStore.detectionNotices,
+                                    refreshError: nil, collect: .idle)
+        try shoot("overview-collection-details", 352, nil, staleStore, form(CollectionDetailsView(
+            issues: issues, now: stale.generatedAt, openDetail: { _ in }, openMonitoring: {}, openSettings: {},
+            acknowledge: { _ in })))
+        // A clean, successful check while Codex sits at its weekly limit: the result stays a success.
+        let limitOnly = variant { r in
+            r.collection.lastAttemptResult = .success
+            r.collection.failures = []
+            if let expected = r.collection.summary?.providersExpected {
+                r.collection.summary?.providersFresh = expected
+                r.collection.summary?.providersStale = 0
+                r.collection.summary?.providersPartly = 0
+                r.collection.summary?.providersFailed = 0
+            }
+            for i in r.providers.indices {
+                for s in r.providers[i].sources.indices where r.providers[i].sources[s].status != .ok {
+                    r.providers[i].sources[s].status = .ok
+                }
+                for w in r.providers[i].quota.windows.indices {
+                    r.providers[i].quota.windows[w].status = .current
+                    r.providers[i].quota.windows[w].staleCause = nil
+                    r.providers[i].quota.windows[w].omitted = false
+                }
+                if r.providers[i].quota.status == .mixed || r.providers[i].quota.status == .stale { r.providers[i].quota.status = .current }
+                r.providers[i].usage.staleCause = nil
+            }
+        }
+        try shoot("popover-overview-success-at-limit", width, nil, store(limitOnly), overview())
+        // Custom order: Codex moved to the top.
+        let custom = store(report)
+        for _ in 0..<4 { custom.moveCardUp("codex") }
+        try shoot("popover-overview-custom-order", width, nil, custom, overview())
+        try shoot("popover-overview-recent-order", width, nil, store(report), overview())
+        // Long name with many quota windows.
+        let long = variant { r in
+            let i = index(r, "claude")
+            r.providers[i].name = "Claude Code (work account for the platform infrastructure team)"
+            var extra = r.providers[i].quota.windows
+            for (n, w) in r.providers[i].quota.windows.enumerated() {
+                var copy = w; copy.id += "-x\(n)"; copy.label += " · Opus"; extra.append(copy)
+            }
+            r.providers[i].quota.windows = extra
+        }
+        try shoot("popover-overview-long-name", width, nil, store(long), AnyView(PopoverRoot(screenHeight: 2400, uncapped: true)))
+        // Statistics popover content.
+        for id in ["claude", "codex"] {
+            let provider = report.providers[index(report, id)]
+            try shoot("overview-statistics-\(id)", 312, nil, nil, form(ProviderStatisticsView(
+                name: provider.name, stats: CardStatistics.statistics(provider, now: report.generatedAt))))
+        }
+        // A reset already past, and an unknown reset.
+        let resets = variant { r in
+            let i = index(r, "claude")
+            r.providers[i].quota.windows[0].resetsAt = r.generatedAt.addingTimeInterval(-600)
+            r.providers[i].quota.windows[1].resetsAt = nil
+        }
+        try shoot("popover-overview-reset-past-unknown", width, nil, store(resets), overview())
+
+        // Settings: Auto + CLI not found + saved data (the detection notice row).
+        let notFound = variant { r in
+            let i = index(r, "antigravity")
+            r.providers[i].tracking = .auto
+            r.providers[i].trackingEffective = .inactive
+            r.providers[i].detection = Detection(installed: false, requirement: .executable, savedData: true)
+        }
+        try shoot("popover-settings-detection-notice", width, nil, store(notFound), settings())
+        // Settings in Custom order, with a hidden (Off) provider.
+        let customSettings = store(oneOff)
+        customSettings.moveCardUp("codex")
+        try shoot("popover-settings-custom-order", width, nil, customSettings, settings())
+        // An older report without the tracking-policy capability: the on/off switch.
+        let older = variant { r in
+            r.collector.capabilities?.trackingPolicy = nil
+            for i in r.providers.indices {
+                r.providers[i].tracking = nil; r.providers[i].trackingEffective = nil; r.providers[i].detection = nil
+            }
+        }
+        try shoot("popover-settings-no-tracking-policy", width, nil, store(older), settings())
     }
 
     private static func fetchLive() throws -> Report {

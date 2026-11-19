@@ -202,7 +202,7 @@ public enum Presentation {
         }
         for provider in report.providers where provider.enabled {
             for window in provider.activeWindows where window.limit == .reached {
-                let reset = window.resetsAt.map { " · resets \(Format.reset($0, now: now))" } ?? ""
+                let reset = window.resetsAt.map { " · \(Format.resetCountdown($0, now: now).text)" } ?? ""
                 out.append(Notice(id: "limit-\(provider.id)-\(window.id)", tone: .limit,
                                   title: "\(provider.name) \(window.short.lowercased()) limit reached",
                                   detail: "Measured \(Format.ago(window.measuredAt, now: now))\(reset)",
@@ -239,13 +239,80 @@ public enum Presentation {
         case .sourceOld?:
             return (window.omitted ? "Not reported since \(since)" : "No reading since \(since)", true)
         case .resetPassed?:
-            let reset = window.resetsAt.map { Format.moment($0, now: now) } ?? "—"
-            return ("Reset at \(reset) · no reading since", true)
+            return (Format.resetCountdown(window.resetsAt ?? now, now: now).text, true)
         case nil:
-            if let resets = window.resetsAt { return ("Resets \(Format.reset(resets, now: now))", false) }
-            return ("Measured \(Format.ago(window.measuredAt, now: now))", false)
+            if let resets = window.resetsAt { return (Format.resetCountdown(resets, now: now).text, false) }
+            return ("Reset time unavailable · measured \(Format.ago(window.measuredAt, now: now))", false)
         }
     }
+
+    /// The window's reset countdown with its exact time, when the window reports one.
+    /// `replacesCaption`: the caption is this countdown (current window, or reset due).
+    /// `lastKnown`: the window is stale from a failed, sign-in or missed check, so the
+    /// countdown is the last known reset ("Last known: resets in 4 days"), never live data.
+    public static func quotaReset(_ window: QuotaWindow, now: Date)
+        -> (countdown: ResetCountdown, replacesCaption: Bool, lastKnown: Bool)? {
+        guard let resets = window.resetsAt, !window.omitted else { return nil }
+        var countdown = Format.resetCountdown(resets, now: now)
+        switch window.staleCause {
+        case nil, .resetPassed?: return (countdown, true, false)
+        case .sourceOld?: return nil
+        case .auth?, .failed?, .notCollected?:
+            if countdown.text.hasPrefix("Resets") { countdown.text = "Last known: r" + countdown.text.dropFirst() }
+            return (countdown, false, true)
+        }
+    }
+
+    /// One-line quota caption for cards. A failed or sign-in window says only that its
+    /// reading is old; the card's single issue line names the failure.
+    public static func compactQuotaCaption(_ window: QuotaWindow, now: Date) -> (text: String, warning: Bool) {
+        switch window.staleCause {
+        case .auth?, .failed?, .notCollected?:
+            return ("Last reading \(Format.moment(window.measuredAt, now: now))", true)
+        default: return quotaCaption(window, now: now)
+        }
+    }
+
+    public enum CardIssueSeverity: Equatable, Sendable { case stale, failure, signIn }
+
+    /// The card's one issue line: the most severe of sign-in, failure and stale source,
+    /// from the provider's sources, its quota/usage freshness and the collection failures.
+    public static func cardIssue(_ provider: Provider, in report: Report?) -> (text: String, severity: CardIssueSeverity)? {
+        let failures = report?.collection.failures.filter { $0.provider == provider.id } ?? []
+        let windows = provider.activeWindows
+        if let source = provider.sources.first(where: { $0.status == .auth }) {
+            return ("\(source.label): sign-in needed · showing the last reading", .signIn)
+        }
+        if failures.contains(where: \.auth) || windows.contains(where: { $0.staleCause == .auth }) || provider.usage.staleCause == .auth {
+            return ("Sign-in needed · showing the last reading", .signIn)
+        }
+        if let source = provider.sources.first(where: { $0.status == .failed }) {
+            let kept = source.measuredAt != nil || source.lastReadAt != nil
+            return ("Couldn't refresh \(source.label.lowercased()) · \(kept ? "showing the last reading" : "no reading yet")", .failure)
+        }
+        if let failure = failures.first {
+            let what = failure.kind == "quota" ? "Quota" : failure.kind == "usage" ? "Usage" : "Check"
+            return ("\(what) check failed · showing cached values", .failure)
+        }
+        if windows.contains(where: { $0.staleCause == .failed }) || provider.usage.staleCause == .failed {
+            return ("Last check failed · showing cached values", .failure)
+        }
+        if let source = provider.sources.first(where: { $0.status == .stale }) {
+            return ("\(source.label) reading is stale", .stale)
+        }
+        return nil
+    }
+
+    /// The card's one freshness line for usage. Event sources say when they were checked;
+    /// last activity lives in the statistics popover.
+    public static func cardFreshness(_ provider: Provider, now: Date) -> (text: String, warning: Bool) {
+        let usage = provider.usage
+        if usage.staleCause == nil, usage.status != .none, usage.mode == "event" {
+            return ("Usage checked \(Format.ago(usage.collectedAt, now: now))", false)
+        }
+        return usageCaption(provider, now: now)
+    }
+
 
     public static func usageCaption(_ provider: Provider, now: Date) -> (text: String, warning: Bool) {
         let usage = provider.usage

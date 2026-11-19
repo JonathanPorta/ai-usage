@@ -23,44 +23,78 @@ public struct QuotaCell: View {
     }
 
     public var body: some View {
-        let caption = Presentation.quotaCaption(window, now: now)
+        let caption = compact ? Presentation.compactQuotaCaption(window, now: now) : Presentation.quotaCaption(window, now: now)
+        let reset = Presentation.quotaReset(window, now: now)
         VStack(alignment: .leading, spacing: 4) {
             if compact {
-                Text(window.label).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                Text(window.label).font(.auCaption).foregroundStyle(T.Color.muted.color).lineLimit(1)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(Presentation.quotaValue(window))
                     .font(compact ? .system(size: 20, weight: .medium).monospacedDigit() : .auFigure)
                     .foregroundStyle(stale ? T.Color.muted.color : T.Color.text.color)
+                    .fixedSize()
                 Text(Presentation.quotaBasis(window)).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    .fixedSize()
+                if compact, let limit = window.limit {
+                    // Inline on cards so every cell in a grid row keeps the same height.
+                    Spacer(minLength: 2)
+                    Label(limit == .reached ? "Reached" : "Almost used", systemImage: Symbols.limit)
+                        .font(.auCaption.weight(.semibold)).foregroundStyle(T.Color.warning.color)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .accessibilityLabel(limit == .reached ? "Limit reached" : "Almost used")
+                }
                 if !compact {
                     Spacer()
                     Text(window.label).font(.auCaption).foregroundStyle(T.Color.muted.color)
                 }
             }
             Meter(fraction: Presentation.meterFraction(window), tint: tint)
-            if let limit = window.limit {
+            if !compact, let limit = window.limit {
                 Label(limit == .reached ? "Limit reached" : "Almost used", systemImage: Symbols.limit)
                     .font(.auCaption.weight(.semibold))
                     .foregroundStyle(T.Color.warning.color)
             }
-            HStack(spacing: 4) {
-                if caption.warning {
-                    Image(systemName: window.staleCause == .auth ? Symbols.signIn : window.staleCause == .failed ? Symbols.failure : Symbols.stale)
-                        .foregroundStyle(window.staleCause == .failed || window.staleCause == .auth ? T.Color.danger.color : T.Color.warning.color)
+            if compact {
+                // One line per card cell: the countdown (live or last known) or the caption.
+                HStack(spacing: 4) {
+                    if caption.warning {
+                        Image(systemName: Symbols.stale).foregroundStyle(T.Color.warning.color)
+                    }
+                    if let reset {
+                        ResetLabel(reset.countdown)
+                            .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
+                    } else {
+                        Text(caption.text).lineLimit(1)
+                            .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
+                    }
                 }
-                Text(caption.text)
-                    .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
-                if !compact {
+                .font(.auCaption)
+            } else {
+                HStack(spacing: 4) {
+                    if caption.warning {
+                        Image(systemName: window.staleCause == .auth ? Symbols.signIn : window.staleCause == .failed ? Symbols.failure : Symbols.stale)
+                            .foregroundStyle(window.staleCause == .failed || window.staleCause == .auth ? T.Color.danger.color : T.Color.warning.color)
+                    }
+                    if let reset, reset.replacesCaption {
+                        ResetLabel(reset.countdown)
+                            .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
+                    } else {
+                        Text(caption.text)
+                            .foregroundStyle(caption.warning ? T.Color.warning.color : T.Color.muted.color)
+                    }
                     Spacer()
                     Text(stale ? "Stale" : "Current · measured \(Format.moment(window.measuredAt, now: now))")
                         .foregroundStyle(T.Color.muted.color)
                 }
-            }
-            .font(.auCaption)
-            .lineLimit(2)
-            if window.derived && !compact {
-                Text("Derived from the reported % used.").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                .font(.auCaption)
+                .lineLimit(2)
+                if let reset, !reset.replacesCaption {
+                    ResetLabel(reset.countdown).font(.auCaption).foregroundStyle(T.Color.warning.color)
+                }
+                if window.derived {
+                    Text("Derived from the reported % used.").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,6 +109,59 @@ public struct QuotaCell: View {
         if window.limit == .low { parts.append("almost used") }
         parts.append(stale ? "stale" : "current")
         parts.append(caption)
+        if let reset = Presentation.quotaReset(window, now: now) {
+            if !reset.replacesCaption { parts.append(reset.countdown.text) }
+            if let exact = reset.countdown.exact { parts.append("resets \(exact)") }
+        }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// A reset countdown ("Resets in 2 days") with a subtle dotted underline. The exact local
+/// weekday, date, time and zone shows on hover (tooltip) and in a popover on click or
+/// keyboard activation (Space/Return when focused). Unknown resets render plain text.
+public struct ResetLabel: View {
+    private let countdown: ResetCountdown
+    @State private var showingExact = false
+    @FocusState private var focused: Bool
+
+    public init(_ countdown: ResetCountdown) { self.countdown = countdown }
+
+    public var body: some View {
+        if let exact = countdown.exact {
+            Button { showingExact.toggle() } label: {
+                Text(countdown.text)
+                    .underline(true, pattern: .dot, color: T.Color.muted.color.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(exact)
+            .popover(isPresented: $showingExact, arrowEdge: .bottom) {
+                Text(exact).font(.auCaption).foregroundStyle(T.Color.text.color)
+                    .padding(T.Space.s2)
+            }
+            .focused($focused)
+            // Keyboard focus reveals the exact time inline; nothing takes focus away.
+            .overlay(alignment: .topLeading) {
+                if focused {
+                    Text(exact).font(.auCaption).foregroundStyle(T.Color.text.color)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(T.Color.panel.color, in: RoundedRectangle(cornerRadius: T.Radius.small))
+                        .overlay(RoundedRectangle(cornerRadius: T.Radius.small).strokeBorder(T.Color.line.color))
+                        .fixedSize()
+                        .offset(y: 18)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .zIndex(focused ? 1 : 0)
+            .accessibilityLabel(countdown.text)
+            .accessibilityValue(exact)
+            .accessibilityHint("Shows the exact reset time")
+        } else {
+            Text(countdown.text)
+        }
     }
 }
