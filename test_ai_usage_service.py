@@ -2223,25 +2223,14 @@ for line in sys.stdin:
         self.assertTrue(references)
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in references))
         self.assertIn('python: ["3.9", "3.14"]', workflow)
-        # Trust boundary and runner policy: no privileged triggers, a read-only
-        # token, and exactly one GitHub-hosted macOS job: the fallback, which runs
-        # only when ProofGlass answered without displacing the lane (proofglass#170),
-        # so the lane never runs both in a ProofGlass VM and hosted.
-        self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(macos\S*)", workflow), ["macos-26"])
-        fallback = re.search(r"(?ms)^  macos-hosted:\n(.*?)(?=^  \S)", workflow)
-        self.assertIsNotNone(fallback)
-        self.assertIn("if: needs.plan.outputs.macos_hosted == 'true'", fallback.group(1))
-        self.assertIn("runs-on: macos-26", fallback.group(1))
-        self.assertNotIn("id-token", fallback.group(1))
-        for target in ("make check", "make fixture-check", "make app-test", "make app-build"):
-            self.assertIn(f"run: {target}", fallback.group(1))
-        # Hosted only after a valid answer that did not displace the lane.
-        # Capacity answers only (CAPACITY_JQ), on by default, off when the
-        # MACOS_HOSTED_FALLBACK variable is `off`.
-        self.assertIn("HOSTED_FALLBACK: ${{ vars.MACOS_HOSTED_FALLBACK || 'on' }}", workflow)
-        self.assertRegex(workflow, r'elif \[ -n "\$answer" \] && echo "\$answer" \| jq -e "\$\{CAPACITY_JQ\}" >/dev/null && \[ "\$\{HOSTED_FALLBACK\}" != "off" \]; then\n\s+hosted=true')
-        self.assertEqual(workflow.count("hosted=true"), 1)
-        self.assertIn("needs: [plan, check-linux, spec-and-design, macos-hosted]", workflow)
+        # Native execution is delegated only to ProofGlass. No repository
+        # variable or missing-capacity answer may create a hosted native job.
+        self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(?:macos|windows)\S*", workflow), [])
+        self.assertNotIn("  macos-hosted:", workflow)
+        self.assertNotIn("MACOS_HOSTED_FALLBACK", workflow)
+        self.assertNotIn("macos_hosted", workflow)
+        self.assertNotIn("hosted=true", workflow)
+        self.assertIn("needs: [plan, check-linux, spec-and-design]", workflow)
         code = "\n".join(line for line in workflow.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("pull_request_target", code)
         self.assertNotIn("workflow_run", code)
@@ -2305,7 +2294,7 @@ for line in sys.stdin:
             with self.subTest(name):
                 self.assertFalse(displaced(body, expected))
 
-    def test_hosted_fallback_only_for_missing_proofglass_capacity(self) -> None:
+    def test_capacity_diagnostics_only_recognize_missing_proofglass_capacity(self) -> None:
         jq = shutil.which("jq")
         if jq is None:
             self.skipTest("jq is not installed")
@@ -2348,6 +2337,34 @@ for line in sys.stdin:
         for name, body in rejected.items():
             with self.subTest(name):
                 self.assertFalse(capacity(body))
+
+    def test_native_gate_requires_proofglass_even_if_legacy_hosted_outputs_claim_success(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        block = workflow.split("      - name: Require the hosted legs and an executed macOS lane\n", 1)[1]
+        program = "\n".join(line[10:] for line in block.split("        run: |\n", 1)[1].splitlines())
+        for displaced, hosted_bad, expected in (
+                ("true", "", 0), ("false", "", 1), ("", "", 1),
+                ("true", "plan:failure", 1), ("true", "check-linux:failure", 1)):
+            with self.subTest(displaced=displaced, hosted_bad=hosted_bad):
+                env = dict(os.environ, MACOS_DISPLACED=displaced, HOSTED_BAD=hosted_bad,
+                           REASON="no executor", EVENT="pull_request",
+                           MACOS_HOSTED="true", MACOS_HOSTED_RESULT="success",
+                           MACOS_HOSTED_FALLBACK="on")
+                result = subprocess.run(["bash", "-c", program], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+        decide = workflow.split("      - name: Decide the hosted verdict\n", 1)[1]
+        decide = decide.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+        program = "\n".join(line[10:] for line in decide.splitlines())
+        for displaced, expected in (("true", "success"), ("false", "failure"), ("", "failure")):
+            with self.subTest(reported_displacement=displaced), tempfile.TemporaryDirectory() as root:
+                output = Path(root) / "output"
+                env = dict(os.environ, PLAN_RESULT="success", LINUX_RESULT="success", SPEC_RESULT="success",
+                           MACOS_DISPLACED=displaced, GITHUB_OUTPUT=str(output),
+                           MACOS_HOSTED="true", MACOS_HOSTED_RESULT="success")
+                result = subprocess.run(["bash", "-c", program], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"result={expected}\n", output.read_text())
 
     def test_route_answer_reaches_the_log_only_as_an_allowlisted_summary(self) -> None:
         jq = shutil.which("jq")
@@ -3042,4 +3059,5 @@ class StablePythonExecutableTests(unittest.TestCase):
 
     def test_system_python_is_unchanged(self) -> None:
         self.assertEqual(SERVICE.stable_python_executable("/usr/bin/python3"), Path("/usr/bin/python3"))
+
 
