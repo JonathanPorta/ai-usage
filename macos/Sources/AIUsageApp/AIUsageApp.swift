@@ -53,6 +53,8 @@ enum StatusItem {
 
 struct HistoryRequest: Equatable {
     var providerId: String?
+    /// From a provider's detail: the metric and ranges to keep.
+    var context: HistoryContext?
     var nonce = UUID()
 }
 

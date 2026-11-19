@@ -15,32 +15,37 @@ enum RangeText {
     }
 }
 
-/// Provider detail: replaces the overview inside the popover. Chart first
-/// (Tokens 7 days by default), then quota windows, today, models, and the
-/// collapsible accounting and diagnostics sections.
+/// Provider detail: replaces the overview inside the popover. Header with
+/// On/Off and History, then quota, usage chart (key collapsed below it), today,
+/// cost and accounting, and sources and diagnostics collapsed at the bottom.
 struct ProviderDetailView: View {
     @Environment(AppStore.self) private var store
+    @Environment(Navigation.self) private var navigation
     let provider: Provider
     let back: () -> Void
-    let openHistory: () -> Void
+    let openHistory: (HistoryContext) -> Void
     let maxHeight: CGFloat
 
-    enum Metric: Hashable { case tokens, quota }
+    typealias Metric = DetailMetric
     @State private var metric: Metric = .tokens
     @State private var tokenRange = 7
     @State private var windowId: String?
     @State private var quotaRange: String?
-    @State private var accountingOpen = false
-    @State private var sourcesOpen: Bool
+    @State private var chartKeyOpen: Bool
+    @State private var sourcesOpen = false
+    /// The switch position while its save runs.
+    @State private var pendingOn: Bool?
+    @State private var saveFailure: String?
 
-    init(provider: Provider, back: @escaping () -> Void, openHistory: @escaping () -> Void, maxHeight: CGFloat,
-         initialMetric: Metric = .tokens) {
+    init(provider: Provider, back: @escaping () -> Void, openHistory: @escaping (HistoryContext) -> Void, maxHeight: CGFloat,
+         initialMetric: Metric = .tokens, tokenRange: Int = 7, chartKeyOpen: Bool = false) {
         _metric = State(initialValue: initialMetric)
+        _tokenRange = State(initialValue: tokenRange)
+        _chartKeyOpen = State(initialValue: chartKeyOpen)
         self.provider = provider
         self.back = back
         self.openHistory = openHistory
         self.maxHeight = maxHeight
-        _sourcesOpen = State(initialValue: provider.sources.contains { $0.hasProblem })
     }
 
     private var window: QuotaWindow? {
@@ -48,25 +53,30 @@ struct ProviderDetailView: View {
         return windows.first { $0.id == windowId } ?? windows.first
     }
 
+    private var showsQuotaChart: Bool { metric == .quota && !provider.activeWindows.isEmpty }
+
     var body: some View {
         let now = store.now
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: back) { Label("Overview", systemImage: Symbols.back) }
-                .buttonStyle(.link)
-                .font(.auBody)
-                .keyboardShortcut(.cancelAction)
-                .padding([.horizontal, .top], T.Space.s4)
+            HStack {
+                Button(action: back) { Label("Overview", systemImage: Symbols.back) }
+                    .buttonStyle(.link)
+                    .font(.auBody)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                ToolbarIconButton(symbol: Symbols.history, label: "Open in history window") { openHistory(historyContext) }
+            }
+            .padding(.horizontal, T.Space.s4).padding(.top, T.Space.s3)
             ScrollView {
                 VStack(alignment: .leading, spacing: T.Space.s4) {
-                    heading(now: now)
-                    chartPanel(now: now)
+                    heading
                     if !provider.activeWindows.isEmpty { quotaSection(now: now) }
+                    chartPanel(now: now)
                     todaySection(now: now)
-                    if !provider.modelsToday.isEmpty { modelsSection }
+                    if !provider.modelsToday.isEmpty, !DetailPresentation.isNotCollecting(provider) { modelsSection }
                     if !provider.notes.isEmpty { notesSection }
-                    moreSection(now: now)
-                    Button(action: openHistory) { Label("Open in history window", systemImage: Symbols.history) }
-                        .controlSize(.small)
+                    costSection(now: now)
+                    sourcesSection(now: now)
                 }
                 .padding(T.Space.s4)
             }
@@ -75,57 +85,108 @@ struct ProviderDetailView: View {
         .onExitCommand(perform: back)
     }
 
-    private func heading(now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(provider.name).font(.auTitle).foregroundStyle(T.Color.text.color)
-                .accessibilityAddTraits(.isHeader)
-            Text(provider.product).font(.auCaption).foregroundStyle(T.Color.muted.color)
-            if let setup = Presentation.setupText(provider) {
+    private var historyContext: HistoryContext {
+        DetailPresentation.historyContext(provider, metric: metric, tokenRange: tokenRange,
+                                          windowId: windowId, quotaRange: quotaRange)
+    }
+
+    // MARK: Header
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: T.Space.s2) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(provider.name).font(.auTitle).foregroundStyle(T.Color.text.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(provider.product).font(.auCaption).foregroundStyle(T.Color.muted.color)
+            }
+            if let report = store.report, Presentation.showsToggle(provider, in: report) {
+                trackingRow(report)
+            }
+            if let setup = Presentation.setupText(provider), !DetailPresentation.isTrackingOff(provider) {
                 Label(setup, systemImage: Symbols.notSetUp).font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private func chartPanel(now: Date) -> some View {
-        Panel {
-            VStack(alignment: .leading, spacing: T.Space.s3) {
-                HStack(spacing: T.Space.s2) {
-                    if !provider.activeWindows.isEmpty {
-                        Segmented("Metric", selection: $metric, options: [(.tokens, "Tokens"), (.quota, "Quota")])
-                    }
-                    if metric == .tokens || provider.activeWindows.isEmpty {
-                        Segmented("Range", selection: $tokenRange, options: [(7, "7 days"), (30, "30 days")])
-                    } else if let window {
-                        if provider.activeWindows.count > 1 {
-                            Picker("Window", selection: Binding(get: { window.id }, set: { windowId = $0; quotaRange = nil })) {
-                                ForEach(provider.activeWindows) { Text($0.label).tag($0.id) }
-                            }
-                            .labelsHidden().controlSize(.small).fixedSize()
-                        }
-                        Segmented("Quota range", selection: Binding(get: { quotaRange ?? window.ranges.first ?? "7d" }, set: { quotaRange = $0 }),
-                                  options: window.ranges.map { ($0, RangeText.label($0)) })
-                    }
-                }
-                if metric == .tokens || provider.activeWindows.isEmpty {
-                    let days = Presentation.recentDays(provider, count: tokenRange)
-                    DayBarChart(provider: provider, days: days, style: .full, today: store.report?.today ?? "")
-                    DayChartLegend(split: provider.usage.hasSplit)
-                    Text(provider.usage.hasSplit ? "Cache tokens are counted separately." : "This provider reports one daily total; input and output aren’t split.")
-                        .font(.auCaption).foregroundStyle(T.Color.muted.color)
-                } else if let window {
-                    QuotaLineChart(window: window, rangeSeconds: RangeText.seconds(quotaRange ?? window.ranges.first ?? "7d"),
-                                   now: now, gapSeconds: Double(store.report?.thresholds.staleAfterSeconds ?? 7200) * 1.5)
-                }
+    private func trackingRow(_ report: Report) -> some View {
+        let toggle = DetailPresentation.trackingToggle(provider, pending: pendingOn)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: T.Space.s2) {
+                Image(systemName: toggle.waiting ? Symbols.waiting : (toggle.isOn ? Symbols.healthy : Symbols.paused))
+                    .foregroundStyle(toggle.isOn ? T.Color.success.color : T.Color.muted.color)
+                    .accessibilityHidden(true)
+                Text(toggle.status).font(.auBody).foregroundStyle(T.Color.text.color)
+                if pendingOn != nil { ProgressView().controlSize(.mini) }
+                Spacer()
+                Toggle("Track \(provider.name)", isOn: Binding(get: { toggle.isOn }, set: { save($0, report: report) }))
+                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                    .disabled(store.isActing)
+                    .accessibilityValue(toggle.status)
+            }
+            if toggle.waiting {
+                Text("Auto is still checking whether \(provider.name) is installed. Switching sets On or Off.")
+                    .font(.auCaption).foregroundStyle(T.Color.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if toggle.autoControlled {
+                Text("Auto decides from detection. Switching sets On or Off.")
+                    .font(.auCaption).foregroundStyle(T.Color.muted.color)
+            } else if !toggle.isOn {
+                Text("Not collecting. Recorded history is kept.")
+                    .font(.auCaption).foregroundStyle(T.Color.muted.color)
+            }
+            if let saveFailure {
+                Label("Couldn't save: \(saveFailure)", systemImage: Symbols.failure)
+                    .font(.auCaption).foregroundStyle(T.Color.danger.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
+
+    private func save(_ on: Bool, report: Report) {
+        guard !store.isActing, pendingOn == nil else { return }
+        pendingOn = on
+        saveFailure = nil
+        let change = DetailPresentation.trackingChange(provider, on: on,
+                                                      supportsPolicy: DetailPresentation.supportsPolicy(report))
+        Task {
+            // Only this save's own outcome counts; nil means it never ran (another
+            // action started first), so the switch just returns to the saved state.
+            let outcome = await store.applySettings([change])
+            if case let .failed(reason)? = outcome { saveFailure = reason }
+            // Success, failure or not run: the report's saved state is shown again.
+            pendingOn = nil
+        }
+    }
+
+    private func run(_ action: EmptyCopy.Action) {
+        switch action {
+        case let .widenRange(days): tokenRange = days
+        case let .openHistoryRange(days):
+            var context = historyContext
+            context.metric = .tokens
+            context.tokenRange = days
+            openHistory(context)
+        case .enableTracking:
+            if let report = store.report { save(true, report: report) }
+        case .providerSettings: openSettings()
+        case .checkAgain: Task { _ = await store.collectNow() }
+        }
+    }
+
+    private func openSettings() {
+        navigation.settingsRequest = SettingsRequest(providerId: provider.id)
+    }
+
+    // MARK: Sections
 
     private func quotaSection(now: Date) -> some View {
         VStack(alignment: .leading, spacing: T.Space.s2) {
             SectionLabel("Quota")
             Panel {
                 VStack(alignment: .leading, spacing: T.Space.s3) {
-                    ForEach(Array(provider.activeWindows.enumerated()), id: \.element.id) { index, window in
+                    ForEach(Array(DetailPresentation.displayWindows(provider).enumerated()), id: \.element.id) { index, window in
                         if index > 0 { Divider() }
                         QuotaCell(window: window, now: now, compact: false)
                     }
@@ -137,29 +198,90 @@ struct ProviderDetailView: View {
         }
     }
 
-    private func todaySection(now: Date) -> some View {
-        let today = provider.today
-        let split = provider.usage.hasSplit
+    private func chartPanel(now: Date) -> some View {
+        let days = Presentation.recentDays(provider, count: tokenRange)
+        let empty = DetailPresentation.chartEmpty(provider, days: days, range: tokenRange,
+                                                  ranges: DetailPresentation.detailTokenRanges)
         return VStack(alignment: .leading, spacing: T.Space.s2) {
-            SectionLabel("Today")
-            if let today {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: T.Space.s2) {
-                    if split {
-                        StatTile(value: Format.tokens(today.input), caption: "Input")
-                        StatTile(value: Format.tokens(today.output), caption: "Output")
-                    } else {
-                        StatTile(value: Format.tokens(today.total), caption: "Total tokens")
-                        StatTile(value: "—", caption: "Input / output · not reported")
+            SectionLabel("Usage")
+            Panel {
+                VStack(alignment: .leading, spacing: T.Space.s3) {
+                    HStack(spacing: T.Space.s2) {
+                        if !provider.activeWindows.isEmpty {
+                            Segmented("Metric", selection: $metric, options: [(.tokens, "Tokens"), (.quota, "Quota")])
+                        }
+                        Spacer(minLength: 0)
+                        if !showsQuotaChart {
+                            Segmented("Range", selection: $tokenRange, options: [(7, "7 days"), (30, "30 days")])
+                        } else if let window {
+                            if provider.activeWindows.count > 1 {
+                                Picker("Window", selection: Binding(get: { window.id }, set: { windowId = $0; quotaRange = nil })) {
+                                    ForEach(provider.activeWindows) { Text($0.label).tag($0.id) }
+                                }
+                                .labelsHidden().controlSize(.small).fixedSize()
+                            }
+                            Segmented("Quota range", selection: Binding(get: { quotaRange ?? window.ranges.first ?? "7d" }, set: { quotaRange = $0 }),
+                                      options: window.ranges.map { ($0, RangeText.label($0)) })
+                        }
                     }
-                    StatTile(value: Format.tokens(today.cacheRead), caption: today.cacheRead == nil ? "Cache reads · not reported" : "Cache reads")
-                    StatTile(value: Format.tokens(today.cacheWrite), caption: today.cacheWrite == nil ? "Cache writes · not reported" : "Cache writes")
+                    if showsQuotaChart, let window {
+                        QuotaLineChart(window: window, rangeSeconds: RangeText.seconds(quotaRange ?? window.ranges.first ?? "7d"),
+                                       now: now, gapSeconds: Double(store.report?.thresholds.staleAfterSeconds ?? 7200) * 1.5)
+                        ChartKey(isExpanded: $chartKeyOpen) {
+                            Text("Percentage \(window.basis == .remaining ? "remaining" : "used") in the \(window.label.lowercased()). Readings are snapshots, plotted and never added up. A dashed rule marks a reset; a dashed tail means the latest reading is stale.")
+                        }
+                    } else if let empty {
+                        CopyEmptyState(empty, action: run)
+                    } else {
+                        DayBarChart(provider: provider, days: days, style: .full, today: store.report?.today ?? "")
+                        ChartKey(isExpanded: $chartKeyOpen) {
+                            DayChartLegend(split: provider.usage.hasSplit)
+                            Text(provider.usage.hasSplit ? "Input and output per day. Cache tokens are counted separately." : "This provider reports one daily total; input and output aren’t split. Missing days are not zero.")
+                        }
+                    }
                 }
-                Text("So far today · measured \(Format.moment(provider.usage.measuredAt, now: now)) · collected \(Format.moment(provider.usage.collectedAt, now: now))")
-                    .font(.auCaption).foregroundStyle(T.Color.muted.color)
-            } else {
-                Text(provider.usage.status == .none ? "No usage has been recorded for \(provider.name) yet." : "\(provider.name) hasn’t reported today’s usage yet.")
-                    .font(.auCaption).foregroundStyle(T.Color.muted.color)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func todaySection(now: Date) -> some View {
+        let state = DetailPresentation.todayState(provider)
+        // With no usage ever, the chart's empty state already says so.
+        if state != .noUsageEver || showsQuotaChart {
+            VStack(alignment: .leading, spacing: T.Space.s2) {
+                SectionLabel("Today")
+                switch state {
+                case .reading: todayTiles(now: now)
+                case .noReadingToday: Panel { InlineEmptyRow(DetailPresentation.noReadingToday) }
+                case .notCollecting: Panel { InlineEmptyRow(DetailPresentation.notCollectingToday) }
+                case .noUsageEver:
+                    Panel { InlineEmptyRow(EmptyCopy(symbol: "chart.bar", title: "No usage recorded yet", detail: "", action: nil)) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func todayTiles(now: Date) -> some View {
+        if let today = provider.today {
+            let split = provider.usage.hasSplit
+            let notReported = [split ? nil : "input/output split", today.cacheRead == nil ? "cache reads" : nil,
+                               today.cacheWrite == nil ? "cache writes" : nil].compactMap { $0 }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: T.Space.s2) {
+                if split {
+                    StatTile(value: Format.tokens(today.input), caption: "Input")
+                    StatTile(value: Format.tokens(today.output), caption: "Output")
+                } else {
+                    StatTile(value: Format.tokens(today.total), caption: "Total tokens")
+                }
+                if today.cacheRead != nil { StatTile(value: Format.tokens(today.cacheRead), caption: "Cache reads") }
+                if today.cacheWrite != nil { StatTile(value: Format.tokens(today.cacheWrite), caption: "Cache writes") }
+            }
+            Text((["So far today · measured \(Format.moment(provider.usage.measuredAt, now: now))"]
+                  + (notReported.isEmpty ? [] : ["not reported: \(notReported.joined(separator: ", "))"])).joined(separator: " · "))
+                .font(.auCaption).foregroundStyle(T.Color.muted.color)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -195,15 +317,18 @@ struct ProviderDetailView: View {
         }
     }
 
-    private func moreSection(now: Date) -> some View {
+    private func costSection(now: Date) -> some View {
         VStack(alignment: .leading, spacing: T.Space.s2) {
-            SectionLabel("More")
-            AccordionPanel("Cost and accounting", isExpanded: $accountingOpen) {
-                AccountingView(provider: provider, now: now)
-            }
-            AccordionPanel("Sources and diagnostics", isExpanded: $sourcesOpen) {
-                SourcesView(provider: provider, now: now)
-            }
+            SectionLabel("Cost and accounting")
+            Panel { AccountingView(provider: provider, now: now, addPrice: openSettings) }
+        }
+    }
+
+    private func sourcesSection(now: Date) -> some View {
+        let problems = provider.sources.filter(\.hasProblem).count
+        return AccordionPanel(problems == 0 ? "Sources and diagnostics" : "Sources and diagnostics · \(problems) need\(problems == 1 ? "s" : "") attention",
+                              isExpanded: $sourcesOpen) {
+            SourcesView(provider: provider, now: now)
         }
     }
 }
@@ -244,27 +369,29 @@ private struct AccordionPanel<Content: View>: View {
     }
 }
 
-/// Reported usage cost and the price you entered are always separate rows.
+/// Reported usage cost and the price you entered are always separate rows; a
+/// missing one gets its own quiet row, and a price never stands in for cost.
 struct AccountingView: View {
     let provider: Provider
     let now: Date
+    /// Opens this provider's price field in Settings.
+    var addPrice: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: T.Space.s2) {
+        VStack(alignment: .leading, spacing: T.Space.s3) {
             if let reported = provider.costs.reported {
                 row(Format.usd(reported.amountUsd), reported.basis,
                     "Billing period \(period(reported.periodStart, reported.periodEnd)) · as of \(Format.moment(reported.measuredAt, now: now))")
-            } else {
-                row("—", "Reported usage cost", provider.costs.reportedNote ?? "Not reported")
+            } else if let empty = DetailPresentation.reportedCostEmpty(provider) {
+                InlineEmptyRow(empty)
             }
             if let api = provider.costs.apiEquivalent {
                 row(Format.usd(api.amountUsd), api.basis, "Last \(api.rangeDays) days · not a bill")
             }
             if let subscription = provider.costs.subscription {
-                row(Format.usd(subscription.monthlyUsd), "Subscription price",
-                    "per month · entered by you · never compared with quota or cost")
-            } else {
-                row("—", "Subscription price", "Not entered (monthly_subscription_usd in the collector config)")
+                row(Format.usd(subscription.monthlyUsd), "Subscription price", "Per month · entered by you · not usage cost")
+            } else if let empty = DetailPresentation.subscriptionEmpty(provider) {
+                InlineEmptyRow(empty, action: addPrice)
             }
         }
     }
@@ -300,16 +427,16 @@ struct SourcesView: View {
                         Spacer()
                         statusLabel(source)
                     }
-                    Text(source.kind).font(.auCaption).foregroundStyle(T.Color.muted.color)
-                    Text("Last good read \(Format.moment(source.lastReadAt, now: now)) · last attempt \(Format.moment(source.lastAttemptAt, now: now))")
+                    Text("\(source.kind) · read \(Format.moment(source.lastReadAt, now: now)) · tried \(Format.moment(source.lastAttemptAt, now: now))")
                         .font(.auCaption).foregroundStyle(T.Color.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let error = source.error {
                         Text(error).font(.auCaption).foregroundStyle(T.Color.danger.color).textSelection(.enabled)
                     }
                 }
                 .accessibilityElement(children: .combine)
             }
-            Text("Measured times come from the provider; collected times are when the collector read them.")
+            Text("Read: last good read. Measured times come from the provider.")
                 .font(.auCaption).foregroundStyle(T.Color.muted.color)
         }
     }
