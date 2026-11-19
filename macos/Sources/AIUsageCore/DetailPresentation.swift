@@ -124,6 +124,15 @@ public enum DetailPresentation {
 
     /// Quota windows as shown on detail: when not collecting, each reads as last known
     /// ("Not checked since …", "Last known: resets in …"), never as current.
+    /// The quota note under the windows, unless it would contradict them: a note that
+    /// explains a kept reading is "not stale" is dropped while the quota shows Stale.
+    public static func quotaNote(_ provider: Provider) -> String? {
+        guard let note = provider.quota.note else { return nil }
+        let showsStale = provider.quota.status == .stale || displayWindows(provider).contains { $0.status == .stale }
+        if showsStale, note.lowercased().contains("not stale") { return nil }
+        return note
+    }
+
     public static func displayWindows(_ provider: Provider) -> [QuotaWindow] {
         guard isNotCollecting(provider) else { return provider.activeWindows }
         return provider.activeWindows.map { window in
@@ -184,11 +193,12 @@ public enum DetailPresentation {
                                                      detail: "Tracking is off; saved history stays in the chart.", action: nil)
 
     /// Reported usage cost: its own empty state, never filled from a subscription price.
-    /// The report has no explicit "reports cost" flag: a provider that never reports cost
-    /// carries a static note saying so ("… does not report a usage cost", "… doesn't include
-    /// a usage cost"). Anything else (no note, or "No billing snapshot has been read yet")
-    /// gets the wording that claims least.
+    /// The report's `costs.reports_cost` says whether the provider can report cost at all.
+    /// Older collectors omit it; then a provider that never reports cost is recognised by
+    /// its static note ("… does not report a usage cost"), and anything else gets the
+    /// wording that claims least.
     public static func reportsNoCost(_ provider: Provider) -> Bool {
+        if let reportsCost = provider.costs.reportsCost { return !reportsCost }
         guard let note = provider.costs.reportedNote?.lowercased() else { return false }
         return ["not report", "doesn't include", "does not include", "isn't reported", "not reported"].contains { note.contains($0) }
     }

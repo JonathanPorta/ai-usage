@@ -94,6 +94,17 @@ into both scenes with `.environment(store)`.
 
 `AIUsage --measure` reports these behaviors against the live report (read-only).
 
+## Themes
+
+Colors can be overridden by a local file, `<state directory>/themes.json`
+(`~/Library/Application Support/AI Usage/themes.json`; `AI_USAGE_STATE_DIR` moves it). It
+names schemes of semantic color roles with light/dark values and applies one globally (all
+chrome) and others to single provider instances (card, detail, History page and series).
+Resolution is built-in → global → provider. The All view keeps one global, slot-based
+series color per account. With no file the app looks exactly as built. Settings → Theme
+shows the assignments and any problem, and offers Open theme file and Reload themes. An
+invalid file keeps the last valid theme, across restarts too (`themes.last-valid.json`); deleting the file returns to built-in colors. Format and rules: [THEMES.md](THEMES.md).
+
 ## Environment overrides (development and testing)
 
 | Variable | Effect |

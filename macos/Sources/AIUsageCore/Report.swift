@@ -306,6 +306,8 @@ public struct QuotaWindow: Codable, Equatable, Identifiable, Sendable {
 public struct Costs: Codable, Equatable, Sendable {
     public var reported: Reported?
     public var reportedNote: String?
+    /// Whether the provider can report a usage cost at all. Nil from collectors older than this field.
+    public var reportsCost: Bool?
     public var apiEquivalent: APIEquivalent?
     public var subscription: Subscription?
 

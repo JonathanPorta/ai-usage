@@ -222,7 +222,8 @@ class FailureIsolationTests(unittest.TestCase):
                       "a provider that failed before returning rows is still expected")
         self.assertEqual(collection["summary"]["providers_expected"], 5)
         self.assertEqual([legacy(p, TRACKING_PROVIDER_KEYS) for p in report["providers"]],
-                         [{**p, "type": p["id"]} for p in expected["providers"] if p["id"] != "claude"])
+                         [{**p, "type": p["id"], "costs": {**p["costs"], "reports_cost": p["id"] == "grok"}}
+                          for p in expected["providers"] if p["id"] != "claude"])
 
     def test_a_turned_off_provider_that_fails_to_load_is_not_a_failure(self) -> None:
         # claude is turned off in this scenario, so its broken module changes no status.

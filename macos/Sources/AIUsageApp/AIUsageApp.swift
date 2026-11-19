@@ -79,6 +79,7 @@ struct AIUsageApp: App {
     var body: some Scene {
         MenuBarExtra {
             PopoverRoot()
+                .modifier(StoreTheme())
                 .environment(store)
                 .environment(navigation)
         } label: {
@@ -88,6 +89,7 @@ struct AIUsageApp: App {
 
         Window("AI Usage History", id: HistoryView.windowId) {
             HistoryView()
+                .modifier(StoreTheme())
                 .environment(store)
                 .environment(navigation)
                 .frame(minWidth: T.Layout.historyMinWidth, minHeight: T.Layout.historyMinHeight)

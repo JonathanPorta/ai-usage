@@ -27,7 +27,7 @@ public struct GroupDayChart: View {
 
     private var bars: [AllToolsBar] { section.bars }
 
-    public static func color(_ series: Int) -> Color {
+    public static func color(_ series: Int) -> ThemedColor {
         switch series {
         case 0: return T.Color.chartAccount1.color
         case 1: return T.Color.chartAccount2.color
@@ -261,7 +261,7 @@ public struct GroupChartLegend: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func dashed(_ text: String, _ color: Color) -> some View {
+    private func dashed(_ text: String, _ color: ThemedColor) -> some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 2).strokeBorder(color, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 .frame(width: 9, height: 9)

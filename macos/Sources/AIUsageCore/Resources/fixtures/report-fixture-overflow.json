@@ -3809,6 +3809,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Codex does not report a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": {
           "monthly_usd": 20,
@@ -10000,6 +10001,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Claude Code's local data doesn't include a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": {
           "monthly_usd": 100,
@@ -10545,6 +10547,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Antigravity does not report a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },
@@ -13386,6 +13389,7 @@
           "measured_at": "2026-09-29T15:07:00Z"
         },
         "reported_note": null,
+        "reports_cost": true,
         "api_equivalent": {
           "amount_usd": 4.52,
           "basis": "API-equivalent cost reported by Grok sessions",
@@ -13794,6 +13798,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Gemini CLI does not report a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },
@@ -15969,6 +15974,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Claude Code's local data doesn't include a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },
@@ -16396,6 +16402,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Claude Code's local data doesn't include a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },
@@ -16818,6 +16825,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Claude Code's local data doesn't include a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },
@@ -17245,6 +17253,7 @@
       "costs": {
         "reported": null,
         "reported_note": "Claude Code's local data doesn't include a usage cost.",
+        "reports_cost": false,
         "api_equivalent": null,
         "subscription": null
       },

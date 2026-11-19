@@ -191,6 +191,7 @@ final class DetailPresentationTests: XCTestCase {
     func testCostWordingClaimsOnlyWhatIsKnown() throws {
         var p = try provider("codex")
         p.costs.reported = nil
+        p.costs.reportsCost = nil
         p.costs.reportedNote = "Codex does not report a usage cost."
         XCTAssertEqual(DetailPresentation.reportedCostEmpty(p)?.title, "Usage cost isn't reported by this provider")
         p.costs.reportedNote = "No billing snapshot has been read yet."
@@ -199,5 +200,32 @@ final class DetailPresentationTests: XCTestCase {
         XCTAssertEqual(DetailPresentation.reportedCostEmpty(p)?.title, "No cost reading yet")
         p.tracking = .off
         XCTAssertEqual(DetailPresentation.reportedCostEmpty(p)?.detail, "Tracking is off, so no cost is read.")
+    }
+
+    func testStructuredReportsCostWinsOverNoteText() throws {
+        var p = try provider("codex")
+        p.costs.reported = nil
+        p.costs.reportedNote = "Anything at all"
+        p.costs.reportsCost = false
+        XCTAssertEqual(DetailPresentation.reportedCostEmpty(p)?.title, "Usage cost isn't reported by this provider")
+        p.costs.reportedNote = "This provider does not report it yet"
+        p.costs.reportsCost = true
+        XCTAssertEqual(DetailPresentation.reportedCostEmpty(p)?.title, "No cost reading yet")
+    }
+
+    func testNotStaleNoteIsHiddenWhileQuotaShowsStale() throws {
+        var p = try provider("antigravity")
+        p.quota.note = "Between sessions the last reading is kept; that is normal, not stale."
+        p.tracking = .auto
+        for i in p.quota.windows.indices { p.quota.windows[i].status = .current }
+        p.quota.status = .current
+        XCTAssertEqual(DetailPresentation.quotaNote(p), p.quota.note)
+        p.quota.status = .stale
+        XCTAssertNil(DetailPresentation.quotaNote(p))
+        p.quota.status = .current
+        p.tracking = .off
+        XCTAssertNil(DetailPresentation.quotaNote(p), "not collecting shows the windows as Stale")
+        p.quota.note = "Some other note."
+        XCTAssertEqual(DetailPresentation.quotaNote(p), "Some other note.")
     }
 }

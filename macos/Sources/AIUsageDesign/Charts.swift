@@ -301,7 +301,7 @@ public struct DayChartLegend: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func swatch(_ color: Color, _ text: String) -> some View {
+    private func swatch(_ color: ThemedColor, _ text: String) -> some View {
         HStack(spacing: 4) { RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 9, height: 9); Text(text).fixedSize() }
     }
 
@@ -322,7 +322,7 @@ public struct DayChartLegend: View {
         }
     }
 
-    private func dashed(_ text: String, _ color: Color) -> some View {
+    private func dashed(_ text: String, _ color: ThemedColor) -> some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 2).strokeBorder(color, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 .frame(width: 9, height: 9)

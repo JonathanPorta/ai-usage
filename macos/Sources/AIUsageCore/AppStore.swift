@@ -58,6 +58,8 @@ public final class AppStore {
     public private(set) var action: ActionState = .idle
     /// True from an add-account submission's start until its refresh ends.
     public private(set) var isAddingAccount = false
+    /// The file-defined theme in effect (docs/THEMES.md); built-in colors when no file.
+    public private(set) var theme: ThemeState = .builtIn
 
     /// The snapshot as it reads now: calendar rollover and deadlines applied, and
     /// the service state taken from whichever observation is newer (probe or report).
@@ -80,6 +82,7 @@ public final class AppStore {
     private let cacheURL: URL?
     private let fingerprint: @Sendable ([URL]) -> SourceFingerprint
     private var timer: Timer?
+    @ObservationIgnored private let themeStore: ThemeStore?
 
     private var requested = 0
     private var completed = 0
@@ -104,9 +107,13 @@ public final class AppStore {
         clock: @escaping @Sendable () -> Date = Date.init,
         cacheURL: URL? = nil,
         fingerprint: @escaping @Sendable ([URL]) -> SourceFingerprint = SourceFingerprint.of,
-        preferences: PreferencesStoring = InMemoryPreferences()
+        preferences: PreferencesStoring = InMemoryPreferences(),
+        themeDirectory: URL? = nil
     ) {
         self.preferences = preferences
+        let themeStore = themeDirectory.map { ThemeStore(directory: $0) }
+        self.themeStore = themeStore
+        theme = themeStore?.state ?? .builtIn
         cardOrderMode = preferences.string(forKey: PreferenceKey.cardOrderMode).flatMap(CardOrderMode.init) ?? .recent
         customCardOrder = preferences.strings(forKey: PreferenceKey.customCardOrder) ?? []
         acknowledgedDetections = Set(preferences.strings(forKey: PreferenceKey.acknowledgedDetections) ?? [])
@@ -130,7 +137,9 @@ public final class AppStore {
             service: environment.skipServiceProbe ? NoServiceControl() : LiveServiceControl(environment: environment),
             config: LiveConfigWriter(environment: environment),
             cacheURL: environment.stateDirectory.appendingPathComponent("last-report.json"),
-            preferences: UserDefaultsPreferences()
+            preferences: UserDefaultsPreferences(),
+            // Beside the report cache: survives app replacement and collector reinstall.
+            themeDirectory: environment.stateDirectory
         )
     }
 
@@ -147,6 +156,27 @@ public final class AppStore {
         store.apply(report, cached: false)
         return store
     }
+
+    // MARK: Themes
+
+    /// `<state directory>/themes.json`, or nil for previews and snapshots (in-memory only).
+    public var themeFileURL: URL? { themeStore?.url }
+
+    /// Re-reads the theme file; an invalid file keeps the last valid theme.
+    public func reloadThemes() {
+        guard let themeStore else { return }
+        theme = themeStore.reload()
+    }
+
+    /// Creates the starter theme file if there is none and returns its location.
+    public func prepareThemeFile() throws -> URL? {
+        guard let url = themeFileURL else { return nil }
+        if try ThemeLoader.ensureFile(url) { reloadThemes() }
+        return url
+    }
+
+    /// Snapshots and tests: show a theme without any file.
+    public func previewTheme(_ state: ThemeState) { theme = state }
 
     public var isCollecting: Bool {
         if case .running = collect { return true }

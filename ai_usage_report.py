@@ -1205,7 +1205,10 @@ def build_report(
         windows = build_windows(state, scan.quota.get(definition.id, []), freshness_rows, now=now, stale_after=stale_after)
         quota = quota_summary(definition, state, windows)
 
+        # `reports_cost`: whether this provider can report a usage cost at all (only
+        # Grok's billing does). False means "not reported by this provider", not "missing now".
         costs: dict[str, Any] = {"reported": None, "reported_note": definition.reported_note,
+                                 "reports_cost": definition.type == "grok",
                                  "api_equivalent": None, "subscription": None}
         if definition.type == "grok":
             billing = [r for r in scan.billing if r.provider == definition.id and r.ts is not None
