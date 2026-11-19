@@ -218,21 +218,30 @@ public enum ThemeLoader {
                        diagnostic: "\(fileName): \(message). Fix the file and choose Reload themes; \(fallback).",
                        fileExists: true)
         }
-        // Only a regular file is read. A symlink is followed only to a regular file.
-        let target = url.resolvingSymlinksInPath()
-        guard let attributes = try? manager.attributesOfItem(atPath: target.path),
-              attributes[.type] as? FileAttributeType == .typeRegular else {
-            return failed("is not a regular file")
+        let data: Data
+        switch readBounded(url) {
+        case let .success(read): data = read
+        case let .failure(error): return failed(error.description)
         }
-        if let size = attributes[.size] as? NSNumber,
-           size.intValue > ThemeParser.maxBytes {
-            return failed("file is \(size.intValue / 1024) KB; the limit is \(ThemeParser.maxBytes / 1024) KB")
-        }
-        guard let data = try? Data(contentsOf: target) else { return failed("could not be read") }
         switch ThemeParser.parse(data) {
         case let .success(document): return ThemeState(document: document, fileExists: true)
         case let .failure(error): return failed(error.description)
         }
+    }
+
+    /// Reads a theme file only after checking it: a regular file (a symlink is followed only
+    /// to one), at most `ThemeParser.maxBytes`. A FIFO, device or oversized file is never read.
+    public static func readBounded(_ url: URL) -> Result<Data, ThemeError> {
+        let target = url.resolvingSymlinksInPath()
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: target.path),
+              attributes[.type] as? FileAttributeType == .typeRegular else {
+            return .failure(ThemeError("", "is not a regular file"))
+        }
+        if let size = attributes[.size] as? NSNumber, size.intValue > ThemeParser.maxBytes {
+            return .failure(ThemeError("", "file is \(size.intValue / 1024) KB; the limit is \(ThemeParser.maxBytes / 1024) KB"))
+        }
+        guard let data = try? Data(contentsOf: target) else { return .failure(ThemeError("", "could not be read")) }
+        return .success(data)
     }
 
     /// The file "Open theme file" creates when none exists: valid, inert (no scheme is
@@ -287,7 +296,7 @@ public final class ThemeStore {
         self.url = url
         state = ThemeState()
         var previous = ThemeState.builtIn
-        if let data = try? Data(contentsOf: lastValidURL), data.count <= ThemeParser.maxBytes,
+        if case let .success(data) = ThemeLoader.readBounded(lastValidURL), data.count <= ThemeParser.maxBytes,
            case let .success(document) = ThemeParser.parse(data) {
             previous = ThemeState(document: document)
         }

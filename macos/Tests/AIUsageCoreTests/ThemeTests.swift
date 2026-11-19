@@ -242,6 +242,34 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: copy), valid)
     }
 
+    func testOversizedLastValidCopyIsIgnored() throws {
+        let copy = folder.appendingPathComponent(ThemeStore.lastValidName)
+        try Data(repeating: 0x20, count: ThemeParser.maxBytes + 1).write(to: copy)
+        if case .success = ThemeLoader.readBounded(copy) { XCTFail("an oversized copy is refused before reading") }
+        try write("{\"version\": 1, \"global\": \"#zz\"}")
+        let store = ThemeStore(directory: folder)
+        XCTAssertNil(store.state.document)
+        XCTAssertTrue(store.state.diagnostic?.contains("using built-in colors") ?? false)
+    }
+
+    func testFIFOLastValidCopyDoesNotBlockLaunch() throws {
+        let copy = folder.appendingPathComponent(ThemeStore.lastValidName)
+        XCTAssertEqual(mkfifo(copy.path, 0o600), 0)
+        let done = expectation(description: "ThemeStore.init returns")
+        let directory = folder!
+        DispatchQueue.global().async {
+            _ = ThemeStore(directory: directory)
+            done.fulfill()
+        }
+        let result = XCTWaiter().wait(for: [done], timeout: 5)
+        if result != .completed {
+            // Unblock the reader so the hung thread can finish, then fail.
+            let fd = open(copy.path, O_WRONLY | O_NONBLOCK)
+            if fd >= 0 { close(fd) }
+            XCTFail("ThemeStore.init blocked on a FIFO last-valid copy")
+        }
+    }
+
     func testRestartWithNoFileAndNoCopyIsBuiltIn() {
         XCTAssertEqual(ThemeStore(directory: folder).state, ThemeState())
     }

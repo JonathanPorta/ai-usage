@@ -81,3 +81,18 @@ None is approved, merged, installed or released.
 - Known limits, to decide later: "cost isn't reported" is matched on plugin note text; the status
   look-alike threshold (sRGB distance 48) is the implementer's choice.
 - Issue #9: reset annotation shipped inside the chart card in slice 3, pending visual acceptance.
+
+## Completion pass fix batch
+
+- Themes: `ThemeStore.init` now reads `themes.last-valid.json` through the same pre-read check as
+  `themes.json` (`ThemeLoader.readBounded`: regular file only, at most 64 KB, stat before read), so
+  an oversized sidecar is ignored and a FIFO there cannot block launch. Tests cover both (FIFO test
+  has a 5 s timeout).
+- Cost empty state: decision — no existing structured signal distinguished "provider never reports
+  cost" from "no reading yet", so the report gained an additive `costs.reports_cost` boolean (true
+  only for Grok, whose billing is the one reported-cost source). The app uses it when present and
+  falls back to the old note-text match when absent (older collectors). Fixtures regenerated;
+  `docs/CLI.md` documents the field. Supersedes the "matched on plugin note text" known limit.
+- Antigravity copy: the quota note "… that is normal, not stale." is hidden on detail
+  (`DetailPresentation.quotaNote`) whenever the quota or any displayed window reads Stale
+  (including not collecting), so it never sits under a Stale label.

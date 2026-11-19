@@ -263,6 +263,7 @@ reported*. It never means zero.
     "reported": { "amount_usd": 3.18, "basis": "On-demand usage reported by xAI billing",
                   "period_start": "…", "period_end": "…", "measured_at": "…" },   // or null
     "reported_note": "Codex does not report a usage cost.",
+    "reports_cost": false,     // whether the provider can report a usage cost at all; absent from older collectors
     "api_equivalent": { "amount_usd": 12.4, "basis": "API-equivalent cost reported by Grok sessions",
                         "range_days": 30 },                                       // or null
     "subscription": { "monthly_usd": 20, "source": "config", "entered_by_user": true }  // or null

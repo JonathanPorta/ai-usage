@@ -473,8 +473,15 @@ class AccountingTests(ReportCase):
         self.settings = {"grok": {"monthly_subscription_usd": 30}}
         costs = self.provider(self.build(), "grok")["costs"]
         self.assertEqual(costs["reported"]["amount_usd"], 3.18)
+        self.assertIs(costs["reports_cost"], True)
         self.assertEqual(costs["reported"]["measured_at"], report.iso(ts - 120))
         self.assertEqual(costs["subscription"], {"monthly_usd": 30, "source": "config", "entered_by_user": True})
+
+    def test_providers_without_cost_say_so_structurally(self) -> None:
+        self.check(self.now - 10 * 60, providers=("codex",))
+        costs = self.provider(self.build(), "codex")["costs"]
+        self.assertIs(costs["reports_cost"], False)
+        self.assertIsNone(costs["reported"])
 
     def test_grok_billing_measurement_time_subtracts_source_age(self) -> None:
         ts = self.now - 30 * 60

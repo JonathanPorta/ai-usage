@@ -190,7 +190,7 @@ struct ProviderDetailView: View {
                         if index > 0 { Divider() }
                         QuotaCell(window: window, now: now, compact: false)
                     }
-                    if let note = provider.quota.note {
+                    if let note = DetailPresentation.quotaNote(provider) {
                         Text(note).font(.auCaption).foregroundStyle(T.Color.muted.color)
                     }
                 }

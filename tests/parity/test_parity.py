@@ -89,6 +89,7 @@ class ParityTests(unittest.TestCase):
             "report.collector.installed_version",
             "report.collector.version",
             "report.groups",
+            "report.providers[*].costs.reports_cost",
             "report.providers[*].tracking",
             "report.providers[*].type",
             "report.providers[claude] failed refresh",

@@ -602,6 +602,7 @@ INTENTIONAL_CHANGES = {
     "once.state.tracking": "added: each account's last known effective tracking state",
     "report.collector.capabilities.tracking_policy": "added: true",
     "report.providers[*].tracking": "added: tracking, tracking_effective, detection and last_activity_at",
+    "report.providers[*].costs.reports_cost": "added: whether the provider can report a usage cost (Grok only)",
     "report.collection.summary.outcomes": "added: providers_expected, providers_fresh, providers_stale "
                                           "and per-provider outcomes",
 }
@@ -712,6 +713,8 @@ def apply_tracking(name: str, result: dict[str, Any], providers: dict[str, Any],
                 "detection": {"installed": installed, "requirement": "executable", "saved_data": history},
                 "last_activity_at": max(events) if events else None,
             })
+            if isinstance(provider.get("costs"), dict):
+                provider["costs"]["reports_cost"] = provider.get("type", pid) == "grok"
         summary = report["collection"]["summary"]
         if summary is not None:
             attempt_at = report["collection"]["last_attempt_at"]
