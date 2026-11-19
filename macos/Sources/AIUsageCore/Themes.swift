@@ -305,7 +305,7 @@ public final class ThemeStore {
 
     private func load(previous: ThemeState) -> ThemeState {
         let next = ThemeLoader.load(url, previous: previous)
-        if next.fileExists, next.diagnostic == nil, let data = try? Data(contentsOf: url.resolvingSymlinksInPath()) {
+        if next.fileExists, next.diagnostic == nil, case let .success(data) = ThemeLoader.readBounded(url) {
             saveLastValid(data)
         }
         return next
@@ -313,7 +313,15 @@ public final class ThemeStore {
 
     private func saveLastValid(_ data: Data) {
         let manager = FileManager.default
-        if (try? Data(contentsOf: lastValidURL)) == data { return }
+        // Compared only through the bounded read: an oversized or non-regular copy is never
+        // read, and is replaced by this valid one.
+        if case let .success(existing) = ThemeLoader.readBounded(lastValidURL), existing == data { return }
+        // A special file there (a FIFO, socket, device) cannot be replaced in place; remove it
+        // first. A directory is never removed (that would be recursive): no copy is saved.
+        if let type = (try? manager.attributesOfItem(atPath: lastValidURL.path))?[.type] as? FileAttributeType {
+            if type == .typeDirectory { return }
+            if type != .typeRegular, type != .typeSymbolicLink { try? manager.removeItem(at: lastValidURL) }
+        }
         let temp = url.deletingLastPathComponent().appendingPathComponent(".\(Self.lastValidName).\(UUID().uuidString)")
         guard manager.createFile(atPath: temp.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return }
         if (try? manager.replaceItemAt(lastValidURL, withItemAt: temp)) == nil {

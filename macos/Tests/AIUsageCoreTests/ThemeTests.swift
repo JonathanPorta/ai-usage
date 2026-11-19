@@ -270,6 +270,60 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    /// Runs `body` off the main thread; fails (rather than hangs) if it does not return in 5 s.
+    private func returnsPromptly(_ what: String, unblocking path: URL, _ body: @escaping () -> Void) {
+        let done = expectation(description: what)
+        DispatchQueue.global().async { body(); done.fulfill() }
+        if XCTWaiter().wait(for: [done], timeout: 5) != .completed {
+            let fd = open(path.path, O_WRONLY | O_NONBLOCK)
+            if fd >= 0 { close(fd) }
+            XCTFail("\(what) blocked")
+        }
+    }
+
+    func testValidFileReplacesOversizedCopyOnInitAndReload() throws {
+        let copy = folder.appendingPathComponent(ThemeStore.lastValidName)
+        try Data(repeating: 0x20, count: ThemeParser.maxBytes + 1).write(to: copy)
+        try write(valid)
+        let store = ThemeStore(directory: folder)
+        XCTAssertEqual(store.state.globalScheme, "slate")
+        XCTAssertNil(store.state.diagnostic)
+        XCTAssertEqual(try String(contentsOf: copy), valid, "replaced by a bounded valid copy")
+        try Data(repeating: 0x20, count: ThemeParser.maxBytes + 1).write(to: copy)
+        XCTAssertEqual(store.reload().globalScheme, "slate")
+        XCTAssertEqual(try String(contentsOf: copy), valid, "replaced again on reload")
+    }
+
+    func testValidFileWithFIFOCopyDoesNotBlockInitOrReload() throws {
+        let copy = folder.appendingPathComponent(ThemeStore.lastValidName)
+        try write(valid)
+        XCTAssertEqual(mkfifo(copy.path, 0o600), 0)
+        let directory = folder!
+        var store: ThemeStore?
+        returnsPromptly("ThemeStore.init", unblocking: copy) { store = ThemeStore(directory: directory) }
+        XCTAssertEqual(store?.state.globalScheme, "slate")
+        try? FileManager.default.removeItem(at: copy)
+        XCTAssertEqual(mkfifo(copy.path, 0o600), 0)
+        returnsPromptly("ThemeStore.reload", unblocking: copy) { _ = store?.reload() }
+        XCTAssertEqual(store?.state.globalScheme, "slate")
+        XCTAssertEqual(try String(contentsOf: copy), valid, "the FIFO is replaced by a valid regular copy")
+    }
+
+    func testDirectoryAtCopyPathIsLeftUntouched() throws {
+        let copy = folder.appendingPathComponent(ThemeStore.lastValidName)
+        let inner = copy.appendingPathComponent("keep.txt")
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: false)
+        try Data("keep".utf8).write(to: inner)
+        try write(valid)
+        let store = ThemeStore(directory: folder)
+        XCTAssertEqual(store.state.globalScheme, "slate")
+        XCTAssertEqual(store.reload().globalScheme, "slate")
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertEqual(try String(contentsOf: inner), "keep")
+    }
+
     func testRestartWithNoFileAndNoCopyIsBuiltIn() {
         XCTAssertEqual(ThemeStore(directory: folder).state, ThemeState())
     }
