@@ -290,3 +290,10 @@ account methods and Grok billing method are sent. It also exercises crash
 recovery, rotation tails, path aliases, concurrent collection, process-tree
 timeouts, install ownership, and every `launchctl` rollback stage. It does not
 contact any AI provider.
+
+CI runs portable checks on Linux. Native Swift tests and the app build run only
+on ProofGlass (`ai-usage-macos@1`). If routing cannot delegate that lane, the gate
+fails with the cause; it does not start a GitHub-hosted Mac. The ProofGlass check
+(`proofglass / pr-gate` on a PR, `proofglass / overall` on main) supplies the native
+verdict. Restoring capacity or fixing admission permits a new full workflow run.
+
