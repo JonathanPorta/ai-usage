@@ -96,3 +96,96 @@ None is approved, merged, installed or released.
 - Antigravity copy: the quota note "… that is normal, not stale." is hidden on detail
   (`DetailPresentation.quotaNote`) whenever the quota or any displayed window reads Stale
   (including not collecting), so it never sits under a Stale label.
+
+## Completion pass — 2026-11-19
+
+Facts as of 2026-11-19 ~15:25Z. Stage words are exact: implemented, reviewed, merged, visually
+accepted, installed, released. Nothing is installed or released.
+
+### Main and merge order
+
+- ai-usage `main` is 62af14a (squash of #41). Before it: a939f3a (#40 "Require ProofGlass For
+  Native macOS CI", merged by the ProofGlass CI session; it removed the hosted macOS fallback).
+- #41 (slice 1, state): merged as 62af14a. It was PRRQ-approved at 7b73412 and went BEHIND when
+  #40 landed. Main was merged in (04c992e), one ProofGlass Mac run was green, PRRQ re-approved at
+  04c992e, and it was squash-merged. Main's post-merge run 44552280668 succeeded. Stage: merged.
+- #42 (slice 2, overview): PRRQ-approved at 6661d94, but its "PR test gate" failed because the
+  stacked base was not admitted by ProofGlass. It was closed as a side effect of deleting #41's
+  branch at merge. It was recovered the same hour: base branch restored, PR reopened, retargeted
+  to main, temporary branch deleted. Main was merged in, head f83e34e. Local `make check` 376
+  tests OK and `make app-test` 121 tests 0 failures. Pushed. Awaiting its Mac run and PRRQ
+  re-review. Stage: implemented. Not reviewed again, not merged.
+- #43 (slice 3, detail/Monitoring) head 090802c and #44 (slice 4, themes) head 4ace771 were
+  PRRQ-approved at those heads. Their gate fails by design on non-main bases. Each waits its turn:
+  retarget to main, merge main in, one run, re-review, merge.
+- Lesson: retarget a child PR to main BEFORE deleting its parent's branch.
+
+### Fix batch (local commit 5509771 on #44's branch, not pushed)
+
+- Theme sidecar `themes.last-valid.json` gets the same pre-read file-type and size validation as
+  `themes.json`. Tests: an oversized sidecar is ignored; a FIFO does not block init.
+- Cost empty state uses a new optional structured field `costs.reports_cost`, with fallback to
+  note text for older collectors.
+- Antigravity "not stale" note is hidden when the quota shows Stale.
+- Validation: `make check` pass, `make fixture-check` pass, `make app-test` 177 tests 0 failures.
+- Render effect: `detail-tracking-off` only.
+- Stage: implemented. Not yet reviewed.
+
+### ProofGlass CI guidance
+
+Coordinated with the proofglass-c0 session (cmux thread 55fcfa55, reply fe6d6648, 2026-11-19):
+
+- Policy: single lane `ai-usage-macos@1`; displacement on PRs and main; owner-only actor; required
+  context "PR test gate".
+- `pull_requests_offline=wait` has applied since 06:50Z (proofglass #214). A busy Mac queues PR
+  jobs for up to 3600 s.
+- NO hosted macOS fallback (ai-usage #40). Do not enable any fallback.
+- PRs are admitted only when the base is main and the branch is from the same repo. Stacked-base
+  failures on #42–#44 are expected and predate the ProofGlass changes.
+- Agreed sequence, one PR at a time: retarget to main first; merge main in; push; exactly one run;
+  re-review; merge.
+- No evidence reuse: there is no mechanism, and every head moves.
+- Put fix commits on #44's branch before retargeting it.
+- Merge only when `proofglass supervisor status` shows 0 of 1 slots in use, because pushes to main
+  have no wait policy.
+- On queue_timeout, use "Re-run all jobs" once, after the Mac is free.
+
+### Interaction validation (sandbox instance, synthetic data, candidate 5509771)
+
+- Background automation (cmux-cua) could not open the menu-bar popover: AXPress was unverifiable,
+  AXShowMenu was unsupported (-25206), and there was no menu item for Settings or Monitoring.
+- Exercised: only the History window. Provider switching and the Tokens/Quota toggle work. The
+  reset control exposes the label "Resets in 55 minutes", value = exact time, help "Shows the
+  exact reset time". History accessibility labels are present.
+- NOT exercised; needs a person at the keyboard: popover timestamp reveal by focus/activation;
+  trophy popover; drag/keyboard ordering and persistence; detail On/Off/Auto and switch
+  appearance; theme Open/Reload/per-instance/invalid/restart; header indicators; manual collection
+  feedback; spoken VoiceOver.
+- Evidence: `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/interaction/RESULTS.md`.
+- Observed: an AIUsage process (PID 1800, started 2026-11-17 15:56) runs from this worktree's build
+  with no sandbox environment. It was left alone.
+
+### Visual acceptance package (candidate 5509771 vs main a939f3a vs accepted references)
+
+- Package: `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/index.html`, with
+  `comparison.tsv`, `proposed-baselines.md` and `REVIEW-NOTES.md`.
+- Counts from file hashes, 186 candidate files: 96 new screens (80 not on main; 16 on main without
+  a reference), 42 inherited-drift-and-changed, 34 unchanged, 14 intended change, 0 removed.
+- References: 90 PNGs, identical on main.
+- Inherited drift on main: 20 history-* files (main gained an "All tools" sidebar row that was
+  never re-baselined) and 22 detail-*/popover-monitoring files (small text-row pixel differences,
+  probably glyph rendering; cause not confirmed).
+- Proposed baseline change: 96 add, 56 replace, 0 remove. NOT applied; accepted baselines are
+  unchanged.
+- Render review of 48 candidate screens: no blockers. Minor: truncated caption "Reset time
+  unavailable · mea…" (popover-overview-reset-past-unknown-light); "1 failed" summary above two
+  listed failures (overview-collection-details-dark); "today so far" bar drawn with "No reading for
+  today yet" (detail-no-reading-today-light).
+- Owner visual acceptance: NOT given yet. Stage: not visually accepted.
+
+### Next actions
+
+1. #42: Mac run and PRRQ re-review, then merge.
+2. #43, then #44 (with the fix batch), each the same way.
+3. Owner visual acceptance decision on the baseline proposal.
+4. Owner hands-on popover checks (list above).
