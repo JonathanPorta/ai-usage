@@ -8,11 +8,12 @@ branch), and the slice 4 PR (being opened from `jp/f/ux-file-defined-themes`, ba
 None is approved, merged, installed or released.
 
 ### Current Position
-- **Working on:** review and merge of the stack, in order. Each PR is retargeted to `main` after
-  its base merges, and CI is re-run then.
-- **Status:** all four PRs open, none approved. The #42 "PR test gate" fails only because ProofGlass
-  did not admit the macOS lane for the stacked PR; its Linux and spec/design legs pass.
-- **Blocked:** No, except that the owner's review and approval are needed to merge.
+- **Working on:** visual acceptance follow-up and the owner's hands-on checks (see the 2026-11-19 sections).
+- **Status:** as of 2026-11-19, #41, #42, #43 and #44 are all merged to `main` (squash; merge commits
+  62af14a, 995357d, 9e9ccc5, e93da98). Each was merged under the PRRQ merge gate with a fresh approval
+  at the final head and green checks. The 2026-11-15 status above is historical.
+- **Blocked:** No. The owner's visual acceptance is recorded as given on a partial review; the native
+  checks listed below remain open.
 
 ### Key Decisions
 - The owner's work package is the requirements source; its proposed defaults are adopted
@@ -40,11 +41,10 @@ None is approved, merged, installed or released.
 - `PanelShownObserver` and `store.popoverOpened()`: the lifecycle used for order snapshots.
 
 ### What's Next
-1. Check review state of #41 (`prrq status`, `gh pr view 41`). When approved and green, merge it.
-2. Retarget #42 to `main`, re-run CI, then continue down the stack (#43, then the slice 4 PR).
-   Merge only on the `/prrq` gate or the owner's direction.
-3. Collect the owner's visual acceptance of the new renders. Then regenerate
-   `docs/design/app/references` and `SHA256SUMS` in one docs/baseline PR.
+1. Done 2026-11-19: #41 merged as 62af14a.
+2. Done 2026-11-19: #42, #43 and #44 merged to `main` in order (995357d, 9e9ccc5, e93da98).
+3. Done 2026-11-19: owner visual acceptance recorded on a partial review; baseline change applied in
+   this branch to `docs/design/app/references` (see the Baseline acceptance section).
 4. Native checks not yet run: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme open
    and reload, and the detail switch tint. Also the transient "check finished" state.
 5. Installing the new app and collector over the live installation is a separate owner action.
@@ -114,10 +114,14 @@ accepted, installed, released. Nothing is installed or released.
   branch at merge. It was recovered the same hour: base branch restored, PR reopened, retargeted
   to main, temporary branch deleted. Main was merged in, head f83e34e. Local `make check` 376
   tests OK and `make app-test` 121 tests 0 failures. Pushed. Awaiting its Mac run and PRRQ
-  re-review. Stage: implemented. Not reviewed again, not merged.
+  re-review. Stage at that point: implemented. Later the same day: re-reviewed, approved at f83e34e,
+  and squash-merged as 995357d. Stage: merged.
 - #43 (slice 3, detail/Monitoring) head 090802c and #44 (slice 4, themes) head 4ace771 were
-  PRRQ-approved at those heads. Their gate fails by design on non-main bases. Each waits its turn:
+  PRRQ-approved at those heads. Their gate fails by design on non-main bases. Each waited its turn:
   retarget to main, merge main in, one run, re-review, merge.
+- Later on 2026-11-19 (supersedes the status above): #43 was approved at 30acd63 and squash-merged as
+  9e9ccc5. #44 was approved at 23196c8 and squash-merged as e93da98, the current main. Stage: merged.
+  The earlier heads 090802c and 4ace771 are historical.
 - Lesson: retarget a child PR to main BEFORE deleting its parent's branch.
 
 ### Fix batch (local commit 5509771 on #44's branch, not pushed)
@@ -175,17 +179,56 @@ Coordinated with the proofglass-c0 session (cmux thread 55fcfa55, reply fe6d6648
 - Inherited drift on main: 20 history-* files (main gained an "All tools" sidebar row that was
   never re-baselined) and 22 detail-*/popover-monitoring files (small text-row pixel differences,
   probably glyph rendering; cause not confirmed).
-- Proposed baseline change: 96 add, 56 replace, 0 remove. NOT applied; accepted baselines are
-  unchanged.
+- Proposed baseline change: 96 add, 56 replace, 0 remove. Later on 2026-11-19: applied in this branch
+  (see the Baseline acceptance section).
 - Render review of 48 candidate screens: no blockers. Minor: truncated caption "Reset time
   unavailable · mea…" (popover-overview-reset-past-unknown-light); "1 failed" summary above two
   listed failures (overview-collection-details-dark); "today so far" bar drawn with "No reading for
   today yet" (detail-no-reading-today-light).
-- Owner visual acceptance: NOT given yet. Stage: not visually accepted.
+- Owner visual acceptance: NOT given as of the facts above. Later on 2026-11-19: given on a partial
+  review (see the Baseline acceptance section).
 
 ### Next actions
 
-1. #42: Mac run and PRRQ re-review, then merge.
-2. #43, then #44 (with the fix batch), each the same way.
-3. Owner visual acceptance decision on the baseline proposal.
-4. Owner hands-on popover checks (list above).
+1. Done 2026-11-19: #42 merged (995357d).
+2. Done 2026-11-19: #43 merged (9e9ccc5), then #44 merged (e93da98).
+3. Done 2026-11-19: owner visual acceptance on the baseline proposal, recorded on a partial review.
+4. Owner hands-on popover checks (list above). Still open.
+
+## Baseline acceptance — 2026-11-19
+
+- Visual review: the owner reviewed the visual review package (a review page built from renders of the
+  cumulative candidate). Renders of merged main e93da98 are byte-identical to that candidate. The owner
+  said it looks good. The owner noted the review covered as much of the page as they could, so
+  acceptance is recorded as given on a partial review.
+- Baseline change applied in this branch to `docs/design/app/references/`: 96 PNGs added, 56 replaced,
+  0 removed. `SHA256SUMS` regenerated. References now total 186 PNGs. `make app-snapshot-check` passes
+  locally after the change. On main it failed with exactly those 56 mismatches.
+- The 56 replaced files:
+  - 42 had already drifted on main before this work. 20 are `history-*` screens: main gained an
+    "All tools" sidebar row that was never re-baselined. 22 are `detail-*` and popover-monitoring
+    screens with small text-row pixel differences; cause unconfirmed, probably glyph rendering.
+  - 14 changed only because of this work.
+  - Full-height screens changed from 840x1564 to 840x1562. Whether that is intentional is unconfirmed.
+- Stage status:
+  - implemented: yes
+  - code-reviewed: yes
+  - merged: yes
+  - automated validation: yes (`make check` 377 tests; `make fixture-check` clean; `make app-test`
+    180 tests; offscreen renders)
+  - visually accepted: yes for rendered screens, on a partial owner review
+  - interaction validation: only for the History window
+  - installed: no
+  - released: no
+- Still open, needing a person at the keyboard:
+  - popover timestamp reveal by focus and activation
+  - trophy popover
+  - drag and keyboard ordering and persistence
+  - detail On/Off/Auto and switch appearance
+  - theme Open/Reload/per-instance/invalid-file/restart behaviour
+  - header indicators and manual collection feedback
+  - spoken VoiceOver
+- Three minor render observations, not yet decided:
+  - truncated "Reset time unavailable · mea…" caption (popover-overview-reset-past-unknown-light)
+  - "1 failed" above two listed failures (overview-collection-details-dark)
+  - a "today so far" bar beside "No reading for today yet" (detail-no-reading-today-light)
