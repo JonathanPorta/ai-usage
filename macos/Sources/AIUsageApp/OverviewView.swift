@@ -477,7 +477,7 @@ struct ProviderCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
-        // A focused trophy's statistics overlay draws above the following cards.
+        // Without a reveal host, a focused trophy's local overlay draws above later cards.
         .zIndex(statsFocused ? 1 : 0)
     }
 
@@ -611,15 +611,15 @@ struct StatisticsButton: View {
                     if !inside { closeSoon() }
                 }
         }
-        // Keyboard focus shows the statistics as an overlay that never takes focus.
-        .overlay(alignment: .topTrailing) {
-            if focused.wrappedValue, !showing, let stats {
+        // Keyboard focus shows the statistics as a panel that never takes focus. The
+        // window-root reveal host draws it above this card's rows and later cards.
+        .focusRevealPanel(focused.wrappedValue && !showing && stats != nil) {
+            if let stats {
                 ProviderStatisticsView(name: provider.name, stats: stats)
                     .background(T.Color.panel.color, in: RoundedRectangle(cornerRadius: T.Radius.medium))
                     .overlay(RoundedRectangle(cornerRadius: T.Radius.medium).strokeBorder(T.Color.line.color))
+                    .compositingGroup()
                     .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                    .fixedSize()
-                    .offset(y: 26)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }

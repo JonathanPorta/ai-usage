@@ -1,26 +1,27 @@
 ## Session State: ux-pass
-Last updated: 2026-11-19
+Last updated: 2026-11-19 (evening)
 
-**Status: phase 5 is implemented and merged to `main` through #44; the closeout waits on the owner's decision for PR #45.**
+**Status: phase 5 is implemented and merged to `main`: #41 to #45 (#45 as merge commit ceee949). Visual baselines are accepted. Interaction validation is partial; the four follow-up fixes are verified on screen; the fix branch is not yet merged.**
 Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are merged (#41, #42, #43, #44; merge commits
-62af14a, 995357d, 9e9ccc5, e93da98). Nothing is installed or released. The 2026-11-15 status is historical.
+62af14a, 995357d, 9e9ccc5, e93da98). Slice follow-up #45 is merged as ceee949. Nothing is installed or released. The
+2026-11-15 status is historical.
 
 ### Current Position
-- **Working on:** the owner's decision on the proposed reference baselines in PR #45 (`jp/f/ux-baselines`, base `main`),
-  and the owner's hands-on checks. Details: "Closeout — 2026-11-19".
-- **Status:** as of 2026-11-19, #41, #42, #43 and #44 are merged to `main`, and main checks are green. PR #45 carries three
-  fix commits, proposed baselines and the closeout records. It is not merged.
-- **Visual acceptance:** the owner's positive review covers the material inspected. It is not recorded for the baseline
-  set as a whole; that waits on the decision for #45.
-- **Blocked:** No. The native and VoiceOver checks listed in the closeout remain open.
+- **Working on:** the owner's remaining human-only checks, and merge of the follow-up fixes on `jp/f/ux-closeout-fixes`
+  (base `main` ceee949, head 6a366bd). Details: "Interaction validation and follow-up fixes — 2026-11-19 (evening)".
+- **Status:** as of 2026-11-19 evening, #41 to #45 are merged to `main`. The post-merge `main` run passed. The fix branch
+  has four commits (90c08e9, dc6ec9c, 1c456ac, 6a366bd); its automated checks pass and the fixes are verified on screen.
+- **Visual acceptance:** accepted and merged. The owner accepted the proposed baselines (96 added, 56 replaced, 0 removed,
+  including 10 corrected screens and the 2 px height reductions) after a same-head re-review. Merged as ceee949.
+- **Blocked:** No.
 
 ### Key Decisions
 - The owner's work package is the requirements source; its proposed defaults are adopted
   (owner, 2026-11-15).
 - All code is written by Opus low-effort subagents. The coordinator does not write code
   (owner, 2026-11-15).
-- Accepted baselines in `docs/design/app/references` stay as they are on `main` until the owner decides on
-  PR #45's proposed baselines (owner, 2026-11-15; still in force).
+- Accepted baselines in `docs/design/app/references` stayed unchanged until the owner decided on PR #45's proposed
+  baselines (owner, 2026-11-15). The owner accepted them on 2026-11-19; #45 merged as ceee949 with those baselines.
 - Slice 1 is state only: no SwiftUI view and no render baseline changes (owner, 2026-11-15).
 - Public release, installing over the live app or collector, and deleting history are out of
   scope (owner, 2026-11-15).
@@ -40,12 +41,9 @@ Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are 
 - `PanelShownObserver` and `store.popoverOpened()`: the lifecycle used for order snapshots.
 
 ### What's Next
-1. Owner decision on PR #45's proposed baselines, including the corrected screens and the 2 px height question.
-   Merging #45 requires an explicit owner decision record.
-2. Owner hands-on checks of the popover and Settings, using the walkthrough in the closeout interaction results.
-3. Native checks still open: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme Open and Reload, the detail
-   switch tint, and the transient "check finished" state.
-4. Installing the new app and collector over the live installation is a separate owner action, not authorized by this work.
+1. Runtime verification of 90c08e9 and dc6ec9c in the running app (pending; see the evening section).
+2. Owner's remaining human-only checks: seven items in the evening section.
+3. Installing the new app and collector over the live installation is a separate owner action, not authorized by this work.
 
 ### Validation results
 - Slice 1 (PR #41, commit `7b73412`; 2026-11-15): all CI checks pass; queued for review.
@@ -78,7 +76,7 @@ Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are 
   have none and sort after providers with known activity; nothing is fabricated (slice 1).
 - Known limits: the "cost isn't reported" empty state now uses `costs.reports_cost` (completion pass), with note-text
   fallback for older collectors. The status look-alike threshold (sRGB distance 48) is the implementer's choice.
-- Issue #9: reset annotation shipped inside the chart card in slice 3, pending visual acceptance.
+- Issue #9: reset annotation shipped inside the chart card in slice 3. Its baselines were accepted and merged with #45 (ceee949). The exact-time reveal legibility fix (90c08e9) awaits runtime verification.
 
 ## Completion pass fix batch
 
@@ -193,6 +191,10 @@ Superseded. The current next actions are in Current Position and in "Closeout �
 
 ## Closeout — 2026-11-19
 
+> Superseded (2026-11-19 evening): #45 is merged as ceee949 and visual acceptance is recorded. Statements below that #45 is
+> pending, or that visual acceptance is not recorded, are history. The walkthrough and next actions below are superseded by the
+> evening section.
+
 **Owner feedback (recorded as given):** the owner reviewed as much of the visual package as they could, and it looks
 good. This is a positive review of the material inspected. It is not a record that every proposed baseline was
 inspected, and it does not cover untested interactions.
@@ -257,7 +259,7 @@ Verified, no change needed:
   and spoken VoiceOver. Automation could not open the menu-bar popover: the accessibility press had no effect, and
   scripted clicking lacks assistive access.
 - Failed: none.
-- A 14-step hands-on walkthrough is in the review package at
+- A 15-step hands-on walkthrough is in the review package at
   `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/interaction/RESULTS-closeout.md`.
 
 ### Running app
@@ -304,3 +306,67 @@ Verified, no change needed:
    requires an explicit owner decision record.
 2. Owner hands-on walkthrough.
 3. Installation and release are separate and not authorized by this work.
+
+## Interaction validation and follow-up fixes — 2026-11-19 (evening)
+
+Full detail and the per-check evidence: `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/interaction/RESULTS-closeout.md`
+(sections "Hands-on results — third session, keyboard input" and "Runtime verification of the fixes"). Session 3 ran on the
+main ceee949 build, sandbox PID 35321, 18:18 to 18:46 MST. Runtime verification ran 18:49 to 19:03 MST on the sandbox app
+rebuilt from `jp/f/ux-closeout-fixes`.
+
+| Check | Result |
+|---|---|
+| Popover opens by real click; "Sandbox" header label | Passed |
+| Escape from provider detail; focus returns to the card with a visible ring | Passed |
+| Arrow and Tab focus on overview cards, scrolled into view | Passed |
+| Exact reset time on keyboard focus | Failed, fixed (defect 1, 90c08e9); passed on screen |
+| Exact reset time on activation (Space) | Passed |
+| Exact time on hover | Not exercised (no pointer hover) |
+| Trophy statistics by keyboard; Escape dismisses | Passed |
+| Trophy focus statistics panel | Failed, fixed (defect 4, 6a366bd); passed on screen |
+| Mini-chart keyboard caption | Failed, fixed (defect 2, dc6ec9c); passed on screen |
+| Manual collection (Cmd-R): completion feedback | Passed; in-progress feedback not observed |
+| Settings opens (Cmd-comma), shows sandbox config path | Passed |
+| Settings provider rows | Failed, fixed (defect 3, 1c456ac); passed on screen |
+| Themes: global and per-provider application | Passed (after restarting only the sandbox app) |
+| Themes: invalid-file fallback after restart | Passed (warm/violet kept; last-valid file intact) |
+| Themes: Open and Reload buttons, invalid-file notice, light mode | Not exercised |
+| Tracking Auto/On/Off, ordering controls | Not exercised (not reachable by Tab; pointer clicks unavailable) |
+| Card ordering and persistence; recent-activity stability | Not exercised |
+| Popover accessibility attributes; spoken VoiceOver | Not exercised |
+
+Observed, not established as defects: a provider past its reset time showed "Reset due · awaiting update" with the stale
+marker; header keyboard focus reaches the monitoring indicator with a visible focus ring. On three occasions the first
+click on the sandbox menu-bar icon right after launch showed no popover (possibly an artifact of synthetic clicks; needs a
+person). Synthetic pointer clicks land about 3 % left of and above the aimed position on this display, so pointer-only
+controls in the popover were not exercised.
+
+Defects and fix commits (branch `jp/f/ux-closeout-fixes`, base main ceee949):
+1. Exact-time focus reveal drawn behind figure and chart: `90c08e9`. Drawn at the window root above following content; hidden while the activation popover shows.
+2. Focused mini-chart caption truncated: `dc6ec9c`. May wrap to two lines; full text in a tooltip.
+3. Settings duplicate "Not found": `1c456ac`. Not repeated under the setup line when the tool is not detected; unit test added.
+4. Trophy focus statistics panel drawn under the card's own rows: `6a366bd`. Drawn through the same window-level reveal host; verified opaque and legible, right edge aligned to the trophy.
+
+Automated checks on head 6a366bd and docs: `make app-test` exit 0 (183 tests, 0 failures); `make check` exit 0;
+`make app-snapshot-check` 186 OK; accepted baselines unchanged.
+
+Remaining human-only checks:
+1. Hover tooltip on a reset label.
+2. Tracking Auto/On/Off in Settings and the detail switch; an Off provider's card leaves the overview.
+3. Ordering: up/down buttons and drag in Settings; persists after quitting only the sandbox app; recent-activity order does not reshuffle while the popover is open.
+4. Theme Open and Reload buttons, the invalid-file notice, light mode.
+5. Header warning badge and monitoring indicator actions; in-progress feedback during manual collection.
+6. VoiceOver speech for a card, a reset label and the tracking switch.
+7. First click after launch opens the popover (check by hand: launch, click the icon once).
+8. Reset-time chip in provider detail and History, also when scrolled.
+
+Pending: the reset-time chip in provider detail and History, and near the bottom edge of the list (check 8 above).
+
+### Stage summary (2026-11-19 evening)
+- implemented: yes
+- code-reviewed and merged: yes for #41 to #45 (#45 as ceee949); post-merge main run passed
+- automated validation: yes; fix branch checks pass at 6a366bd
+- visually accepted: yes; proposed baseline set accepted by the owner and merged (ceee949)
+- interaction validation: partial; four defects found, fixed on `jp/f/ux-closeout-fixes` and verified on screen; pointer-only controls and VoiceOver not exercised
+- installed: no
+- released: no

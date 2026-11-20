@@ -15,6 +15,17 @@ final class SettingsTrackingTests: XCTestCase {
         XCTAssertNil(SettingsTracking.detectionText(p))
     }
 
+    func testNotFoundIsNotRepeatedUnderTheSetupLine() throws {
+        var p = try legacyBase().providers[0]
+        p.detection = Detection(installed: false, requirement: .executable, savedData: nil)
+        p.setup = .notDetected
+        p.setupNote = "Not found on this Mac at the last check."
+        XCTAssertEqual(Presentation.setupText(p), "Not found on this Mac at the last check.")
+        XCTAssertNil(SettingsTracking.detectionText(p))
+        p.setup = .disabled
+        XCTAssertEqual(SettingsTracking.detectionText(p), "Not found")
+    }
+
     func testStatusText() throws {
         var p = try legacyBase().providers[0]
         p.tracking = .auto

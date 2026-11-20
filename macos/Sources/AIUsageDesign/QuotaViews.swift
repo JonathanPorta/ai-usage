@@ -128,6 +128,7 @@ public struct ResetLabel: View {
     @State private var showingExact = false
     @Environment(\.themePalette) private var palette
     @FocusState private var focused: Bool
+    @Environment(\.resetRevealHosted) private var revealHosted
 
     public init(_ countdown: ResetCountdown) { self.countdown = countdown }
 
@@ -148,17 +149,14 @@ public struct ResetLabel: View {
             }
             .focused($focused)
             // Keyboard focus reveals the exact time inline; nothing takes focus away.
+            // Hidden while the click/Space popover shows the same text.
             .overlay(alignment: .topLeading) {
-                if focused {
-                    Text(exact).font(.auCaption).foregroundStyle(T.Color.text.color)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(T.Color.panel.color, in: RoundedRectangle(cornerRadius: T.Radius.small))
-                        .overlay(RoundedRectangle(cornerRadius: T.Radius.small).strokeBorder(T.Color.line.color))
-                        .fixedSize()
-                        .offset(y: 18)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+                if focused && !showingExact && !revealHosted { ResetReveal(text: exact).offset(y: 18) }
+            }
+            // Inside a reveal host the text draws in the host's overlay, above every
+            // later sibling (a local zIndex only orders it within its own stack).
+            .anchorPreference(key: ResetRevealPreference.self, value: .bounds) { anchor in
+                focused && !showingExact && revealHosted ? [ResetRevealItem(text: exact, anchor: anchor)] : []
             }
             .zIndex(focused ? 1 : 0)
             .accessibilityLabel(countdown.text)
@@ -167,5 +165,91 @@ public struct ResetLabel: View {
         } else {
             Text(countdown.text)
         }
+    }
+}
+
+/// The inline exact-reset-time chip shown while a `ResetLabel` has keyboard focus.
+struct ResetReveal: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.auCaption).foregroundStyle(T.Color.text.color)
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(T.Color.panel.color, in: RoundedRectangle(cornerRadius: T.Radius.small))
+            .overlay(RoundedRectangle(cornerRadius: T.Radius.small).strokeBorder(T.Color.line.color))
+            .fixedSize()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+struct ResetRevealItem {
+    let text: String
+    let anchor: Anchor<CGRect>
+    /// A trailing-aligned panel drawn below the anchor instead of the text chip.
+    var panel: AnyView? = nil
+    var panelGap: CGFloat = 0
+}
+
+struct ResetRevealPreference: SwiftUI.PreferenceKey {
+    static let defaultValue: [ResetRevealItem] = []
+    static func reduce(value: inout [ResetRevealItem], nextValue: () -> [ResetRevealItem]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+private struct ResetRevealHostedKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var resetRevealHosted: Bool {
+        get { self[ResetRevealHostedKey.self] }
+        set { self[ResetRevealHostedKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Draws a focused `ResetLabel`'s exact-time reveal in this view's overlay, so it
+    /// sits above all content inside it. Apply once at a screen or window root.
+    /// Draws nothing (and changes no layout) while no reset label has focus.
+    public func resetRevealHost() -> some View {
+        environment(\.resetRevealHosted, true)
+            .overlayPreferenceValue(ResetRevealPreference.self, alignment: .topLeading) { items in
+                GeometryReader { proxy in
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        let rect = proxy[item.anchor]
+                        if let panel = item.panel {
+                            // Trailing edge on the anchor's trailing edge; grows leftward.
+                            panel.fixedSize()
+                                .frame(width: max(rect.maxX, 0), alignment: .topTrailing)
+                                .offset(y: rect.maxY + item.panelGap)
+                        } else {
+                            ResetReveal(text: item.text).offset(x: rect.minX, y: rect.minY + 18)
+                        }
+                    }
+                }
+            }
+    }
+
+    /// Shows `panel` below this view, trailing-aligned, while `active`. Inside a
+    /// `resetRevealHost()` it draws in the host's overlay above all later content;
+    /// otherwise it falls back to a local overlay. Changes no layout.
+    public func focusRevealPanel<P: View>(_ active: Bool, gap: CGFloat = 4, @ViewBuilder panel: () -> P) -> some View {
+        modifier(FocusRevealPanel(active: active, gap: gap, panel: AnyView(panel())))
+    }
+}
+
+private struct FocusRevealPanel: ViewModifier {
+    let active: Bool
+    let gap: CGFloat
+    let panel: AnyView
+    @Environment(\.resetRevealHosted) private var hosted
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) {
+                if active && !hosted { panel.fixedSize().offset(y: 22 + gap) }
+            }
+            .anchorPreference(key: ResetRevealPreference.self, value: .bounds) { anchor in
+                active && hosted ? [ResetRevealItem(text: "", anchor: anchor, panel: panel, panelGap: gap)] : []
+            }
     }
 }

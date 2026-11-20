@@ -12,8 +12,8 @@ public enum SettingsTracking {
         guard let detection = provider.detection, detection.requirement != Detection.Requirement.none else { return nil }
         switch detection.installed {
         case true?: return "Installed"
-        case false?: return "Not found"
-        // The setup line already says "Not found…"; don't contradict it.
+        // The setup line already says "Not found…": don't repeat it, or contradict it.
+        case false?: return provider.setup == .notDetected ? nil : "Not found"
         case nil: return provider.setup == .notDetected ? nil : "Detection unknown"
         }
     }
