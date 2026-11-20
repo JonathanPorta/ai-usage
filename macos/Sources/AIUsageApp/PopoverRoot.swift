@@ -45,7 +45,7 @@ struct PopoverRoot: View {
 
     var body: some View {
         // Ticks once a minute so relative times ("Checked 2 min ago") stay live between report refreshes.
-        TimelineView(.everyMinute) { _ in content }
+        TimelineView(.everyMinute) { _ in content.resetRevealHost() }
     }
 
     private var content: some View {

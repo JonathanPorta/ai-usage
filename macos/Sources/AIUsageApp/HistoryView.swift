@@ -47,7 +47,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        TimelineView(.everyMinute) { _ in content }
+        TimelineView(.everyMinute) { _ in content.resetRevealHost() }
     }
 
     private var content: some View {
