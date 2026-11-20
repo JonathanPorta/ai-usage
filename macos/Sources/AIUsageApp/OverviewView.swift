@@ -71,8 +71,14 @@ struct OverviewView: View {
         let monitoring = HeaderFacts.monitoring(store.report, collecting: store.isCollecting, now: now)
         return HStack(alignment: .center, spacing: T.Space.s2) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("My AI Usage").font(.auTitle).foregroundStyle(T.Color.text.color)
-                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: T.Space.s1) {
+                    Text("My AI Usage").font(.auTitle).foregroundStyle(T.Color.text.color)
+                        .accessibilityAddTraits(.isHeader)
+                    if AppDefaults.isSandbox {
+                        Text("Sandbox").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                            .padding(.horizontal, 4).overlay(Capsule().stroke(T.Color.muted.color, lineWidth: 1))
+                    }
+                }
                 subtitle(monitoring)
             }
             Spacer(minLength: T.Space.s2)

@@ -1,26 +1,26 @@
 ## Session State: ux-pass
-Last updated: 2026-11-15
+Last updated: 2026-11-19
 
-**Status: phase 5 is in progress.** Requirements come from the owner's work package (2026-11-13).
-Execution was directed by the owner on 2026-11-15. As of 2026-11-15, all four slices are implemented and each has an open PR, stacked in order:
-#41 (slice 1, base main, CI green), #42 (slice 2, base #41's branch), #43 (slice 3, base #42's
-branch), and the slice 4 PR (being opened from `jp/f/ux-file-defined-themes`, base #43's branch).
-None is approved, merged, installed or released.
+**Status: phase 5 is implemented and merged to `main` through #44; the closeout waits on the owner's decision for PR #45.**
+Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are merged (#41, #42, #43, #44; merge commits
+62af14a, 995357d, 9e9ccc5, e93da98). Nothing is installed or released. The 2026-11-15 status is historical.
 
 ### Current Position
-- **Working on:** review and merge of the stack, in order. Each PR is retargeted to `main` after
-  its base merges, and CI is re-run then.
-- **Status:** all four PRs open, none approved. The #42 "PR test gate" fails only because ProofGlass
-  did not admit the macOS lane for the stacked PR; its Linux and spec/design legs pass.
-- **Blocked:** No, except that the owner's review and approval are needed to merge.
+- **Working on:** the owner's decision on the proposed reference baselines in PR #45 (`jp/f/ux-baselines`, base `main`),
+  and the owner's hands-on checks. Details: "Closeout — 2026-11-19".
+- **Status:** as of 2026-11-19, #41, #42, #43 and #44 are merged to `main`, and main checks are green. PR #45 carries three
+  fix commits, proposed baselines and the closeout records. It is not merged.
+- **Visual acceptance:** the owner's positive review covers the material inspected. It is not recorded for the baseline
+  set as a whole; that waits on the decision for #45.
+- **Blocked:** No. The native and VoiceOver checks listed in the closeout remain open.
 
 ### Key Decisions
 - The owner's work package is the requirements source; its proposed defaults are adopted
   (owner, 2026-11-15).
 - All code is written by Opus low-effort subagents. The coordinator does not write code
   (owner, 2026-11-15).
-- Accepted baselines in `docs/design/app/references` are preserved until the owner's visual review
-  (owner, 2026-11-15).
+- Accepted baselines in `docs/design/app/references` stay as they are on `main` until the owner decides on
+  PR #45's proposed baselines (owner, 2026-11-15; still in force).
 - Slice 1 is state only: no SwiftUI view and no render baseline changes (owner, 2026-11-15).
 - Public release, installing over the live app or collector, and deleting history are out of
   scope (owner, 2026-11-15).
@@ -40,14 +40,12 @@ None is approved, merged, installed or released.
 - `PanelShownObserver` and `store.popoverOpened()`: the lifecycle used for order snapshots.
 
 ### What's Next
-1. Check review state of #41 (`prrq status`, `gh pr view 41`). When approved and green, merge it.
-2. Retarget #42 to `main`, re-run CI, then continue down the stack (#43, then the slice 4 PR).
-   Merge only on the `/prrq` gate or the owner's direction.
-3. Collect the owner's visual acceptance of the new renders. Then regenerate
-   `docs/design/app/references` and `SHA256SUMS` in one docs/baseline PR.
-4. Native checks not yet run: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme open
-   and reload, and the detail switch tint. Also the transient "check finished" state.
-5. Installing the new app and collector over the live installation is a separate owner action.
+1. Owner decision on PR #45's proposed baselines, including the corrected screens and the 2 px height question.
+   Merging #45 requires an explicit owner decision record.
+2. Owner hands-on checks of the popover and Settings, using the walkthrough in the closeout interaction results.
+3. Native checks still open: keyboard-focus reveal, drag-to-reorder, VoiceOver, live theme Open and Reload, the detail
+   switch tint, and the transient "check finished" state.
+4. Installing the new app and collector over the live installation is a separate owner action, not authorized by this work.
 
 ### Validation results
 - Slice 1 (PR #41, commit `7b73412`; 2026-11-15): all CI checks pass; queued for review.
@@ -78,8 +76,8 @@ None is approved, merged, installed or released.
   required.
 - Whether providers with no usage events have a `last_activity_at` value. Polled providers (Codex)
   have none and sort after providers with known activity; nothing is fabricated (slice 1).
-- Known limits, to decide later: "cost isn't reported" is matched on plugin note text; the status
-  look-alike threshold (sRGB distance 48) is the implementer's choice.
+- Known limits: the "cost isn't reported" empty state now uses `costs.reports_cost` (completion pass), with note-text
+  fallback for older collectors. The status look-alike threshold (sRGB distance 48) is the implementer's choice.
 - Issue #9: reset annotation shipped inside the chart card in slice 3, pending visual acceptance.
 
 ## Completion pass fix batch
@@ -114,10 +112,14 @@ accepted, installed, released. Nothing is installed or released.
   branch at merge. It was recovered the same hour: base branch restored, PR reopened, retargeted
   to main, temporary branch deleted. Main was merged in, head f83e34e. Local `make check` 376
   tests OK and `make app-test` 121 tests 0 failures. Pushed. Awaiting its Mac run and PRRQ
-  re-review. Stage: implemented. Not reviewed again, not merged.
+  re-review. Stage at that point: implemented. Later the same day: re-reviewed, approved at f83e34e,
+  and squash-merged as 995357d. Stage: merged.
 - #43 (slice 3, detail/Monitoring) head 090802c and #44 (slice 4, themes) head 4ace771 were
-  PRRQ-approved at those heads. Their gate fails by design on non-main bases. Each waits its turn:
+  PRRQ-approved at those heads. Their gate fails by design on non-main bases. Each waited its turn:
   retarget to main, merge main in, one run, re-review, merge.
+- Later on 2026-11-19 (supersedes the status above): #43 was approved at 30acd63 and squash-merged as
+  9e9ccc5. #44 was approved at 23196c8 and squash-merged as e93da98, the current main. Stage: merged.
+  The earlier heads 090802c and 4ace771 are historical.
 - Lesson: retarget a child PR to main BEFORE deleting its parent's branch.
 
 ### Fix batch (local commit 5509771 on #44's branch, not pushed)
@@ -142,13 +144,14 @@ Coordinated with the proofglass-c0 session (cmux thread 55fcfa55, reply fe6d6648
 - NO hosted macOS fallback (ai-usage #40). Do not enable any fallback.
 - PRs are admitted only when the base is main and the branch is from the same repo. Stacked-base
   failures on #42–#44 are expected and predate the ProofGlass changes.
-- Agreed sequence, one PR at a time: retarget to main first; merge main in; push; exactly one run;
-  re-review; merge.
+- Agreed sequence, one PR at a time (used for #41–#44; complete): retarget to main first; merge main in; push;
+  exactly one run; re-review; merge.
 - No evidence reuse: there is no mechanism, and every head moves.
 - Put fix commits on #44's branch before retargeting it.
 - Merge only when `proofglass supervisor status` shows 0 of 1 slots in use, because pushes to main
   have no wait policy.
-- On queue_timeout, use "Re-run all jobs" once, after the Mac is free.
+- On queue_timeout, use "Re-run all jobs" once, after the Mac is free. (Superseded 2026-11-19 ~20:22Z: for a flaky
+  hosted job, "Re-run failed jobs" is enough.)
 
 ### Interaction validation (sandbox instance, synthetic data, candidate 5509771)
 
@@ -175,17 +178,129 @@ Coordinated with the proofglass-c0 session (cmux thread 55fcfa55, reply fe6d6648
 - Inherited drift on main: 20 history-* files (main gained an "All tools" sidebar row that was
   never re-baselined) and 22 detail-*/popover-monitoring files (small text-row pixel differences,
   probably glyph rendering; cause not confirmed).
-- Proposed baseline change: 96 add, 56 replace, 0 remove. NOT applied; accepted baselines are
-  unchanged.
+- Proposed baseline change: 96 add, 56 replace, 0 remove. Later on 2026-11-19: applied in this branch
+  (see the Baseline acceptance section).
 - Render review of 48 candidate screens: no blockers. Minor: truncated caption "Reset time
   unavailable · mea…" (popover-overview-reset-past-unknown-light); "1 failed" summary above two
   listed failures (overview-collection-details-dark); "today so far" bar drawn with "No reading for
   today yet" (detail-no-reading-today-light).
-- Owner visual acceptance: NOT given yet. Stage: not visually accepted.
+- Owner visual acceptance: NOT given as of the facts above. Later on 2026-11-19: given on a partial
+  review (see the Baseline acceptance section).
 
 ### Next actions
 
-1. #42: Mac run and PRRQ re-review, then merge.
-2. #43, then #44 (with the fix batch), each the same way.
-3. Owner visual acceptance decision on the baseline proposal.
-4. Owner hands-on popover checks (list above).
+Superseded. The current next actions are in Current Position and in "Closeout — 2026-11-19" below.
+
+## Closeout — 2026-11-19
+
+**Owner feedback (recorded as given):** the owner reviewed as much of the visual package as they could, and it looks
+good. This is a positive review of the material inspected. It is not a record that every proposed baseline was
+inspected, and it does not cover untested interactions.
+
+**Stage "visually accepted": not recorded for the baseline set as a whole.** It is pending the owner's decision on
+follow-up PR #45. Merging #45 is what would make the proposed baselines the accepted ones. The PRRQ review of #45
+requires an explicit owner decision record before that.
+
+### Follow-up PR #45
+
+Branch `jp/f/ux-baselines`, base `main`. It carries three fix commits, PROPOSED reference baselines in
+`docs/design/app/references`, and these records. The accepted references on `main` are unchanged.
+
+Fixes:
+- `64f6284`: compact quota captions wrap to two lines and carry the full text as a tooltip. They were truncated
+  ("Reset time unavailable · mea…").
+- `4088639`: three snapshot scenarios corrected to match the states they demonstrate.
+  - Collection details: the failure was attached to a source that does not exist, so the summary said "1 failed"
+    above two listed failures. It now says "2 failed". The summary counts providers and the list shows failed checks;
+    app aggregation is unchanged. One provider with two failed checks would still read "1 failed".
+  - No reading today: today's chart day is marked missing and renders as a dashed outline.
+  - Success at limit: the at-limit card is ordered first so the state is in view.
+- `25741df`: sandbox runs (`AI_USAGE_STATE_DIR` set) keep preferences in `<state dir>/preferences.plist` instead of the
+  installed app's defaults, and show a "Sandbox" marker (menu-bar label and tooltip, popover header, History window
+  title). The sandbox app shares the installed app's bundle id, so card order, acknowledged notices and notification
+  settings would otherwise have been written to live preferences. No live preference was changed during validation;
+  the preferences file was unchanged before and after. This commit changes no render.
+
+Verified, no change needed:
+- Theme Open and Reload buttons are dimmed only in offscreen renders. The render store has no theme file location; the
+  running app supplies one.
+- Truncated account names already expose the full name via tooltip and accessibility label.
+
+### Proposed baselines (PR #45)
+
+- Rendered at `4088639`. Against the accepted references at `e93da98`: 96 add, 56 replace, 0 remove, 34 unchanged;
+  186 total.
+- 176 of the 186 are byte-identical to the merged-main `e93da98` renders the owner looked at. The 10 that differ are the
+  corrected screens: detail-no-reading-today, overview-collection-details, popover-overview-result-warning,
+  popover-overview-reset-past-unknown, popover-overview-success-at-limit (light and dark).
+- Candidate `5509771` and merged `main` `e93da98` renders are byte-identical (186/186). `25741df` changes no render
+  (snapshot check passes, 186 OK).
+- Of the 56 replacements, 42 files had already drifted between the accepted references and old main `a939f3a`: 26
+  `history-*`, 14 `detail-*`, 2 `popover-monitoring-*`. For `history-*`, old main gained an "All tools" sidebar row
+  (confirmed on one pair, assumed for the rest). For `detail-*` and `popover-monitoring-*` the cause is not established.
+  The other 14 changed only in this work.
+- Open visual decision: 30 screens are 2 px shorter than their accepted references. 28 at 840x1564 become 840x1562, and
+  popover-overview-short light and dark go from 840x1212 to 840x1210. This came with the UX pass, not from old main.
+  Whether it is intended is unconfirmed.
+
+### Validation
+
+- `make check` exit 0; `make fixture-check` clean; `make app-test` 182 tests, 0 failures; `make app-snapshot-check`
+  passes on the branch (186 OK).
+
+### Interaction validation (sandbox, synthetic data)
+
+- Passed, History window only: opening it, provider switching, Tokens/Quota toggle, range selection, the reset control
+  exposing the exact time via value and help, and accessibility labels, values and help on those controls.
+- Not exercised: everything in the popover and Settings (timestamp reveal, trophy details, card ordering and
+  persistence, tracking On/Off/Auto, theme Open/Reload/fallback/restart, header actions, manual collection feedback),
+  and spoken VoiceOver. Automation could not open the menu-bar popover: the accessibility press had no effect, and
+  scripted clicking lacks assistive access.
+- Failed: none.
+- A 14-step hands-on walkthrough is in the review package at
+  `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/interaction/RESULTS-closeout.md`.
+
+### Running app
+
+- A GUI process started 2026-11-17 15:56:53 by launchd, right after a reboot (apps reopened at login). It runs from the
+  `ux-themes-slice` task worktree build with no sandbox variables, so it uses the live config `~/.ai-usage/config.json`
+  and the default state directory `~/Library/Application Support/AI Usage`.
+- Evidence of what it wrote: only its report cache `last-report.json` there. The preferences file was last modified
+  2026-11-02 and `config.json` 2026-11-10, both before it started. The binary on disk was rebuilt on 2026-11-19, so the
+  process runs an older image than the files now there.
+- The collector is a separate launchd agent (`codes.porta.ai-usage`, `~/.ai-usage/collector.py daemon`) and does not
+  depend on that GUI. No app bundle is installed in `/Applications`.
+- Nothing was stopped or replaced. The `ux-themes-slice` worktree is kept while that process runs. Quitting the GUI
+  removes the menu-bar app until another build is launched; it does not affect collection.
+- Caution: `make app-run-sandbox` runs `pkill -x AIUsage`, which would also kill that GUI.
+
+### Worktrees
+
+- Slice heads preserved with keep refs and bundles: ux-state-slice 04c992e, ux-overview-slice f83e34e,
+  ux-detail-slice 30acd63, ux-themes-slice 23196c8.
+- Removed through the lifecycle check: ux-overview-slice, ux-detail-slice, ux-baseline-check, ux-visual-main.
+- Kept: ux-themes-slice (running process), ux-baselines (PR #45).
+
+### CI coordination (ProofGlass, 2026-11-19 ~20:22Z)
+
+- One lane, `ai-usage-macos`, on the single Mac builder. Pull requests wait up to an hour when it is busy. There is no
+  hosted macOS fallback.
+- Plan: one push when the batch is complete; merge only when approved and the slot is free at merge time.
+- For a flaky hosted job on a PR, "Re-run failed jobs" is now enough.
+
+### Stage summary
+
+- implemented: yes
+- code-reviewed and merged: yes for #41–#44; #45 pending
+- automated validation: yes
+- visually accepted (proposed baseline set): pending the owner's decision on #45
+- interaction validation: History window passed; popover, Settings and VoiceOver not exercised
+- installed: no
+- released: no
+
+### Next actions
+
+1. Owner decision on #45's proposed baselines, including the corrected screens and the 2 px height question. Merging #45
+   requires an explicit owner decision record.
+2. Owner hands-on walkthrough.
+3. Installation and release are separate and not authorized by this work.

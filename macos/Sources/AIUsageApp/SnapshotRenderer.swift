@@ -290,8 +290,13 @@ enum SnapshotRenderer {
             r.collection.lastAttemptResult = .partial
             let i = index(r, "claude")
             if var failure = r.collection.failures.first {
-                failure.provider = "claude"; failure.source = "quota"; failure.message = "usage endpoint returned 503"
+                failure.provider = "claude"; failure.source = "subscription-usage"; failure.message = "usage endpoint returned 503"
                 r.collection.failures.append(failure)
+            }
+            // The failed check marks its source failed, as the collector reports it, so the
+            // per-provider breakdown and the issues list describe the same failures.
+            for s in r.providers[i].sources.indices where r.providers[i].sources[s].id == "subscription-usage" {
+                r.providers[i].sources[s].status = .failed
             }
             r.providers[i].quota.windows[0].status = .stale
             r.providers[i].quota.windows[0].staleCause = .failed
@@ -326,7 +331,10 @@ enum SnapshotRenderer {
                 r.providers[i].usage.staleCause = nil
             }
         }
-        try shoot("popover-overview-success-at-limit", width, nil, store(limitOnly), overview())
+        // Codex first, so the at-limit card is in view rather than below the fold.
+        let limitStore = store(limitOnly)
+        for _ in 0..<4 { limitStore.moveCardUp("codex") }
+        try shoot("popover-overview-success-at-limit", width, nil, limitStore, overview())
         // Custom order: Codex moved to the top.
         let custom = store(report)
         for _ in 0..<4 { custom.moveCardUp("codex") }
@@ -463,7 +471,15 @@ enum SnapshotRenderer {
         try shoot("detail-tracking-auto", width, nil, store(auto), detail("codex"))
         let never = variant("antigravity") { p in clearDays(&p); p.today = nil; p.modelsToday = [] }
         try shoot("detail-no-usage", width, nil, store(never), detail("antigravity"))
-        let noToday = variant("codex") { p in p.today = nil; p.modelsToday = [] }
+        // No reading today: today's day entry is missing too, as a real report (or a rollover) has it.
+        let noToday = variant("codex") { p in
+            p.today = nil; p.modelsToday = []
+            for i in p.days.indices where p.days[i].date == report.today {
+                p.days[i].state = .missing
+                p.days[i].total = nil; p.days[i].input = nil; p.days[i].output = nil; p.days[i].cacheRead = nil
+                p.days[i].cacheWrite = nil; p.days[i].asOf = nil
+            }
+        }
         try shoot("detail-no-reading-today", width, nil, store(noToday), detail("codex"))
         let oldOnly = variant("grok") { p in
             if let first = p.days.firstIndex(where: \.hasValue) { clearDays(&p, keepingFirst: max(first + 1, 30)) }

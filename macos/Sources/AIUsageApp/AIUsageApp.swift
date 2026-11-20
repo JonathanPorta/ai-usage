@@ -87,7 +87,7 @@ struct AIUsageApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("AI Usage History", id: HistoryView.windowId) {
+        Window(AppDefaults.isSandbox ? "AI Usage History (Sandbox)" : "AI Usage History", id: HistoryView.windowId) {
             HistoryView()
                 .modifier(StoreTheme())
                 .environment(store)
@@ -105,7 +105,8 @@ struct MenuBarLabel: View {
 
     var body: some View {
         Image(nsImage: GlyphRenderer.image(badge: badge, dimmed: dimmed))
-            .accessibilityLabel("AI Usage")
+            .accessibilityLabel(AppDefaults.isSandbox ? "AI Usage (Sandbox)" : "AI Usage")
+            .help(AppDefaults.isSandbox ? "AI Usage (Sandbox)" : "")
     }
 
     private var badge: String? {

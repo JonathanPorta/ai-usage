@@ -14,8 +14,8 @@ struct SettingsView: View {
     /// A provider to scroll to (History's "Provider settings…").
     var focusProvider: String?
 
-    @AppStorage(NotificationCenterBridge.limitsKey) private var notifyLimits = true
-    @AppStorage(NotificationCenterBridge.failuresKey) private var notifyFailures = true
+    @AppStorage(NotificationCenterBridge.limitsKey, store: AppDefaults.shared) private var notifyLimits = true
+    @AppStorage(NotificationCenterBridge.failuresKey, store: AppDefaults.shared) private var notifyFailures = true
     @State private var prices: [String: String] = [:]
     /// The last value loaded from the report, to tell an in-progress edit from a stale field.
     @State private var loadedPrices: [String: String] = [:]
