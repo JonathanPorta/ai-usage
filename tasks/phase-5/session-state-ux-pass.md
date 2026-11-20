@@ -1,16 +1,16 @@
 ## Session State: ux-pass
 Last updated: 2026-11-19 (evening)
 
-**Status: phase 5 is implemented and merged to `main`: #41 to #45 (#45 as merge commit ceee949). Visual baselines are accepted. Interaction validation is partial; follow-up fixes await runtime verification.**
+**Status: phase 5 is implemented and merged to `main`: #41 to #45 (#45 as merge commit ceee949). Visual baselines are accepted. Interaction validation is partial; the four follow-up fixes are verified on screen; the fix branch is not yet merged.**
 Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are merged (#41, #42, #43, #44; merge commits
 62af14a, 995357d, 9e9ccc5, e93da98). Slice follow-up #45 is merged as ceee949. Nothing is installed or released. The
 2026-11-15 status is historical.
 
 ### Current Position
-- **Working on:** runtime verification of the follow-up fixes on `jp/f/ux-closeout-fixes` (base `main` ceee949), and the
-  owner's remaining human-only checks. Details: "Interaction validation and follow-up fixes — 2026-11-19 (evening)".
+- **Working on:** the owner's remaining human-only checks, and merge of the follow-up fixes on `jp/f/ux-closeout-fixes`
+  (base `main` ceee949, head 6a366bd). Details: "Interaction validation and follow-up fixes — 2026-11-19 (evening)".
 - **Status:** as of 2026-11-19 evening, #41 to #45 are merged to `main`. The post-merge `main` run passed. The fix branch
-  has three commits (90c08e9, dc6ec9c, 1c456ac); its automated checks pass.
+  has four commits (90c08e9, dc6ec9c, 1c456ac, 6a366bd); its automated checks pass and the fixes are verified on screen.
 - **Visual acceptance:** accepted and merged. The owner accepted the proposed baselines (96 added, 56 replaced, 0 removed,
   including 10 corrected screens and the 2 px height reductions) after a same-head re-review. Merged as ceee949.
 - **Blocked:** No.
@@ -310,53 +310,63 @@ Verified, no change needed:
 ## Interaction validation and follow-up fixes — 2026-11-19 (evening)
 
 Full detail and the per-check evidence: `/Users/portaj/devel/ai-scratch/ai-usage-ux-pass/visual-package/interaction/RESULTS-closeout.md`
-(section "Hands-on results — third session, keyboard input"). Session 3 ran on the main ceee949 build, sandbox PID 35321,
-18:18 to 18:22 MST; a session 4 attempt at 18:46 on the fix build verified nothing (the popover did not open).
+(sections "Hands-on results — third session, keyboard input" and "Runtime verification of the fixes"). Session 3 ran on the
+main ceee949 build, sandbox PID 35321, 18:18 to 18:46 MST. Runtime verification ran 18:49 to 19:03 MST on the sandbox app
+rebuilt from `jp/f/ux-closeout-fixes`.
 
 | Check | Result |
 |---|---|
 | Popover opens by real click; "Sandbox" header label | Passed |
 | Escape from provider detail; focus returns to the card with a visible ring | Passed |
 | Arrow and Tab focus on overview cards, scrolled into view | Passed |
-| Exact reset time on keyboard focus | Failed: drawn behind the figure and chart bars (defect 1) |
+| Exact reset time on keyboard focus | Failed, fixed (defect 1, 90c08e9); passed on screen |
 | Exact reset time on activation (Space) | Passed |
 | Exact time on hover | Not exercised (no pointer hover) |
 | Trophy statistics by keyboard; Escape dismisses | Passed |
-| Mini-chart keyboard caption | Failed: truncated (defect 2) |
+| Trophy focus statistics panel | Failed, fixed (defect 4, 6a366bd); passed on screen |
+| Mini-chart keyboard caption | Failed, fixed (defect 2, dc6ec9c); passed on screen |
 | Manual collection (Cmd-R): completion feedback | Passed; in-progress feedback not observed |
 | Settings opens (Cmd-comma), shows sandbox config path | Passed |
-| Settings provider rows | Failed: duplicate "Not found" copy (defect 3) |
-| Tracking Auto/On/Off, ordering controls, theme Open/Reload | Not exercised (not reachable by Tab; pointer clicks unavailable) |
-| Themes: file load and last-valid sidecar, after restart | Passed at file level only |
-| Theme visual application, Reload, invalid-file notice, fallback | Not exercised |
+| Settings provider rows | Failed, fixed (defect 3, 1c456ac); passed on screen |
+| Themes: global and per-provider application | Passed (after restarting only the sandbox app) |
+| Themes: invalid-file fallback after restart | Passed (warm/violet kept; last-valid file intact) |
+| Themes: Open and Reload buttons, invalid-file notice, light mode | Not exercised |
+| Tracking Auto/On/Off, ordering controls | Not exercised (not reachable by Tab; pointer clicks unavailable) |
 | Card ordering and persistence; recent-activity stability | Not exercised |
 | Popover accessibility attributes; spoken VoiceOver | Not exercised |
 
-Pointer clicks inside the popover did not register through the automation tool. This is a tool limitation, not an app defect.
+Observed, not established as defects: a provider past its reset time showed "Reset due · awaiting update" with the stale
+marker; header keyboard focus reaches the monitoring indicator with a visible focus ring. On three occasions the first
+click on the sandbox menu-bar icon right after launch showed no popover (possibly an artifact of synthetic clicks; needs a
+person). Synthetic pointer clicks land about 3 % left of and above the aimed position on this display, so pointer-only
+controls in the popover were not exercised.
 
 Defects and fix commits (branch `jp/f/ux-closeout-fixes`, base main ceee949):
 1. Exact-time focus reveal drawn behind figure and chart: `90c08e9`. Drawn at the window root above following content; hidden while the activation popover shows.
 2. Focused mini-chart caption truncated: `dc6ec9c`. May wrap to two lines; full text in a tooltip.
 3. Settings duplicate "Not found": `1c456ac`. Not repeated under the setup line when the tool is not detected; unit test added.
+4. Trophy focus statistics panel drawn under the card's own rows: `6a366bd`. Drawn through the same window-level reveal host; verified opaque and legible, right edge aligned to the trophy.
 
-Automated checks on the fix branch: `make app-test` and `make check` exit 0; `make app-snapshot-check` 186 OK; accepted baselines unchanged.
-
-Pending runtime verification: exact reset time fully readable above the figure or chart in overview, provider detail and History (also when scrolled and near the bottom edge); mini-chart selected-day text in full over two lines.
+Automated checks on head 6a366bd and docs: `make app-test` exit 0 (183 tests, 0 failures); `make check` exit 0;
+`make app-snapshot-check` 186 OK; accepted baselines unchanged.
 
 Remaining human-only checks:
 1. Hover tooltip on a reset label.
 2. Tracking Auto/On/Off in Settings and the detail switch; an Off provider's card leaves the overview.
 3. Ordering: up/down buttons and drag in Settings; persists after quitting only the sandbox app; recent-activity order does not reshuffle while the popover is open.
-4. Themes: Open and Reload enabled; warm and violet applied globally and per provider; invalid file shows a notice and keeps the last valid theme, also after restart.
+4. Theme Open and Reload buttons, the invalid-file notice, light mode.
 5. Header warning badge and monitoring indicator actions; in-progress feedback during manual collection.
 6. VoiceOver speech for a card, a reset label and the tracking switch.
-7. Runtime verification of the two pending fixes above.
+7. First click after launch opens the popover (check by hand: launch, click the icon once).
+8. Reset-time chip in provider detail and History, also when scrolled.
+
+Pending: the reset-time chip in provider detail and History, and near the bottom edge of the list (check 8 above).
 
 ### Stage summary (2026-11-19 evening)
 - implemented: yes
 - code-reviewed and merged: yes for #41 to #45 (#45 as ceee949); post-merge main run passed
-- automated validation: yes; fix branch checks pass
+- automated validation: yes; fix branch checks pass at 6a366bd
 - visually accepted: yes; proposed baseline set accepted by the owner and merged (ceee949)
-- interaction validation: partial; three defects found and fixed; runtime verification pending
+- interaction validation: partial; four defects found, fixed on `jp/f/ux-closeout-fixes` and verified on screen; pointer-only controls and VoiceOver not exercised
 - installed: no
 - released: no
