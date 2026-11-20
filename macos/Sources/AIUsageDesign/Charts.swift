@@ -67,6 +67,7 @@ public struct DayBarChart: View {
                 ForEach(Array(readouts.enumerated()), id: \.offset) { _, text in caption(text).hidden() }
                 caption(readout)
             }
+            .help(readout)
             .accessibilityHidden(true)
         }
         .focusable()
@@ -127,8 +128,9 @@ public struct DayBarChart: View {
         Text(text)
             .font(style == .mini ? .auCaption : .auBody)
             .foregroundStyle(T.Color.muted.color)
-            // Cards reserve one line: no blank band under the mini chart.
-            .lineLimit(style == .mini ? 1 : 2)
+            // Cards reserve one line: no blank band under the mini chart. With keyboard
+            // focus the day readout may take a second line so it is never cut short.
+            .lineLimit(style == .mini && !focused ? 1 : 2)
             .truncationMode(.tail)
             .minimumScaleFactor(style == .mini ? 0.85 : 1)
             .fixedSize(horizontal: false, vertical: true)
