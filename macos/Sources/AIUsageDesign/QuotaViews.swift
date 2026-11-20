@@ -182,9 +182,12 @@ struct ResetReveal: View {
     }
 }
 
-struct ResetRevealItem: Equatable {
+struct ResetRevealItem {
     let text: String
     let anchor: Anchor<CGRect>
+    /// A trailing-aligned panel drawn below the anchor instead of the text chip.
+    var panel: AnyView? = nil
+    var panelGap: CGFloat = 0
 }
 
 struct ResetRevealPreference: SwiftUI.PreferenceKey {
@@ -213,9 +216,40 @@ extension View {
                 GeometryReader { proxy in
                     ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                         let rect = proxy[item.anchor]
-                        ResetReveal(text: item.text).offset(x: rect.minX, y: rect.minY + 18)
+                        if let panel = item.panel {
+                            // Trailing edge on the anchor's trailing edge; grows leftward.
+                            panel.fixedSize()
+                                .frame(width: max(rect.maxX, 0), alignment: .topTrailing)
+                                .offset(y: rect.maxY + item.panelGap)
+                        } else {
+                            ResetReveal(text: item.text).offset(x: rect.minX, y: rect.minY + 18)
+                        }
                     }
                 }
+            }
+    }
+
+    /// Shows `panel` below this view, trailing-aligned, while `active`. Inside a
+    /// `resetRevealHost()` it draws in the host's overlay above all later content;
+    /// otherwise it falls back to a local overlay. Changes no layout.
+    public func focusRevealPanel<P: View>(_ active: Bool, gap: CGFloat = 4, @ViewBuilder panel: () -> P) -> some View {
+        modifier(FocusRevealPanel(active: active, gap: gap, panel: AnyView(panel())))
+    }
+}
+
+private struct FocusRevealPanel: ViewModifier {
+    let active: Bool
+    let gap: CGFloat
+    let panel: AnyView
+    @Environment(\.resetRevealHosted) private var hosted
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) {
+                if active && !hosted { panel.fixedSize().offset(y: 22 + gap) }
+            }
+            .anchorPreference(key: ResetRevealPreference.self, value: .bounds) { anchor in
+                active && hosted ? [ResetRevealItem(text: "", anchor: anchor, panel: panel, panelGap: gap)] : []
             }
     }
 }
