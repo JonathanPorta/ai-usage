@@ -117,6 +117,7 @@ public final class AppStore {
         cardOrderMode = preferences.string(forKey: PreferenceKey.cardOrderMode).flatMap(CardOrderMode.init) ?? .recent
         customCardOrder = preferences.strings(forKey: PreferenceKey.customCardOrder) ?? []
         acknowledgedDetections = Set(preferences.strings(forKey: PreferenceKey.acknowledgedDetections) ?? [])
+        acknowledgedWarnings = preferences.string(forKey: PreferenceKey.acknowledgedWarnings)
         self.environment = environment
         self.reporter = reporter
         self.collector = collector
@@ -430,6 +431,8 @@ public final class AppStore {
     /// The automatic order taken when the popover opened; data refreshes never change it.
     public private(set) var recentOrderSnapshot: [String]?
     public private(set) var acknowledgedDetections: Set<String>
+    /// The warning signature the user last looked at; see `warningsAcknowledged`.
+    public private(set) var acknowledgedWarnings: String?
 
     /// Every report provider in display order (hidden ones included).
     public var orderedProviders: [Provider] {
@@ -497,6 +500,44 @@ public final class AppStore {
     public func acknowledgeDetection(_ notice: DetectionNotice) {
         acknowledgedDetections.insert(notice.acknowledgementKey)
         preferences.set(acknowledgedDetections.sorted(), forKey: PreferenceKey.acknowledgedDetections)
+    }
+
+    /// A stable key for the set of things that make the result indicator a warning:
+    /// each active provider that is not fresh (with its health), each non-limit notice,
+    /// each detection notice and a refresh error. Empty when nothing is wrong.
+    public static func warningSignature(report: Report?, now: Date, detections: [DetectionNotice],
+                                        refreshError: String?) -> String {
+        var parts: [String] = []
+        if let report {
+            for provider in report.providers where MonitoringPage.isActive(provider) {
+                let health = MonitoringPage.health(provider)
+                if health != .fresh { parts.append("health:\(provider.id):\(health.rawValue)") }
+            }
+            parts += Presentation.notices(report, now: now).filter { $0.tone != .limit }.map { "notice:\($0.id)" }
+        }
+        parts += detections.map { "detection:\($0.acknowledgementKey)" }
+        if refreshError != nil { parts.append("refresh") }
+        return Set(parts).sorted().joined(separator: "|")
+    }
+
+    public var currentWarningSignature: String {
+        Self.warningSignature(report: report, now: now, detections: detectionNotices,
+                              refreshError: report == nil ? nil : refreshError)
+    }
+
+    /// The user has seen exactly the current warnings (opened the result popover or
+    /// Monitoring), so the indicator stays neutral until the set changes.
+    public var warningsAcknowledged: Bool {
+        let current = currentWarningSignature
+        return !current.isEmpty && current == acknowledgedWarnings
+    }
+
+    /// Viewing the result popover or Monitoring acknowledges the warnings shown there.
+    public func acknowledgeWarnings() {
+        let current = currentWarningSignature
+        guard current != acknowledgedWarnings else { return }
+        acknowledgedWarnings = current
+        preferences.set(current, forKey: PreferenceKey.acknowledgedWarnings)
     }
 
     private func pruneDetectionAcknowledgements() {

@@ -164,7 +164,8 @@ struct OverviewView: View {
 
     private var issues: OverviewIssues {
         OverviewIssues(report: store.report, now: store.now, detections: store.detectionNotices,
-                       refreshError: store.report == nil ? nil : store.refreshError, collect: store.collect)
+                       refreshError: store.report == nil ? nil : store.refreshError, collect: store.collect,
+                       acknowledged: store.warningsAcknowledged)
     }
 
     private var resultIndicator: some View {
@@ -204,6 +205,8 @@ struct OverviewView: View {
         .accessibilityLabel("Last collection")
         .accessibilityValue(issues.accessibilityText)
         .accessibilityHint("Shows the latest collection details")
+        // Looking at the details acknowledges the current warnings.
+        .onChange(of: showingDetails) { _, shown in if shown { store.acknowledgeWarnings() } }
         .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
             CollectionDetailsView(issues: issues, now: store.now,
                                   openDetail: { id in showingDetails = false; openDetail(id) },
@@ -326,10 +329,13 @@ struct OverviewIssues {
     let limits: [Presentation.Notice]
     let detections: [DetectionNotice]
     let refreshError: String?
+    /// The user has already seen exactly these warnings; a warning shows as neutral.
+    let acknowledged: Bool
 
     /// `collect` is accepted for call-site symmetry; a failed manual run is shown by the
     /// banner alone, so it is never counted here too.
-    init(report: Report?, now: Date, detections: [DetectionNotice], refreshError: String?, collect: AppStore.CollectState = .idle) {
+    init(report: Report?, now: Date, detections: [DetectionNotice], refreshError: String?, collect: AppStore.CollectState = .idle,
+         acknowledged: Bool = false) {
         result = HeaderFacts.result(report)
         lastAttempt = report.map { MonitoringText.lastAttempt($0.collection, now: now) }
         let all = report.map { Presentation.notices($0, now: now) } ?? []
@@ -337,6 +343,7 @@ struct OverviewIssues {
         limits = all.filter { $0.tone == .limit }
         self.detections = detections
         self.refreshError = refreshError
+        self.acknowledged = acknowledged
     }
 
     /// Exactly the number of rows under "Collection issues" in the details popover.
@@ -353,6 +360,8 @@ struct OverviewIssues {
         }()
         if count > 0 { level = max(level, .warning) }
         if notices.contains(where: { $0.id == "collector" }) { level = .critical }
+        // Seen warnings go quiet until the set changes; critical never does.
+        if level == .warning && acknowledged { level = .neutral }
         return level
     }
 

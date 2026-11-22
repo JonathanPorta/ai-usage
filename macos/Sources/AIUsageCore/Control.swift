@@ -96,6 +96,22 @@ public enum ConfigChange: Equatable, Sendable {
         provider.isAddedAccount ? .accountEnabled(provider.id, value) : .providerEnabled(provider.id, value)
     }
 
+    /// The price change a Settings field's text asks for, or nil when the text is not a
+    /// non-negative number (or empty for none) or matches the saved price.
+    public static func pricing(_ provider: Provider, text: String) -> ConfigChange? {
+        guard let parsed = parsePrice(text), parsed != provider.costs.subscription?.monthlyUsd else { return nil }
+        return pricing(provider, parsed)
+    }
+
+    /// `.some(nil)` for empty (no price), `.some(value)` for a valid price, nil when invalid.
+    public static func parsePrice(_ text: String) -> Double?? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return .some(nil) }
+        guard let value = Double(trimmed), value >= 0, value.isFinite else { return nil }
+        return .some(value)
+    }
+
     public static func pricing(_ provider: Provider, _ value: Double?) -> ConfigChange {
         provider.isAddedAccount ? .accountMonthlySubscription(provider.id, value) : .monthlySubscription(provider.id, value)
     }

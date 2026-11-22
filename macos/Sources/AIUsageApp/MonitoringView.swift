@@ -52,6 +52,8 @@ struct MonitoringView: View {
             .frame(maxHeight: maxHeight - 40)
         }
         .onExitCommand(perform: goBack)
+        // Opening Monitoring acknowledges the warnings the header indicator shows.
+        .onAppear { store.acknowledgeWarnings() }
     }
 
     /// Esc cancels a pending Stop confirmation before it leaves the screen.
@@ -148,9 +150,9 @@ struct MonitoringView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 2)
             } label: {
-                Text("Details").font(.auCaption)
+                Text("Details").font(.auCaption).accessibilityLabel("Collection details")
             }
-            .accessibilityLabel("Collection details")
+            .disclosureGroupStyle(.fullRow)
         }
     }
 
@@ -217,8 +219,9 @@ struct MonitoringView: View {
                 } label: {
                     Text("Inactive (\(groups.inactive.count))").font(.auCaption.weight(.medium))
                         .foregroundStyle(T.Color.muted.color)
+                        .accessibilityLabel("Inactive providers, \(groups.inactive.count)")
                 }
-                .accessibilityLabel("Inactive providers, \(groups.inactive.count)")
+                .disclosureGroupStyle(.fullRow)
             }
             Toggle("Show exact times", isOn: $showSourceTimes)
                 .toggleStyle(.checkbox)
@@ -314,9 +317,9 @@ struct MonitoringView: View {
                     caption(text.technical).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Text("Technical details").font(.auCaption)
+                    Text("Technical details").font(.auCaption).accessibilityLabel("Technical service details")
                 }
-                .accessibilityLabel("Technical service details")
+                .disclosureGroupStyle(.fullRow)
             }
         }
     }

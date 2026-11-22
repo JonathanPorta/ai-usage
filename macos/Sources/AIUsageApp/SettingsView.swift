@@ -23,6 +23,8 @@ struct SettingsView: View {
     @State private var loginError: String?
     /// A tracking mode being saved, shown until the save ends.
     @State private var pendingTracking: [String: TrackingMode] = [:]
+    /// The provider whose price field has focus; leaving it saves the edit.
+    @FocusState private var focusedPrice: String?
 
     static let intervals: [(Int, String)] = [(900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
                                              (7200, "2 hours"), (14400, "4 hours"), (43200, "12 hours")]
@@ -57,11 +59,21 @@ struct SettingsView: View {
         .onExitCommand(perform: back)
         .onAppear(perform: loadPrices)
         .onChange(of: store.revision) { _, _ in loadPrices() }
+        // A price is saved on Return, on leaving its field, on leaving Settings and
+        // when the panel closes (it resigns key), not only on Return.
+        .onChange(of: focusedPrice) { old, _ in
+            if let old, let provider = store.report?.provider(old) { savePrice(provider) }
+        }
+        .onDisappear(perform: saveAllPrices)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in saveAllPrices() }
     }
 
     private func scroll(_ proxy: ScrollViewProxy) {
         guard let focusProvider else { return }
-        DispatchQueue.main.async { proxy.scrollTo("provider-\(focusProvider)", anchor: .top) }
+        DispatchQueue.main.async {
+            proxy.scrollTo("provider-\(focusProvider)", anchor: .top)
+            focusedPrice = focusProvider
+        }
     }
 
     /// An added account also names what it is an account of, and its id; a local
@@ -156,6 +168,7 @@ struct SettingsView: View {
                         Text("Subscription $").font(.auCaption).foregroundStyle(T.Color.muted.color)
                         TextField("none", text: Binding(get: { prices[provider.id] ?? "" }, set: { prices[provider.id] = $0 }))
                             .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 70)
+                            .focused($focusedPrice, equals: provider.id)
                             .onSubmit { savePrice(provider) }
                             .accessibilityLabel("\(provider.name) monthly subscription price in US dollars")
                         Text("per month · entered by you").font(.auCaption).foregroundStyle(T.Color.muted.color)
@@ -253,10 +266,7 @@ struct SettingsView: View {
     }
 
     private func parsedPrice(_ provider: Provider) -> Double?? {
-        let text = (prices[provider.id] ?? "").trimmingCharacters(in: .whitespaces)
-        if text.isEmpty { return .some(nil) }
-        guard let value = Double(text), value >= 0, value.isFinite else { return nil }
-        return .some(value)
+        ConfigChange.parsePrice(prices[provider.id] ?? "")
     }
 
     private func priceInvalid(_ provider: Provider) -> Bool { parsedPrice(provider) == nil }
@@ -267,8 +277,16 @@ struct SettingsView: View {
     }
 
     private func savePrice(_ provider: Provider) {
-        guard let parsed = parsedPrice(provider), priceChanged(provider) else { return }
-        Task { await store.applySettings([.pricing(provider, parsed)]) }
+        guard let change = ConfigChange.pricing(provider, text: prices[provider.id] ?? "") else { return }
+        Task { await store.applySettings([change]) }
+    }
+
+    /// Every edited, valid price in one write (leaving Settings or closing the panel).
+    private func saveAllPrices() {
+        guard let report = store.report else { return }
+        let changes = report.providers.compactMap { ConfigChange.pricing($0, text: prices[$0.id] ?? "") }
+        guard !changes.isEmpty else { return }
+        Task { await store.applySettings(changes) }
     }
 
     private var notificationsSection: some View {

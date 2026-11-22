@@ -333,14 +333,12 @@ struct ProviderDetailView: View {
     }
 }
 
-/// A Panel holding one disclosure group whose whole header band toggles it,
-/// not just the title text. The native disclosure look is unchanged: the
-/// larger hit area is an invisible layer over the header.
+/// A Panel holding one disclosure group whose whole header row toggles it
+/// (the shared full-row disclosure style).
 private struct AccordionPanel<Content: View>: View {
     let title: String
     @Binding var isExpanded: Bool
     @ViewBuilder let content: () -> Content
-    @State private var titleHeight: CGFloat = 17
 
     init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
@@ -353,18 +351,10 @@ private struct AccordionPanel<Content: View>: View {
             DisclosureGroup(isExpanded: $isExpanded) {
                 content().padding(.top, T.Space.s2)
             } label: {
-                Text(title).readHeight($titleHeight)
+                Text(title)
             }
+            .disclosureGroupStyle(.fullRow)
             .font(.auBody)
-        }
-        .overlay(alignment: .top) {
-            // Panel padding above the title, the title row, and the gap below it
-            // (all the way to the bottom edge while collapsed).
-            Color.clear
-                .frame(height: T.Space.s3 + titleHeight + (isExpanded ? T.Space.s2 : T.Space.s3))
-                .contentShape(Rectangle())
-                .onTapGesture { withAnimation(.easeOut(duration: T.Duration.fast)) { isExpanded.toggle() } }
-                .accessibilityHidden(true)
         }
     }
 }
