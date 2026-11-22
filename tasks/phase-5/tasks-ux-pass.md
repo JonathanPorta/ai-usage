@@ -197,6 +197,24 @@
 
 ## Current Status
 
+- **Closeout (2026-11-22):** the UX pass code is merged through PR #46; `main` is 48cda57 and its CI was green.
+  - Interaction checks, 2026-11-19 to 2026-11-22 (keyboard-reachable checks and an accessibility-driven sandbox
+    session): passed for popover navigation, exact times on Overview, Monitoring, History and provider detail,
+    tracking Off hiding a card and writing config, custom card order applied and stored, the header badge popover
+    and Open Monitoring link, manual collection, Settings, themes after restart, and the last valid theme kept.
+  - Owner acceptance (2026-11-22): the owner reported checking the remaining human-only items (VoiceOver launch and
+    speech, hover tooltips, drag reordering, first click after launch, History "Provider settings...", theme reload
+    result) and accepted them ("They all look good... should be approved"). Owner acceptance, not itemised and not
+    agent-observed.
+  - Installed (2026-11-22 16:10 MST): the owner approved installing; a build of 48cda57 runs as the menu-bar app
+    from a pinned clone. The collector is unchanged, so tracking "Auto" behaves as "On" until the collector is
+    updated. No release is published.
+  - Not exercised by anyone on record: tracking back On via the UI, the invalid-theme notice, light mode, the
+    in-progress header state, scrolled detail. Slices 2.0, 3.0 and 4.0 stay `[~]` because their acceptance depends
+    on those items (busy feedback, scrolled reset chip, invalid-theme and light-mode behavior); 1.0 stays unchecked
+    because its own status text (pre-PR wording) was not rewritten here.
+  - Known cosmetic follow-up: focus reveal panels use the global palette, not the provider's.
+- Earlier status, 2026-11-15 (historical):
 - Slice 1 (1.0): PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41) (base main), CI
   green. Open; not approved, merged, installed or released.
 - Slice 2 (2.0): PR [#42](https://github.com/JonathanPorta/ai-usage/pull/42) (base #41's branch).
