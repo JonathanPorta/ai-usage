@@ -1,5 +1,5 @@
 ## Session State: ux-pass
-Last updated: 2026-11-19 (evening)
+Last updated: 2026-11-22
 
 **Status: phase 5 is implemented and merged to `main`: #41 to #45 (#45 as merge commit ceee949). Visual baselines are accepted. Interaction validation is partial; the four follow-up fixes are verified on screen; the fix branch is not yet merged.**
 Requirements come from the owner's work package (2026-11-13). Slices 1 to 4 are merged (#41, #42, #43, #44; merge commits
@@ -370,3 +370,13 @@ Pending: the reset-time chip in provider detail and History, and near the bottom
 - interaction validation: partial; four defects found, fixed on `jp/f/ux-closeout-fixes` and verified on screen; pointer-only controls and VoiceOver not exercised
 - installed: no
 - released: no
+
+### Closeout (2026-11-22)
+- implemented, code-reviewed and merged: yes through PR #46; `main` is 48cda57 and its CI was green
+- interaction validation (2026-11-19 to 2026-11-22, keyboard-reachable checks and an accessibility-driven sandbox session): passed for popover navigation, exact times on Overview/Monitoring/History/provider detail, tracking Off hiding a card and writing config, custom card order applied and stored, header badge popover and Open Monitoring link, manual collection, Settings, themes after restart, last valid theme kept
+- remaining human-only items (VoiceOver launch and speech, hover tooltips, drag reordering, first click after launch, History "Provider settings...", theme reload result): owner reported checking and accepted them on 2026-11-22 ("They all look good... should be approved"); owner acceptance, not itemised, not agent-observed
+- installed: yes, 2026-11-22 16:10 MST, the owner approved; a build of 48cda57 runs as the menu-bar app from a pinned clone. The collector is unchanged, so tracking "Auto" behaves as "On" until the collector is updated
+- released: no
+- not exercised by anyone on record: tracking back On via the UI, the invalid-theme notice, light mode, the in-progress header state, scrolled detail
+- known cosmetic follow-up: focus reveal panels use the global palette, not the provider's
+- note: the earlier sections above are historical; where they say "not installed" or "fix branch not merged", this section supersedes them

@@ -52,7 +52,7 @@
   - [x] 5.5 Per-provider progress through `once --progress`. *Validation:* black-box progress test; store progress test.
   - [x] 5.6 Notifications for limits and failures, once each. *Validation:* NotificationPlanner tests. Delivery is still a manual check.
   - [x] 5.7 Open at login (`SMAppService.mainApp`). *Validation:* manual check only.
-  - [ ] 5.8 Accepted native visual baselines in `docs/design/app/references/` (needs human acceptance).
+  - [x] 5.8 Accepted native visual baselines in `docs/design/app/references/` (owner accepted the proposed baselines 2026-11-19; merged with #45 as ceee949; UX pass closeout recorded 2026-11-22, owner accepted).
 - [x] 6.0 Test isolation and latency (owner request 2026-10-05)
   - [x] 6.1 Fail-closed `AI_USAGE_LAUNCHCTL`, a module guard, regression tests, incident record (PR #4).
   - [x] 6.2 Report scan 6.3 s → 2.35 s with byte-identical output.
