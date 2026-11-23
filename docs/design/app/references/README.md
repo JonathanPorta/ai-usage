@@ -142,3 +142,12 @@ crowds the range selector in Antigravity's quota view
 (`detail-antigravity-quota-*.png`) and extends outside the chart card in History
 (`history-quota-*.png`). Accepted as is; tracked as deferred polish, not a new
 design round.
+
+## Full-row disclosures (pending owner acceptance, 2026-11-22)
+
+Every disclosure (Monitoring "Details", "Inactive", "Technical details"; "Chart key";
+"Sources and diagnostics"; History "About these numbers") now uses the shared
+`FullRowDisclosureStyle`: the whole header row toggles and the chevron is drawn by the
+app. 98 images (49 views × light/dark: Monitoring, detail, History and their theme
+variants) were re-rendered with `make app-snapshot` and replace the previous baselines;
+`SHA256SUMS` regenerated. Overview and Settings renders are unchanged.

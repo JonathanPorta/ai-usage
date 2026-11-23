@@ -21,9 +21,47 @@ public struct ChartKey<Content: View>: View {
                 .padding(.top, T.Space.s1)
         } label: {
             Text("Chart key").font(.auCaption).foregroundStyle(T.Color.muted.color)
+                .accessibilityHint("Legend and how the chart is drawn")
         }
-        .accessibilityHint("Legend and how the chart is drawn")
+        .disclosureGroupStyle(.fullRow)
     }
+}
+
+/// The app's one disclosure look: the whole header row (chevron, label and the
+/// space after it) toggles, not only the small chevron. The header is a button,
+/// so VoiceOver reads the label with an expanded/collapsed value.
+public struct FullRowDisclosureStyle: DisclosureGroupStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: T.Duration.fast)) { configuration.isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(T.Color.muted.color)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .frame(width: 10)
+                        .accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
+    }
+}
+
+public extension DisclosureGroupStyle where Self == FullRowDisclosureStyle {
+    static var fullRow: FullRowDisclosureStyle { FullRowDisclosureStyle() }
 }
 
 /// A compact one-line empty state for a row inside a section: faded symbol,

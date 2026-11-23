@@ -42,7 +42,10 @@ public final class AppStore {
     public private(set) var snapshot: Report?
     public private(set) var phase: Phase = .loading
     /// Error from the most recent refresh, even when an older snapshot is still shown.
-    public private(set) var refreshError: String?
+    public private(set) var refreshError: String? {
+        // Part of the warning set: any change re-checks the acknowledgement.
+        didSet { if oldValue != refreshError { clearStaleWarningAcknowledgement() } }
+    }
     public private(set) var isRefreshing = false
     public private(set) var lastRefreshAt: Date?
     public private(set) var collect: CollectState = .idle
@@ -117,6 +120,7 @@ public final class AppStore {
         cardOrderMode = preferences.string(forKey: PreferenceKey.cardOrderMode).flatMap(CardOrderMode.init) ?? .recent
         customCardOrder = preferences.strings(forKey: PreferenceKey.customCardOrder) ?? []
         acknowledgedDetections = Set(preferences.strings(forKey: PreferenceKey.acknowledgedDetections) ?? [])
+        acknowledgedWarnings = preferences.string(forKey: PreferenceKey.acknowledgedWarnings)
         self.environment = environment
         self.reporter = reporter
         self.collector = collector
@@ -350,7 +354,84 @@ public final class AppStore {
     @discardableResult
     public func applySettings(_ changes: [ConfigChange]) async -> ActionState? {
         guard !changes.isEmpty else { return nil }
-        return await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+        // Another action is running: keep these and write them when it ends, so an edit
+        // committed on blur, leaving Settings or closing the panel is never dropped.
+        // A settings write is busy until its probe and refresh end too, so settings
+        // writes stay in order; queued edits keep only the latest per setting.
+        guard !isActing, !isWritingSettings else { queue(changes); return nil }
+        beginSettingsWrite(changes)
+        return await runSettingsWrite(changes)
+    }
+
+    private var isSettingsBusy: Bool { isActing || isWritingSettings }
+
+    /// Marks a settings write as started; synchronous, so no later edit can slip past it.
+    private func beginSettingsWrite(_ changes: [ConfigChange]) {
+        isWritingSettings = true
+        inFlightSettings = changes
+    }
+
+    private func runSettingsWrite(_ changes: [ConfigChange]) async -> ActionState? {
+        let outcome = await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+        isWritingSettings = false
+        inFlightSettings = []
+        // Another action started first: keep these, behind any newer edit for the same setting.
+        if outcome == nil {
+            let newer = Set(queuedSettings.map(\.settingKey))
+            queuedSettings = changes.filter { !newer.contains($0.settingKey) } + queuedSettings
+        }
+        await applyQueuedSettings()
+        return outcome
+    }
+
+    /// Saves subscription price fields (provider id → field text), so the last value in
+    /// each field is what ends up stored. A field is compared with that setting's
+    /// effective pending value: the queued edit, else the one being written, else the
+    /// reported price. Invalid text is never written; empty means no price.
+    @discardableResult
+    public func savePrices(_ texts: [String: String]) -> Task<Void, Never>? {
+        guard let report else { return nil }
+        var writes: [ConfigChange] = []
+        for (id, text) in texts.sorted(by: { $0.key < $1.key }) {
+            guard let provider = report.provider(id), let parsed = ConfigChange.parsePrice(text) else { continue }
+            let change = ConfigChange.pricing(provider, parsed)
+            let key = change.settingKey
+            let reported = ConfigChange.pricing(provider, provider.costs.subscription?.monthlyUsd)
+            let queued = queuedSettings.last { $0.settingKey == key }
+            let inFlight = inFlightSettings.last { $0.settingKey == key }
+            if change == (queued ?? inFlight ?? reported) { continue }
+            if isSettingsBusy, change == reported, inFlight == nil {
+                // Back to what is stored and nothing else is being written: drop the edit.
+                queuedSettings.removeAll { $0.settingKey == key }
+                continue
+            }
+            writes.append(change)
+        }
+        guard !writes.isEmpty else { return nil }
+        if isSettingsBusy { queue(writes); return nil }
+        beginSettingsWrite(writes)
+        return Task { _ = await self.runSettingsWrite(writes) }
+    }
+
+    /// Settings changes made while another action ran; written once it ends.
+    @ObservationIgnored private var queuedSettings: [ConfigChange] = []
+    /// True from a settings write's start until its probe and refresh are done.
+    @ObservationIgnored private var isWritingSettings = false
+    /// The changes the current settings write is storing.
+    @ObservationIgnored private var inFlightSettings: [ConfigChange] = []
+
+    private func queue(_ changes: [ConfigChange]) {
+        for change in changes {
+            queuedSettings.removeAll { $0.settingKey == change.settingKey }
+            queuedSettings.append(change)
+        }
+    }
+
+    private func applyQueuedSettings() async {
+        guard !queuedSettings.isEmpty, !isActing, !isWritingSettings else { return }
+        let changes = queuedSettings
+        queuedSettings = []
+        await applySettings(changes)
     }
 
     /// Adds an account through the collector.
@@ -386,6 +467,7 @@ public final class AppStore {
         action = outcome
         await probeService()
         await refresh()
+        await applyQueuedSettings()
         return outcome
     }
 
@@ -417,7 +499,7 @@ public final class AppStore {
         phase = .ready
         revision += 1
         if recentOrderSnapshot == nil { snapshotRecentOrder() }
-        if !cached { pruneDetectionAcknowledgements() }
+        if !cached { pruneDetectionAcknowledgements(); clearStaleWarningAcknowledgement() }
         if !cached, let report { onSnapshotChange?(report) }
     }
 
@@ -430,6 +512,8 @@ public final class AppStore {
     /// The automatic order taken when the popover opened; data refreshes never change it.
     public private(set) var recentOrderSnapshot: [String]?
     public private(set) var acknowledgedDetections: Set<String>
+    /// The warning signature the user last looked at; see `warningsAcknowledged`.
+    public private(set) var acknowledgedWarnings: String?
 
     /// Every report provider in display order (hidden ones included).
     public var orderedProviders: [Provider] {
@@ -495,8 +579,57 @@ public final class AppStore {
 
     /// Keep history (or opening settings): hides the notice until its condition changes.
     public func acknowledgeDetection(_ notice: DetectionNotice) {
+        // Done from the details the user is looking at: what remains stays seen.
+        let wasSeen = warningsAcknowledged
         acknowledgedDetections.insert(notice.acknowledgementKey)
         preferences.set(acknowledgedDetections.sorted(), forKey: PreferenceKey.acknowledgedDetections)
+        if wasSeen { acknowledgeWarnings() } else { clearStaleWarningAcknowledgement() }
+    }
+
+    /// A stable key for the set of things that make the result indicator a warning:
+    /// each active provider that is not fresh (with its health), each non-limit notice,
+    /// each detection notice and a refresh error. Empty when nothing is wrong.
+    public static func warningSignature(report: Report?, now: Date, detections: [DetectionNotice],
+                                        refreshError: String?) -> String {
+        var parts: [String] = []
+        if let report {
+            for provider in report.providers where MonitoringPage.isActive(provider) {
+                let health = MonitoringPage.health(provider)
+                if health != .fresh { parts.append("health:\(provider.id):\(health.rawValue)") }
+            }
+            parts += Presentation.notices(report, now: now).filter { $0.tone != .limit }.map { "notice:\($0.id)" }
+        }
+        parts += detections.map { "detection:\($0.acknowledgementKey)" }
+        if refreshError != nil { parts.append("refresh") }
+        return Set(parts).sorted().joined(separator: "|")
+    }
+
+    public var currentWarningSignature: String {
+        Self.warningSignature(report: report, now: now, detections: detectionNotices,
+                              refreshError: report == nil ? nil : refreshError)
+    }
+
+    /// The user has seen exactly the current warnings (opened the result popover or
+    /// Monitoring), so the indicator stays neutral until the set changes.
+    public var warningsAcknowledged: Bool {
+        let current = currentWarningSignature
+        return !current.isEmpty && current == acknowledgedWarnings
+    }
+
+    /// An acknowledgement holds only while the live set stays that set: once it becomes
+    /// anything else (healthy included), it is forgotten, so a returning set warns again.
+    private func clearStaleWarningAcknowledgement() {
+        guard let acknowledged = acknowledgedWarnings, acknowledged != currentWarningSignature else { return }
+        acknowledgedWarnings = nil
+        preferences.set(nil as String?, forKey: PreferenceKey.acknowledgedWarnings)
+    }
+
+    /// Viewing the result popover or Monitoring acknowledges the warnings shown there.
+    public func acknowledgeWarnings() {
+        let current = currentWarningSignature
+        guard current != acknowledgedWarnings else { return }
+        acknowledgedWarnings = current
+        preferences.set(current, forKey: PreferenceKey.acknowledgedWarnings)
     }
 
     private func pruneDetectionAcknowledgements() {

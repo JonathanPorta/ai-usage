@@ -166,6 +166,8 @@ public enum PreferenceKey {
     public static let cardOrderMode = "cardOrderMode"
     public static let customCardOrder = "customCardOrder"
     public static let acknowledgedDetections = "acknowledgedDetectionNotices"
+    /// The warning set last seen in the result popover or Monitoring (see `AppStore.acknowledgeWarnings`).
+    public static let acknowledgedWarnings = "acknowledgedWarningSet"
 }
 
 // MARK: - Card order

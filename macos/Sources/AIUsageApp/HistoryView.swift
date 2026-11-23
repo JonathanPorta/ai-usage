@@ -397,6 +397,7 @@ struct AboutNumbers: View {
                     }
                 }
         }
+        .disclosureGroupStyle(.fullRow)
         .focusEffectDisabled()
         .focused($focused)
     }
