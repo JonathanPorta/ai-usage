@@ -924,8 +924,11 @@ def build_report(
         # Local plugins (~/.ai-usage/plugins) are collected by 2.4.0 and newer.
         "external_plugins": installed_version is not None
         and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION,
-        # Providers carry tracking, tracking_effective, detection and last_activity_at.
-        "tracking_policy": True,
+        # Providers always carry tracking, tracking_effective, detection and last_activity_at;
+        # this says the installed collector honours Auto/On/Off and records detection. Set
+        # below from its state file: a collector that predates the policy (same VERSION
+        # 2.4.0) writes no tracking records, so its Auto collects as On, detection unknown.
+        "tracking_policy": False,
     }
     pause_requested = config.get("poll_paused") is True
 
@@ -967,6 +970,8 @@ def build_report(
         collector_state = {}
     recorded_tracking = collector_state.get(collector.TRACKING_STATE_KEY)
     has_records = isinstance(recorded_tracking, dict)
+    capabilities["tracking_policy"] = has_records and installed_version is not None \
+        and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION
     recorded_tracking = recorded_tracking if isinstance(recorded_tracking, dict) else {}
     account_by_id = {account.id: account for account in collector.accounts(config, discovery)}
     billed = {row.provider for row in scan.billing}

@@ -379,6 +379,8 @@ struct ActionBanner: View {
         case let .failed(text):
             NoticeBanner(notice: .init(id: "action", tone: .failure, title: "That didn’t work", detail: text, providerId: nil),
                          more: 0, action: store.dismissAction, actionTitle: "Dismiss")
+                // Seen: leaving this screen may clear it (AppStore.screenChanged).
+                .task(id: store.action) { store.actionBannerShown() }
         }
     }
 }

@@ -190,6 +190,59 @@ final class FrictionFixesTests: XCTestCase {
         XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)],
                                         [.monthlySubscription("claude", nil), .monthlySubscription("codex", 15)]])
     }
+
+    // MARK: Action banner lifetime
+
+    func testDoneClearsItselfAndFailureStaysUntilSeenAndLeft() async throws {
+        let config = SpyConfig()
+        let store = AppStore(environment: environment(), reporter: SpyReporter([.success(try fixture())]),
+                             collector: SpyCollector(), config: config)
+        store.actionDoneDisplay = .milliseconds(50)
+        await store.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(store.action, .done("Settings saved"))
+        await store.actionDismissal?.value
+        XCTAssertEqual(store.action, .idle, "a routine result doesn't linger on later screens")
+
+        config.error = ClientError.processFailed("refused")
+        await store.applySettings([.pollIntervalSeconds(10)])
+        XCTAssertEqual(store.action, .failed("refused"))
+        XCTAssertNil(store.actionDismissal, "a failure is never cleared on a timer")
+        store.screenChanged()
+        XCTAssertEqual(store.action, .failed("refused"), "not yet shown: a screen change keeps it")
+        store.actionBannerShown()
+        store.screenChanged()
+        XCTAssertEqual(store.action, .idle, "seen, then left: cleared")
+
+        await store.applySettings([.pollIntervalSeconds(10)])
+        store.actionBannerShown()
+        config.error = nil
+        store.actionDoneDisplay = .seconds(60)
+        await store.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(store.action, .done("Settings saved"), "a later success replaces the failure")
+        store.screenChanged()
+        XCTAssertEqual(store.action, .done("Settings saved"), "only failures clear on a screen change")
+        // A newer failure after a done cancels that done's timer and resets "seen".
+        config.error = ClientError.processFailed("again")
+        await store.applySettings([.pollIntervalSeconds(10)])
+        XCTAssertNil(store.actionDismissal)
+        store.screenChanged()
+        XCTAssertEqual(store.action, .failed("again"))
+    }
+    // MARK: History "Tracking is off"
+
+    func testAutoNotDetectedIsNotTrackingOff() throws {
+        var p = try legacyBase().providers[0]
+        p.tracking = .auto
+        p.trackingEffective = .inactive
+        p.enabled = false
+        p.setup = .notDetected
+        XCTAssertFalse(DetailPresentation.isTrackingOff(p), "Auto, not found: not off, so no \"Turn on tracking\" over Auto")
+        p.tracking = .off
+        XCTAssertTrue(DetailPresentation.isTrackingOff(p))
+        p.tracking = nil
+        p.setup = .disabled
+        XCTAssertTrue(DetailPresentation.isTrackingOff(p), "legacy collector: disabled is off")
+    }
 }
 
 final class HookReporter: ReportFetching, @unchecked Sendable {

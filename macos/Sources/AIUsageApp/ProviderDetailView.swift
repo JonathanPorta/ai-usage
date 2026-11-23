@@ -114,12 +114,19 @@ struct ProviderDetailView: View {
         let toggle = DetailPresentation.trackingToggle(provider, pending: pendingOn)
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: T.Space.s2) {
-                Image(systemName: toggle.waiting ? Symbols.waiting : (toggle.isOn ? Symbols.healthy : Symbols.paused))
-                    .foregroundStyle(toggle.isOn ? T.Color.success.color : T.Color.muted.color)
-                    .accessibilityHidden(true)
-                Text(toggle.status).font(.auBody).foregroundStyle(T.Color.text.color)
-                if pendingOn != nil { ProgressView().controlSize(.mini) }
-                Spacer()
+                // The status and the gap beside it toggle too (save ignores a click while
+                // saving); the switch keeps its own click, so one click is one toggle.
+                HStack(spacing: T.Space.s2) {
+                    Image(systemName: toggle.waiting ? Symbols.waiting : (toggle.isOn ? Symbols.healthy : Symbols.paused))
+                        .foregroundStyle(toggle.isOn ? T.Color.success.color : T.Color.muted.color)
+                        .accessibilityHidden(true)
+                    Text(toggle.status).font(.auBody).foregroundStyle(T.Color.text.color)
+                    if pendingOn != nil { ProgressView().controlSize(.mini) }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { if !store.isActing { save(!toggle.isOn, report: report) } }
+                .accessibilityHidden(true)
                 Toggle("Track \(provider.name)", isOn: Binding(get: { toggle.isOn }, set: { save($0, report: report) }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)
                     .disabled(store.isActing)

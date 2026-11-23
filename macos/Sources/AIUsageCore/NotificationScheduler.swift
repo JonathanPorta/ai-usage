@@ -20,6 +20,8 @@ public protocol NotificationCenterClient: AnyObject {
 public protocol DeliveredAlertStore: AnyObject {
     var deliveredKeys: Set<String> { get }
     func markDelivered(_ key: String)
+    /// Drops keys so those alerts can be delivered again (NotificationPlanner.rearmed).
+    func forget(_ keys: Set<String>)
 }
 
 /// Delivers planned alerts through the system, once each.

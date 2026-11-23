@@ -60,6 +60,7 @@ final class MemoryDeliveredStore: DeliveredAlertStore {
     private(set) var writes: [String] = []
     var deliveredKeys: Set<String> { Set(writes) }
     func markDelivered(_ key: String) { writes.append(key) }
+    func forget(_ keys: Set<String>) { writes.removeAll { keys.contains($0) } }
 }
 
 @MainActor

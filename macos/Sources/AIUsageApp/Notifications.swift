@@ -24,6 +24,8 @@ enum NotificationCenterBridge {
     }
 
     static func handle(_ report: Report, now: Date) {
+        let rearmed = NotificationPlanner.rearmed(for: report, delivered: store.deliveredKeys)
+        if !rearmed.isEmpty { store.forget(rearmed) }
         let alerts = NotificationPlanner.alerts(for: report, now: now, preferences: preferences, delivered: store.deliveredKeys)
         guard !alerts.isEmpty else { return }
         // Both switches default to on, so permission is asked for the first time
@@ -67,5 +69,10 @@ final class UserDefaultsDeliveredStore: DeliveredAlertStore {
         guard !keys.contains(alertKey) else { return }
         keys.append(alertKey)
         AppDefaults.shared.set(Array(keys.suffix(500)), forKey: key)
+    }
+
+    func forget(_ alertKeys: Set<String>) {
+        let keys = AppDefaults.shared.stringArray(forKey: key) ?? []
+        AppDefaults.shared.set(keys.filter { !alertKeys.contains($0) }, forKey: key)
     }
 }

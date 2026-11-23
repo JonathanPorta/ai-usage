@@ -551,7 +551,7 @@ public struct PlannedAlert: Equatable, Sendable {
 }
 
 /// Decides which notifications a snapshot warrants. Keys make each one fire
-/// once: per window and reset period for limits, per check for failures.
+/// once: per window and reset period for limits, per standing failure for failures.
 public enum NotificationPlanner {
     public static func alerts(for report: Report, now: Date, preferences: NotificationPreferences,
                               delivered: Set<String>) -> [PlannedAlert] {
@@ -569,7 +569,8 @@ public enum NotificationPlanner {
         }
         if preferences.failures, let attempt = report.collection.lastAttemptAt, now.timeIntervalSince(attempt) < 2 * 3600 {
             for failure in report.collection.failures {
-                let key = "failure|\(failure.provider ?? "collector")|\(failure.source ?? "")|\(ReportDate.format(attempt))"
+                let key = failureKey(failure)
+                guard !out.contains(where: { $0.key == key }) else { continue }
                 let name = failure.provider.flatMap { report.provider($0)?.name } ?? failure.provider ?? "The collector"
                 let title = failure.auth ? "\(name) needs you to sign in" :
                     (failure.kind == "collector" ? "The last check failed" : "\(name) check failed")
@@ -577,5 +578,39 @@ public enum NotificationPlanner {
             }
         }
         return out.filter { !delivered.contains($0.key) }
+    }
+
+    static let failurePrefix = "failure2|"
+
+    /// One key per standing failure (who, which source, what kind), not per check, so a
+    /// failure that persists across checks notifies once; see `rearmed`.
+    static func failureKey(_ failure: CollectionState.Failure) -> String {
+        "\(failurePrefix)\(failure.provider ?? "collector")|\(failure.source ?? "")|\(failure.auth ? "auth" : failure.kind)"
+    }
+
+    /// Delivered failure keys to forget, so that failure notifies again if it comes back:
+    /// those whose source has since succeeded (or whose provider or source is gone), and
+    /// keys from older versions, which carried the check time and can never match again.
+    /// A failure still in the report is kept, so it never notifies twice.
+    public static func rearmed(for report: Report, delivered: Set<String>) -> Set<String> {
+        let failing = Set(report.collection.failures.map(failureKey))
+        return delivered.filter { key in
+            if key.hasPrefix("failure|") { return true }
+            guard key.hasPrefix(failurePrefix), !failing.contains(key) else { return false }
+            let parts = key.dropFirst(failurePrefix.count).split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return true }
+            let providerId = String(parts[0]), sourceId = String(parts[1])
+            if providerId == "collector" {
+                // A later check ran without that collector failure.
+                return report.collection.lastAttemptAt != nil
+            }
+            guard let provider = report.provider(providerId) else { return true }
+            if sourceId.isEmpty {
+                return provider.sources.contains { $0.status == .ok }
+                    && !provider.sources.contains { $0.status == .failed || $0.status == .auth }
+            }
+            guard let source = provider.sources.first(where: { $0.id == sourceId }) else { return true }
+            return source.status == .ok
+        }
     }
 }

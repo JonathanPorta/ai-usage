@@ -7,14 +7,16 @@ public enum SettingsTracking {
     }
 
     /// What detection found; nil when there is nothing truthful to say
-    /// (no detection data, or a plugin with no install requirement).
+    /// (no detection recorded, or a plugin with no install requirement).
     public static func detectionText(_ provider: Provider) -> String? {
         guard let detection = provider.detection, detection.requirement != Detection.Requirement.none else { return nil }
         switch detection.installed {
         case true?: return "Installed"
         // The setup line already says "Not found…": don't repeat it, or contradict it.
         case false?: return provider.setup == .notDetected ? nil : "Not found"
-        case nil: return provider.setup == .notDetected ? nil : "Detection unknown"
+        // Nothing recorded yet (or a collector that never records it): the Auto status line
+        // ("Auto · checking") already says so; "Detection unknown" on every row says nothing.
+        case nil: return nil
         }
     }
 

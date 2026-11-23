@@ -411,6 +411,67 @@ final class PresentationTests: XCTestCase {
         XCTAssertTrue(late.isEmpty, "old failures don't notify")
     }
 
+    func testAStandingFailureNotifiesOnceAndAgainOnlyAfterItsSourceSucceeds() throws {
+        var report = try fixture()
+        let prefs = NotificationPreferences(limits: false, failures: true)
+        let first = NotificationPlanner.alerts(for: report, now: report.generatedAt, preferences: prefs, delivered: [])
+        let key = try XCTUnwrap(first.first { $0.title == "Grok Build check failed" }).key
+        XCTAssertFalse(key.contains("2026"), "the key never carries the check time")
+        var delivered: Set<String> = [key]
+
+        // The next check fails the same way: no second notification, and the key is kept.
+        let attempt = try XCTUnwrap(report.collection.lastAttemptAt)
+        report.collection.lastAttemptAt = attempt.addingTimeInterval(3600)
+        report.collection.failures[0].at = attempt.addingTimeInterval(3600)
+        let now = attempt.addingTimeInterval(3660)
+        XCTAssertTrue(NotificationPlanner.rearmed(for: report, delivered: delivered).isEmpty)
+        XCTAssertTrue(NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: delivered).isEmpty)
+
+        // Not in the list but the source isn't ok yet (stale, say): still not re-armed.
+        let failure = report.collection.failures[0]
+        report.collection.failures = []
+        report.set("grok") { p in p.sources[1].status = .stale }
+        XCTAssertTrue(NotificationPlanner.rearmed(for: report, delivered: delivered).isEmpty)
+
+        // The source succeeds: re-armed, and a new failure notifies again.
+        report.set("grok") { p in p.sources[1].status = .ok }
+        XCTAssertEqual(NotificationPlanner.rearmed(for: report, delivered: delivered), [key])
+        delivered.subtract(NotificationPlanner.rearmed(for: report, delivered: delivered))
+        report.collection.failures = [failure]
+        report.set("grok") { p in p.sources[1].status = .failed }
+        XCTAssertEqual(NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: delivered).map(\.key), [key])
+
+        // A different kind for the same source is a new failure; sign-in is its own kind.
+        var auth = failure
+        auth.auth = true
+        report.collection.failures = [auth]
+        let signIn = NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: [key])
+        XCTAssertEqual(signIn.map(\.title), ["Grok Build needs you to sign in"])
+        XCTAssertNotEqual(signIn.first?.key, key)
+        report.collection.failures = [auth, auth]
+        XCTAssertEqual(NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: []).count, 1)
+    }
+
+    func testDeliveredFailureKeysAreForgottenWhenTheyCanNeverMatchAgain() throws {
+        var report = try fixture()
+        let legacy = "failure|grok|billing|2026-09-29T16:17:00Z"
+        let gone = "failure2|removed-instance|usage|quota"
+        let goneSource = "failure2|grok|retired-source|quota"
+        let limit = "limit|codex|weekly|2026-10-01T00:00:00Z"
+        let standing = NotificationPlanner.failureKey(report.collection.failures[0])
+        let delivered: Set<String> = [legacy, gone, goneSource, limit, standing]
+        XCTAssertEqual(NotificationPlanner.rearmed(for: report, delivered: delivered), [legacy, gone, goneSource],
+                       "old timestamped keys and keys for removed providers or sources don't accumulate")
+        // The collector itself: re-armed once a later check reports no collector failure.
+        let collector = "failure2|collector||collector"
+        report.collection.failures = [CollectionState.Failure(provider: nil, source: nil, kind: "collector", at: nil,
+                                                     message: "boom", auth: false)]
+        XCTAssertEqual(NotificationPlanner.failureKey(report.collection.failures[0]), collector)
+        XCTAssertFalse(NotificationPlanner.rearmed(for: report, delivered: [collector]).contains(collector))
+        report.collection.failures = []
+        XCTAssertTrue(NotificationPlanner.rearmed(for: report, delivered: [collector]).contains(collector))
+    }
+
     func testPausedStatusKeepsCollectNowAvailable() throws {
         var report = try fixture()
         report.schedule.state = "paused"

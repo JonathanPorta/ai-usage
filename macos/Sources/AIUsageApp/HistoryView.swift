@@ -563,21 +563,35 @@ private struct SetupNotice: View {
     @Environment(AppStore.self) private var store
     @Environment(Navigation.self) private var navigation
     let provider: Provider
+    @State private var saveFailure: String?
 
     var body: some View {
-        if DetailPresentation.isTrackingOff(provider) || !provider.enabled {
-            notice("Tracking is off for \(provider.name); earlier history is shown.") {
-                Button("Turn on tracking") {
-                    Task {
-                        await store.applySettings([DetailPresentation.trackingChange(
-                            provider, on: true, supportsPolicy: DetailPresentation.supportsPolicy(store.report))])
-                    }
+        // Off only: Auto-but-not-found is not "off", and turning it on would replace Auto.
+        if DetailPresentation.isTrackingOff(provider) {
+            VStack(alignment: .leading, spacing: T.Space.s1) {
+                notice("Tracking is off for \(provider.name); earlier history is shown.") {
+                    Button("Turn on tracking", action: turnOn)
+                }
+                if let saveFailure {
+                    Label("Couldn't save: \(saveFailure)", systemImage: Symbols.failure)
+                        .font(.auCaption).foregroundStyle(T.Color.danger.color)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         } else if provider.setup == .notDetected || provider.setup == .notConfigured {
             notice("\(Presentation.setupText(provider) ?? "\(provider.name) needs attention.") Earlier history is shown.") {
                 Button("Provider settings…") { ProviderSettingsRoute.open(provider.id, navigation: navigation) }
             }
+        }
+    }
+
+    /// As ProviderDetailView.save: only this write's own outcome is shown.
+    private func turnOn() {
+        saveFailure = nil
+        let change = DetailPresentation.trackingChange(provider, on: true,
+                                                       supportsPolicy: DetailPresentation.supportsPolicy(store.report))
+        Task {
+            if case let .failed(reason)? = await store.applySettings([change]) { saveFailure = reason }
         }
     }
 

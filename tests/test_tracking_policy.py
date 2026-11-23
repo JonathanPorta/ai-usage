@@ -411,6 +411,27 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(provider(newer, "claude")["tracking_effective"], "pending")
         self.assertIs(provider(newer, "claude")["enabled"], False)
 
+    def test_tracking_policy_capability_follows_the_collectors_records(self) -> None:
+        # A collector that predates the policy (also VERSION 2.4.0) writes no tracking
+        # records: its Auto collects as On and detection is never known, so the app must
+        # not offer Auto/On/Off or say "Detection unknown" on every row.
+        self.box.set("claude", tracking="auto")
+        older = self.box.build({"history_date": "2026-09-29"})
+        self.assertIs(older["collector"]["capabilities"]["tracking_policy"], False)
+        self.assertEqual(provider(older, "claude")["tracking_effective"], "active")
+        empty = self.box.build({"history_date": "2026-09-29", "tracking": {}})
+        self.assertIs(empty["collector"]["capabilities"]["tracking_policy"], True,
+                      "a collector that records tracking, even with no accounts yet")
+        newer = self.box.build(self.record(claude={"effective": "active", "installed": True}))
+        self.assertIs(newer["collector"]["capabilities"]["tracking_policy"], True)
+        config = self.box.config()
+        for version in (None, (2, 3, 0)):
+            built = report.build_report(config, config_path=self.box.config_path, now=NOW,
+                                        service={"state": "running", "pid": 1, "disabled": False, "detail": ""},
+                                        installed_version=version)
+            self.assertIs(built["collector"]["capabilities"]["tracking_policy"], False,
+                          f"records left by a newer collector don't count for {version}")
+
     def test_policy_changed_since_the_record_uses_the_last_observation(self) -> None:
         self.box.set("claude", tracking="auto")
         built = self.box.build(self.record(claude={"policy": "off", "effective": "inactive",

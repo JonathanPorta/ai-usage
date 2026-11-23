@@ -100,6 +100,11 @@ public final class AppStore {
     /// daemon schedules after its start-up check; only then is the new schedule logged.
     @ObservationIgnored public var scheduleSettleDelay: Duration = .seconds(16)
     @ObservationIgnored public private(set) var scheduleFollowUp: Task<Void, Never>?
+    /// How long a routine "done" result stays in the action banner.
+    @ObservationIgnored public var actionDoneDisplay: Duration = .seconds(6)
+    @ObservationIgnored public private(set) var actionDismissal: Task<Void, Never>?
+    /// Whether an action banner has shown the current failure; only a seen one is cleared on a screen change.
+    @ObservationIgnored private var actionShown = false
 
     public init(
         environment: CollectorEnvironment,
@@ -456,7 +461,7 @@ public final class AppStore {
     @discardableResult
     private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async -> ActionState? {
         guard !isActing else { return nil }
-        action = .running(running)
+        setAction(.running(running))
         let outcome: ActionState
         do {
             try await body()
@@ -464,7 +469,7 @@ public final class AppStore {
         } catch {
             outcome = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
-        action = outcome
+        setAction(outcome)
         await probeService()
         await refresh()
         await applyQueuedSettings()
@@ -476,7 +481,32 @@ public final class AppStore {
 
     public func dismissAction() {
         if case .running = action { return }
-        action = .idle
+        setAction(.idle)
+    }
+
+    /// An action banner is showing the current result.
+    public func actionBannerShown() { actionShown = true }
+
+    /// The popover moved to another screen: a failure the user has already seen is
+    /// cleared so it doesn't reappear on unrelated screens; an unseen one is kept.
+    public func screenChanged() {
+        if case .failed = action, actionShown { setAction(.idle) }
+    }
+
+    /// Every result replaces the last (a later success clears a failure); a "done"
+    /// clears itself after `actionDoneDisplay` unless something newer replaced it.
+    private func setAction(_ state: ActionState) {
+        action = state
+        actionShown = false
+        actionDismissal?.cancel()
+        actionDismissal = nil
+        guard case .done = state else { return }
+        let delay = actionDoneDisplay
+        actionDismissal = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.action == state else { return }
+            self.setAction(.idle)
+        }
     }
 
     // MARK: Internals
