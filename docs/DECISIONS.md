@@ -279,3 +279,8 @@ routine choice made within the approved scope; change it freely with a new entry
   - Parity: only `VERSION` 2.4.0 and `capabilities.external_plugins` are declared. The scenarios also run with an empty plugins folder and with unconfigured and invalid plugins, and phase 2's data carries forward from `357bcee`.
 
 **Reason:** the owner's private work-tool collector runs on the work laptop without forking this repository, and a faulty plugin can't stall a poll or change another provider's data. It is trusted local code, not a sandboxed one.
+
+## Collector 2.5.0 identifies the tracking policy (2026-11-22, PR #49)
+
+- The Auto/On/Off policy (#41, issue #8) shipped under `VERSION` 2.4.0, so a pre-policy 2.4.0 collector and a policy-capable one could not be told apart. `VERSION` becomes 2.5.0 and `capabilities.tracking_policy` is `installed_version >= 2.5.0`, like `pause`, `instances` and `external_plugins`. Tracking records in the state file never decide it; for an older collector they are ignored. This does not authorize a release or changing the installed collector.
+- With an older collector the app shows a plain On/Off switch. Off writes `tracking: off` (mirrored `enabled: false`); On over a saved Auto writes `auto` (no `enabled`, which 2.4.0 collects), so a saved Auto is kept.

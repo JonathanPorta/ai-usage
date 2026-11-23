@@ -63,6 +63,10 @@ struct PopoverRoot: View {
                                        maxHeight: maxHeight, initialMetric: detailMetric)
                         .themeScope(provider.id)
                         .transition(transition)
+                } else {
+                    // The provider left the report (account removed or renamed, plugin gone)
+                    // while its detail was open: return to the overview, never a blank panel.
+                    MissingDetail(back: { screen = nil }, maxHeight: maxHeight)
                 }
             case .monitoring?:
                 MonitoringView(back: back, openDetail: { screen = .detail($0) }, maxHeight: maxHeight)
@@ -77,6 +81,7 @@ struct PopoverRoot: View {
         .frame(width: T.Layout.popoverWidth)
         .background(T.Color.background.color)
         .animation(reduceMotion ? nil : .easeOut(duration: T.Duration.medium), value: screen)
+        .onChange(of: screen) { store.screenChanged() }
         // A `.window` MenuBarExtra keeps its content alive between opens, so
         // `.onAppear` runs only once; the panel becoming key marks each open.
         .background(PanelShownObserver { focusRingsVisible = false; store.popoverOpened() })
@@ -212,5 +217,27 @@ struct MouseDownObserver: NSViewRepresentable {
         }
 
         deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    }
+}
+
+/// Detail for a provider no longer in the report. With a report loaded it goes straight
+/// back to the overview; without one (still loading) it offers Back instead of a blank panel.
+private struct MissingDetail: View {
+    @Environment(AppStore.self) private var store
+    let back: () -> Void
+    let maxHeight: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.Space.s3) {
+            Button(action: back) { Label("Overview", systemImage: Symbols.back) }
+                .buttonStyle(.link).font(.auBody)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Back to overview")
+            Text("This provider is no longer in the report.").font(.auCaption)
+                .foregroundStyle(T.Color.muted.color)
+        }
+        .padding(T.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: store.report == nil) { if store.report != nil { back() } }
     }
 }

@@ -10,7 +10,7 @@ final class SettingsTrackingTests: XCTestCase {
         p.detection = Detection(installed: false, requirement: .executable, savedData: true)
         XCTAssertEqual(SettingsTracking.detectionText(p), "Not found")
         p.detection = Detection(installed: nil, requirement: .executable, savedData: nil)
-        XCTAssertEqual(SettingsTracking.detectionText(p), "Detection unknown")
+        XCTAssertNil(SettingsTracking.detectionText(p), "no record: say nothing, not \"Detection unknown\"")
         p.detection = Detection(installed: nil, requirement: Detection.Requirement.none, savedData: nil)
         XCTAssertNil(SettingsTracking.detectionText(p))
     }

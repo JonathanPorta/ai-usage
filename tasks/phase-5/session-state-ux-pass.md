@@ -380,3 +380,9 @@ Pending: the reset-time chip in provider detail and History, and near the bottom
 - not exercised by anyone on record: tracking back On via the UI, the invalid-theme notice, light mode, the in-progress header state, scrolled detail
 - known cosmetic follow-up: focus reveal panels use the global palette, not the provider's
 - note: the earlier sections above are historical; where they say "not installed" or "fix branch not merged", this section supersedes them
+
+### Owner-reported defect fixes (2026-11-22)
+- fixed in PR #48 (merged as 9c14a40) and PR #49 (this branch; the second batch plus its review findings). PR #49 also makes the collector `VERSION` 2.5.0, so a pre-policy 2.4.0 install (like the one installed) reads as having no tracking policy
+- automated evidence only: unit tests (`make test`, `make app-test`) and offscreen fixture renders (`make app-snapshot-check`). Not verified on screen
+- reference images changed in #48 (98) and #49 are pending owner acceptance; the owner's 2026-11-19 baseline acceptance and 2026-11-22 UX acceptance do not cover them
+- installed: neither fix is in the installed app yet

@@ -104,9 +104,12 @@ public enum DetailPresentation {
         return TrackingToggle(isOn: effectiveOn, status: status, autoControlled: true)
     }
 
-    /// Off -> Off, on -> On; the legacy enabled key when the collector has no tracking policy.
+    /// Off -> Off, on -> On. With an older installed collector (no tracking policy), which
+    /// reads only `enabled` and collects Auto as On, turning on a provider saved as Auto keeps
+    /// Auto (the writer removes `enabled`, so it is collected) instead of replacing it with On.
     public static func trackingChange(_ provider: Provider, on: Bool, supportsPolicy: Bool) -> ConfigChange {
-        supportsPolicy ? .tracking(provider, on ? .on : .off) : .enabling(provider, on)
+        if !supportsPolicy, on, provider.trackingMode == .auto { return .tracking(provider, .auto) }
+        return .tracking(provider, on ? .on : .off)
     }
 
     public static func supportsPolicy(_ report: Report?) -> Bool {

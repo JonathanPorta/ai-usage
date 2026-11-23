@@ -100,6 +100,11 @@ public final class AppStore {
     /// daemon schedules after its start-up check; only then is the new schedule logged.
     @ObservationIgnored public var scheduleSettleDelay: Duration = .seconds(16)
     @ObservationIgnored public private(set) var scheduleFollowUp: Task<Void, Never>?
+    /// How long a routine "done" result stays in the action banner.
+    @ObservationIgnored public var actionDoneDisplay: Duration = .seconds(6)
+    @ObservationIgnored public private(set) var actionDismissal: Task<Void, Never>?
+    /// Whether an action banner has shown the current failure; only a seen one is cleared on a screen change.
+    @ObservationIgnored private var actionShown = false
 
     public init(
         environment: CollectorEnvironment,
@@ -350,7 +355,9 @@ public final class AppStore {
         }
     }
 
-    /// Returns how the save ended; nil when it did not run (nothing to save, or another action was running).
+    /// Returns how the save ended. Changes queued behind another action return the outcome
+    /// of the write that eventually stores them (or of a newer edit of the same setting that
+    /// replaced them); nil only when nothing was saved (no changes, or the edit was dropped).
     @discardableResult
     public func applySettings(_ changes: [ConfigChange]) async -> ActionState? {
         guard !changes.isEmpty else { return nil }
@@ -358,9 +365,32 @@ public final class AppStore {
         // committed on blur, leaving Settings or closing the panel is never dropped.
         // A settings write is busy until its probe and refresh end too, so settings
         // writes stay in order; queued edits keep only the latest per setting.
-        guard !isActing, !isWritingSettings else { queue(changes); return nil }
+        guard !isActing, !isWritingSettings else {
+            queue(changes)
+            return await queuedOutcome(changes)
+        }
         beginSettingsWrite(changes)
-        return await runSettingsWrite(changes)
+        if let outcome = await runSettingsWrite(changes) { return outcome }
+        // Another action started first: they were queued; wait for their write.
+        return await queuedOutcome(changes)
+    }
+
+    /// Callers waiting for queued changes, by setting key.
+    @ObservationIgnored private var settingsWaiters: [(keys: Set<String>, resume: CheckedContinuation<ActionState?, Never>)] = []
+
+    private func queuedOutcome(_ changes: [ConfigChange]) async -> ActionState? {
+        let keys = Set(changes.map { String($0.settingKey) })
+        // Already written meanwhile (nothing of these left in the queue): nothing to wait for.
+        guard queuedSettings.contains(where: { keys.contains(String($0.settingKey)) }) else { return nil }
+        return await withCheckedContinuation { settingsWaiters.append((keys, $0)) }
+    }
+
+    /// Resumes waiters with no queued change left (their edit was dropped).
+    private func releaseDroppedWaiters() {
+        let queued = Set(queuedSettings.map { String($0.settingKey) })
+        let dropped = settingsWaiters.filter { $0.keys.isDisjoint(with: queued) }
+        settingsWaiters.removeAll { $0.keys.isDisjoint(with: queued) }
+        dropped.forEach { $0.resume.resume(returning: nil) }
     }
 
     private var isSettingsBusy: Bool { isActing || isWritingSettings }
@@ -403,6 +433,7 @@ public final class AppStore {
             if isSettingsBusy, change == reported, inFlight == nil {
                 // Back to what is stored and nothing else is being written: drop the edit.
                 queuedSettings.removeAll { $0.settingKey == key }
+                releaseDroppedWaiters()
                 continue
             }
             writes.append(change)
@@ -431,7 +462,16 @@ public final class AppStore {
         guard !queuedSettings.isEmpty, !isActing, !isWritingSettings else { return }
         let changes = queuedSettings
         queuedSettings = []
-        await applySettings(changes)
+        // The callers waiting on these are answered by this write's outcome.
+        let keys = Set(changes.map { String($0.settingKey) })
+        let bound = settingsWaiters.filter { !$0.keys.isDisjoint(with: keys) }
+        settingsWaiters.removeAll { !$0.keys.isDisjoint(with: keys) }
+        beginSettingsWrite(changes)
+        if let outcome = await runSettingsWrite(changes) {
+            bound.forEach { $0.resume.resume(returning: outcome) }
+        } else {
+            settingsWaiters += bound  // re-queued behind another action: still waiting
+        }
     }
 
     /// Adds an account through the collector.
@@ -456,7 +496,7 @@ public final class AppStore {
     @discardableResult
     private func perform(_ running: String, success: String, _ body: @escaping () async throws -> Void) async -> ActionState? {
         guard !isActing else { return nil }
-        action = .running(running)
+        setAction(.running(running))
         let outcome: ActionState
         do {
             try await body()
@@ -464,7 +504,7 @@ public final class AppStore {
         } catch {
             outcome = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
-        action = outcome
+        setAction(outcome)
         await probeService()
         await refresh()
         await applyQueuedSettings()
@@ -476,7 +516,32 @@ public final class AppStore {
 
     public func dismissAction() {
         if case .running = action { return }
-        action = .idle
+        setAction(.idle)
+    }
+
+    /// An action banner is showing the current result.
+    public func actionBannerShown() { actionShown = true }
+
+    /// The popover moved to another screen: a failure the user has already seen is
+    /// cleared so it doesn't reappear on unrelated screens; an unseen one is kept.
+    public func screenChanged() {
+        if case .failed = action, actionShown { setAction(.idle) }
+    }
+
+    /// Every result replaces the last (a later success clears a failure); a "done"
+    /// clears itself after `actionDoneDisplay` unless something newer replaced it.
+    private func setAction(_ state: ActionState) {
+        action = state
+        actionShown = false
+        actionDismissal?.cancel()
+        actionDismissal = nil
+        guard case .done = state else { return }
+        let delay = actionDoneDisplay
+        actionDismissal = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.action == state else { return }
+            self.setAction(.idle)
+        }
     }
 
     // MARK: Internals

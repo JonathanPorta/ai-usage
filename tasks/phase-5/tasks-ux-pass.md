@@ -214,6 +214,9 @@
     on those items (busy feedback, scrolled reset chip, invalid-theme and light-mode behavior); 1.0 stays unchecked
     because its own status text (pre-PR wording) was not rewritten here.
   - Known cosmetic follow-up: focus reveal panels use the global palette, not the provider's.
+- **Defect fixes (2026-11-22):** owner-reported defects fixed in PR #48 (merged 9c14a40) and PR #49. Evidence is
+  automated only (unit tests and offscreen renders). The changed reference images in #48 (98) and #49 are pending
+  owner acceptance; the 2026-11-19 baseline and 2026-11-22 UX acceptances don't cover them. Neither fix is installed.
 - Earlier status, 2026-11-15 (historical):
 - Slice 1 (1.0): PR [#41](https://github.com/JonathanPorta/ai-usage/pull/41) (base main), CI
   green. Open; not approved, merged, installed or released.

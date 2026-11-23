@@ -163,7 +163,10 @@ reported*. It never means zero.
     "capabilities": { "pause": false, "progress": false, "service_control": true, "settings": true,
                       "instances": false,          // the installed collector collects added accounts (2.3.0+)
                       "external_plugins": false,   // ... and runs local plugins (2.4.0+)
-                      "tracking_policy": true },   // providers carry tracking/detection keys
+                      "tracking_policy": false },  // ... and honours Auto/On/Off and records detection (2.5.0+).
+                                                   // Providers always carry the tracking keys; when false,
+                                                   // Auto collects as On, detection is null, and state-file
+                                                   // tracking records (left by a newer collector) are ignored
     "plugin_errors": { "plugins/broken": "plugins/broken/plugin.json: protocol must be 1" }
                                  // present only when a bundled module failed to load or a local plugin folder is invalid
   },

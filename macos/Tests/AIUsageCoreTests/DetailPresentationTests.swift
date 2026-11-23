@@ -23,9 +23,21 @@ final class DetailPresentationTests: XCTestCase {
         XCTAssertEqual(DetailPresentation.trackingChange(codex, on: true, supportsPolicy: true), .providerTracking("codex", .on))
     }
 
-    func testToggleFallsBackToLegacyEnabledWithoutTrackingPolicy() throws {
-        let codex = try provider("codex")
-        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: false, supportsPolicy: false), .providerEnabled("codex", false))
+    func testToggleWithoutTrackingPolicyNeverReplacesASavedAuto() throws {
+        var codex = try provider("codex")
+        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: false, supportsPolicy: false), .providerTracking("codex", .off))
+        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: true, supportsPolicy: false), .providerTracking("codex", .on))
+        codex.tracking = .auto
+        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: true, supportsPolicy: false), .providerTracking("codex", .auto),
+                       "an older collector collects Auto: On keeps the saved Auto")
+        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: false, supportsPolicy: false), .providerTracking("codex", .off))
+        XCTAssertEqual(DetailPresentation.trackingChange(codex, on: true, supportsPolicy: true), .providerTracking("codex", .on),
+                       "with the policy, the switch sets On explicitly")
+        let account = try fixture().adding(instance: "claude-az", copying: "claude", name: "Claude (az)").provider("claude-az")!
+        var auto = account
+        auto.tracking = .auto
+        XCTAssertEqual(DetailPresentation.trackingChange(auto, on: true, supportsPolicy: false).assignment,
+                       "instances.claude-az.tracking=\"auto\"")
         var report = try fixture()
         report.collector.capabilities?.trackingPolicy = nil
         XCTAssertFalse(DetailPresentation.supportsPolicy(report))

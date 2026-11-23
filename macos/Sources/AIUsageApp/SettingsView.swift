@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var pendingTracking: [String: TrackingMode] = [:]
     /// The provider whose price field has focus; leaving it saves the edit.
     @FocusState private var focusedPrice: String?
+    @State private var bannerHeight: CGFloat = 0
 
     static let intervals: [(Int, String)] = [(900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
                                              (7200, "2 hours"), (14400, "4 hours"), (43200, "12 hours")]
@@ -35,11 +36,16 @@ struct SettingsView: View {
                 .buttonStyle(.link).font(.auBody)
                 .keyboardShortcut(.cancelAction)
                 .padding([.horizontal, .top], T.Space.s4)
+            // Pinned above the scrolling form, so a save failure from a lower row is seen.
+            if store.action != .idle {
+                ActionBanner()
+                    .padding([.horizontal, .top], T.Space.s4)
+                    .readHeight($bannerHeight)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: T.Space.s4) {
                         Text("Settings").font(.auTitle).accessibilityAddTraits(.isHeader)
-                        ActionBanner()
                         if let report = store.report {
                             collectorSection(report)
                             providersSection(report)
@@ -54,7 +60,7 @@ struct SettingsView: View {
                 .onAppear { scroll(proxy) }
                 .onChange(of: focusProvider) { _, _ in scroll(proxy) }
             }
-            .frame(maxHeight: maxHeight - 40)
+            .frame(maxHeight: maxHeight - 40 - (store.action == .idle ? 0 : bannerHeight))
         }
         .onExitCommand(perform: back)
         .onAppear(perform: loadPrices)
@@ -148,7 +154,8 @@ struct SettingsView: View {
                     } else {
                         SwitchRow(isOn: Binding(
                             get: { provider.enabled },
-                            set: { value in Task { await store.applySettings([.enabling(provider, value)]) } }
+                            set: { value in Task { await store.applySettings([DetailPresentation.trackingChange(
+                                provider, on: value, supportsPolicy: false)]) } }
                         ), title: provider.name,
                            subtitle: subtitle(provider, report: report))
                         .disabled(store.isActing)
@@ -346,14 +353,21 @@ struct SwitchRow: View {
     @Binding var isOn: Bool
     let title: String
     var subtitle: String?
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.auBody)
-                if let subtitle { Text(subtitle).font(.auCaption).foregroundStyle(T.Color.muted.color) }
+            // The text and the gap beside it toggle too; the switch keeps its own click,
+            // so one click is one toggle.
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.auBody)
+                    if let subtitle { Text(subtitle).font(.auCaption).foregroundStyle(T.Color.muted.color) }
+                }
+                Spacer(minLength: T.Space.s2)
             }
-            Spacer(minLength: T.Space.s2)
+            .contentShape(Rectangle())
+            .onTapGesture { if isEnabled { isOn.toggle() } }
             Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }
         .accessibilityElement(children: .combine)

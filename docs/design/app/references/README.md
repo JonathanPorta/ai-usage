@@ -151,3 +151,22 @@ Every disclosure (Monitoring "Details", "Inactive", "Technical details"; "Chart 
 app. 98 images (49 views × light/dark: Monitoring, detail, History and their theme
 variants) were re-rendered with `make app-snapshot` and replace the previous baselines;
 `SHA256SUMS` regenerated. Overview and Settings renders are unchanged.
+
+## Settings without "Detection unknown" (pending owner acceptance, 2026-11-22)
+
+Settings no longer writes "Detection unknown" under a provider when the collector has
+recorded nothing about detection; the row shows only what is known ("Installed", "Not
+found", or the Auto status). The fixture providers carry no detection record, so 18
+images (9 Settings views × light/dark: `popover-settings-*` and `theme-settings-*`) lose
+that line and their rows move up.
+They were re-rendered with `make app-snapshot` and replace the previous baselines;
+`SHA256SUMS` updated for those 18 files. No other render changed.
+
+## Collector 2.5.0 in Settings (pending owner acceptance, 2026-11-22)
+
+The collector's `VERSION` became 2.5.0 (the version that identifies the tracking policy),
+so the fixtures report 2.5.0 and Settings' "This app" line reads "Collector installed:
+2.5.0 · reporting: 2.5.0". The 10 Settings renders that show that line
+(`popover-settings-custom-order`, `-detection-notice`, `-no-tracking-policy`,
+`theme-settings`, `theme-settings-invalid`, light and dark) were re-rendered; nothing
+else in them changed. `SHA256SUMS` updated for those files.
