@@ -141,6 +141,55 @@ final class FrictionFixesTests: XCTestCase {
         XCTAssertNotNil(subject.refreshError)
         XCTAssertFalse(subject.warningsAcknowledged)
     }
+
+    private func pricedStore(_ config: ConfigWriting) async throws -> AppStore {
+        var report = try fixture()
+        report.set("claude") { $0.costs.subscription = .init(monthlyUsd: 20, source: "user", enteredByUser: true) }
+        let subject = AppStore(environment: environment(), reporter: SpyReporter([.success(report)]),
+                               collector: SpyCollector(), service: SpyService(), config: config)
+        await subject.refresh()
+        return subject
+    }
+
+    private func storedClaudePrice(_ applied: [[ConfigChange]]) -> Double?? {
+        for change in applied.flatMap({ $0 }).reversed() {
+            if case let .monthlySubscription("claude", value) = change { return .some(value) }
+        }
+        return nil
+    }
+
+    func testRevertToReportedPriceReplacesAQueuedEdit() async throws {
+        let config = ReentrantConfig()
+        let subject = try await pricedStore(config)
+        config.duringFirst = {
+            XCTAssertNil(subject.savePrices(["claude": "30"]), "queued behind the running write")
+            XCTAssertNil(subject.savePrices(["claude": "20"]), "back to the reported price")
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)]], "the queued 30 is never written")
+        XCTAssertNil(storedClaudePrice(config.applied), "stored price stays the reported 20")
+    }
+
+    func testRevertWhileThatPriceIsBeingWrittenIsWrittenAfterIt() async throws {
+        let config = ReentrantConfig()
+        let subject = try await pricedStore(config)
+        config.duringFirst = { _ = subject.savePrices(["claude": "20"]) }
+        await subject.savePrices(["claude": "30"])?.value
+        XCTAssertEqual(storedClaudePrice(config.applied), .some(20))
+        XCTAssertEqual(config.applied, [[.monthlySubscription("claude", 30)], [.monthlySubscription("claude", 20)]])
+    }
+
+    func testLastFieldValuesWinForTwoProvidersAndEmptyMeansNone() async throws {
+        let config = ReentrantConfig()
+        let subject = try await pricedStore(config)
+        config.duringFirst = {
+            _ = subject.savePrices(["claude": "25", "codex": "abc"])
+            _ = subject.savePrices(["claude": "", "codex": "15"])
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)],
+                                        [.monthlySubscription("claude", nil), .monthlySubscription("codex", 15)]])
+    }
 }
 
 final class HookReporter: ReportFetching, @unchecked Sendable {

@@ -277,17 +277,12 @@ struct SettingsView: View {
     }
 
     private func savePrice(_ provider: Provider) {
-        guard let change = ConfigChange.pricing(provider, text: prices[provider.id] ?? "") else { return }
-        Task { await store.applySettings([change]) }
+        guard let text = prices[provider.id] else { return }
+        store.savePrices([provider.id: text])
     }
 
-    /// Every edited, valid price in one write (leaving Settings or closing the panel).
-    private func saveAllPrices() {
-        guard let report = store.report else { return }
-        let changes = report.providers.compactMap { ConfigChange.pricing($0, text: prices[$0.id] ?? "") }
-        guard !changes.isEmpty else { return }
-        Task { await store.applySettings(changes) }
-    }
+    /// Every price field in one save (leaving Settings or closing the panel).
+    private func saveAllPrices() { store.savePrices(prices) }
 
     private var notificationsSection: some View {
         section("Notifications") {

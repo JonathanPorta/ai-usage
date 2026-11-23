@@ -359,17 +359,66 @@ public final class AppStore {
         // A settings write is busy until its probe and refresh end too, so settings
         // writes stay in order; queued edits keep only the latest per setting.
         guard !isActing, !isWritingSettings else { queue(changes); return nil }
+        beginSettingsWrite(changes)
+        return await runSettingsWrite(changes)
+    }
+
+    private var isSettingsBusy: Bool { isActing || isWritingSettings }
+
+    /// Marks a settings write as started; synchronous, so no later edit can slip past it.
+    private func beginSettingsWrite(_ changes: [ConfigChange]) {
         isWritingSettings = true
+        inFlightSettings = changes
+    }
+
+    private func runSettingsWrite(_ changes: [ConfigChange]) async -> ActionState? {
         let outcome = await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
         isWritingSettings = false
+        inFlightSettings = []
+        // Another action started first: keep these, behind any newer edit for the same setting.
+        if outcome == nil {
+            let newer = Set(queuedSettings.map(\.settingKey))
+            queuedSettings = changes.filter { !newer.contains($0.settingKey) } + queuedSettings
+        }
         await applyQueuedSettings()
         return outcome
+    }
+
+    /// Saves subscription price fields (provider id → field text), so the last value in
+    /// each field is what ends up stored. A field is compared with that setting's
+    /// effective pending value: the queued edit, else the one being written, else the
+    /// reported price. Invalid text is never written; empty means no price.
+    @discardableResult
+    public func savePrices(_ texts: [String: String]) -> Task<Void, Never>? {
+        guard let report else { return nil }
+        var writes: [ConfigChange] = []
+        for (id, text) in texts.sorted(by: { $0.key < $1.key }) {
+            guard let provider = report.provider(id), let parsed = ConfigChange.parsePrice(text) else { continue }
+            let change = ConfigChange.pricing(provider, parsed)
+            let key = change.settingKey
+            let reported = ConfigChange.pricing(provider, provider.costs.subscription?.monthlyUsd)
+            let queued = queuedSettings.last { $0.settingKey == key }
+            let inFlight = inFlightSettings.last { $0.settingKey == key }
+            if change == (queued ?? inFlight ?? reported) { continue }
+            if isSettingsBusy, change == reported, inFlight == nil {
+                // Back to what is stored and nothing else is being written: drop the edit.
+                queuedSettings.removeAll { $0.settingKey == key }
+                continue
+            }
+            writes.append(change)
+        }
+        guard !writes.isEmpty else { return nil }
+        if isSettingsBusy { queue(writes); return nil }
+        beginSettingsWrite(writes)
+        return Task { _ = await self.runSettingsWrite(writes) }
     }
 
     /// Settings changes made while another action ran; written once it ends.
     @ObservationIgnored private var queuedSettings: [ConfigChange] = []
     /// True from a settings write's start until its probe and refresh are done.
     @ObservationIgnored private var isWritingSettings = false
+    /// The changes the current settings write is storing.
+    @ObservationIgnored private var inFlightSettings: [ConfigChange] = []
 
     private func queue(_ changes: [ConfigChange]) {
         for change in changes {
