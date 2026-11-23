@@ -351,7 +351,20 @@ public final class AppStore {
     @discardableResult
     public func applySettings(_ changes: [ConfigChange]) async -> ActionState? {
         guard !changes.isEmpty else { return nil }
+        // Another action is running: keep these and write them when it ends, so an edit
+        // committed on blur, leaving Settings or closing the panel is never dropped.
+        guard !isActing else { queuedSettings += changes; return nil }
         return await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+    }
+
+    /// Settings changes made while another action ran; written once it ends.
+    @ObservationIgnored private var queuedSettings: [ConfigChange] = []
+
+    private func applyQueuedSettings() async {
+        guard !queuedSettings.isEmpty, !isActing else { return }
+        let changes = queuedSettings
+        queuedSettings = []
+        await applySettings(changes)
     }
 
     /// Adds an account through the collector.
@@ -387,6 +400,7 @@ public final class AppStore {
         action = outcome
         await probeService()
         await refresh()
+        await applyQueuedSettings()
         return outcome
     }
 
@@ -418,7 +432,7 @@ public final class AppStore {
         phase = .ready
         revision += 1
         if recentOrderSnapshot == nil { snapshotRecentOrder() }
-        if !cached { pruneDetectionAcknowledgements() }
+        if !cached { pruneDetectionAcknowledgements(); clearStaleWarningAcknowledgement() }
         if !cached, let report { onSnapshotChange?(report) }
     }
 
@@ -530,6 +544,14 @@ public final class AppStore {
     public var warningsAcknowledged: Bool {
         let current = currentWarningSignature
         return !current.isEmpty && current == acknowledgedWarnings
+    }
+
+    /// An acknowledgement holds only while the live set stays that set: once it becomes
+    /// anything else (healthy included), it is forgotten, so a returning set warns again.
+    private func clearStaleWarningAcknowledgement() {
+        guard let acknowledged = acknowledgedWarnings, acknowledged != currentWarningSignature else { return }
+        acknowledgedWarnings = nil
+        preferences.set(nil as String?, forKey: PreferenceKey.acknowledgedWarnings)
     }
 
     /// Viewing the result popover or Monitoring acknowledges the warnings shown there.

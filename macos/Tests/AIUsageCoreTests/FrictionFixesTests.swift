@@ -78,4 +78,42 @@ final class FrictionFixesTests: XCTestCase {
         XCTAssertEqual(AppStore.warningSignature(report: nil, now: Date(), detections: [], refreshError: nil), "")
         XCTAssertEqual(AppStore.warningSignature(report: nil, now: Date(), detections: [], refreshError: "x"), "refresh")
     }
+
+    func testReturningWarningSetWarnsAgain() throws {
+        let preferences = InMemoryPreferences()
+        let stale = try staleReport(["claude"])
+        let subject = store(stale, preferences)
+        subject.acknowledgeWarnings()
+        XCTAssertTrue(subject.warningsAcknowledged)
+        var fresh = stale
+        fresh.set("claude") { p in for i in p.sources.indices { p.sources[i].status = .ok } }
+        subject.apply(fresh, cached: false)
+        subject.apply(stale, cached: false)
+        XCTAssertFalse(subject.warningsAcknowledged)
+        XCTAssertFalse(store(stale, preferences).warningsAcknowledged, "cleared across relaunch too")
+    }
+
+    func testPriceSavedWhileAnotherWriteRunsIsAppliedAfterIt() async throws {
+        let config = ReentrantConfig()
+        let subject = AppStore(environment: environment(), reporter: SpyReporter([.success(try fixture())]),
+                               collector: SpyCollector(), service: SpyService(), config: config)
+        let price = ConfigChange.monthlySubscription("claude", 20)
+        config.duringFirst = {
+            XCTAssertTrue(subject.isActing)
+            let result = await subject.applySettings([price])
+            XCTAssertNil(result, "queued, not run, while another write is in progress")
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)], [price]])
+        XCTAssertEqual(subject.action, .done("Settings saved"))
+    }
+}
+
+final class ReentrantConfig: ConfigWriting, @unchecked Sendable {
+    var applied: [[ConfigChange]] = []
+    var duringFirst: (@MainActor () async -> Void)?
+    func apply(_ changes: [ConfigChange]) async throws {
+        applied.append(changes)
+        if let hook = duringFirst { duringFirst = nil; await hook() }
+    }
 }
