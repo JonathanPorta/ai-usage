@@ -107,6 +107,50 @@ final class FrictionFixesTests: XCTestCase {
         XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)], [price]])
         XCTAssertEqual(subject.action, .done("Settings saved"))
     }
+
+    func testNewerEditDuringTheRefreshWinsOverAnOlderQueuedOne() async throws {
+        let config = ReentrantConfig()
+        let reporter = HookReporter(try fixture())
+        let subject = AppStore(environment: environment(), reporter: reporter,
+                               collector: SpyCollector(), service: SpyService(), config: config)
+        let older = ConfigChange.monthlySubscription("claude", 20)
+        let newer = ConfigChange.monthlySubscription("claude", 30)
+        config.duringFirst = { _ = await subject.applySettings([older]) }
+        reporter.during = {
+            XCTAssertFalse(subject.isActing, "the outcome is already published during the refresh")
+            _ = await subject.applySettings([newer])
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)], [newer]])
+        XCTAssertEqual(config.applied.last?.last, newer, "the latest edit is the stored value")
+    }
+
+    func testRecoveredRefreshErrorThatReturnsWarnsAgain() async throws {
+        let stale = try staleReport(["claude"])
+        let reporter = SpyReporter([.success(stale), .failure(Boom()), .success(stale), .failure(Boom())])
+        let subject = AppStore(environment: environment(), reporter: reporter, collector: SpyCollector(),
+                               clock: { stale.generatedAt }, preferences: InMemoryPreferences())
+        await subject.refresh()
+        await subject.refresh()
+        XCTAssertNotNil(subject.refreshError)
+        subject.acknowledgeWarnings()
+        XCTAssertTrue(subject.warningsAcknowledged)
+        await subject.refresh()
+        XCTAssertNil(subject.refreshError)
+        await subject.refresh()
+        XCTAssertNotNil(subject.refreshError)
+        XCTAssertFalse(subject.warningsAcknowledged)
+    }
+}
+
+final class HookReporter: ReportFetching, @unchecked Sendable {
+    let report: Report
+    var during: (@MainActor () async -> Void)?
+    init(_ report: Report) { self.report = report }
+    func fetch() async throws -> Report {
+        if let hook = during { during = nil; await hook() }
+        return report
+    }
 }
 
 final class ReentrantConfig: ConfigWriting, @unchecked Sendable {

@@ -42,7 +42,10 @@ public final class AppStore {
     public private(set) var snapshot: Report?
     public private(set) var phase: Phase = .loading
     /// Error from the most recent refresh, even when an older snapshot is still shown.
-    public private(set) var refreshError: String?
+    public private(set) var refreshError: String? {
+        // Part of the warning set: any change re-checks the acknowledgement.
+        didSet { if oldValue != refreshError { clearStaleWarningAcknowledgement() } }
+    }
     public private(set) var isRefreshing = false
     public private(set) var lastRefreshAt: Date?
     public private(set) var collect: CollectState = .idle
@@ -353,15 +356,30 @@ public final class AppStore {
         guard !changes.isEmpty else { return nil }
         // Another action is running: keep these and write them when it ends, so an edit
         // committed on blur, leaving Settings or closing the panel is never dropped.
-        guard !isActing else { queuedSettings += changes; return nil }
-        return await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+        // A settings write is busy until its probe and refresh end too, so settings
+        // writes stay in order; queued edits keep only the latest per setting.
+        guard !isActing, !isWritingSettings else { queue(changes); return nil }
+        isWritingSettings = true
+        let outcome = await perform("Saving settings…", success: "Settings saved") { try await self.config.apply(changes) }
+        isWritingSettings = false
+        await applyQueuedSettings()
+        return outcome
     }
 
     /// Settings changes made while another action ran; written once it ends.
     @ObservationIgnored private var queuedSettings: [ConfigChange] = []
+    /// True from a settings write's start until its probe and refresh are done.
+    @ObservationIgnored private var isWritingSettings = false
+
+    private func queue(_ changes: [ConfigChange]) {
+        for change in changes {
+            queuedSettings.removeAll { $0.settingKey == change.settingKey }
+            queuedSettings.append(change)
+        }
+    }
 
     private func applyQueuedSettings() async {
-        guard !queuedSettings.isEmpty, !isActing else { return }
+        guard !queuedSettings.isEmpty, !isActing, !isWritingSettings else { return }
         let changes = queuedSettings
         queuedSettings = []
         await applySettings(changes)
@@ -512,8 +530,11 @@ public final class AppStore {
 
     /// Keep history (or opening settings): hides the notice until its condition changes.
     public func acknowledgeDetection(_ notice: DetectionNotice) {
+        // Done from the details the user is looking at: what remains stays seen.
+        let wasSeen = warningsAcknowledged
         acknowledgedDetections.insert(notice.acknowledgementKey)
         preferences.set(acknowledgedDetections.sorted(), forKey: PreferenceKey.acknowledgedDetections)
+        if wasSeen { acknowledgeWarnings() } else { clearStaleWarningAcknowledgement() }
     }
 
     /// A stable key for the set of things that make the result indicator a warning:

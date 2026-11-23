@@ -116,6 +116,9 @@ public enum ConfigChange: Equatable, Sendable {
         provider.isAddedAccount ? .accountMonthlySubscription(provider.id, value) : .monthlySubscription(provider.id, value)
     }
 
+    /// The config key this change writes; two changes with the same key replace each other.
+    public var settingKey: Substring { assignment.prefix { $0 != "=" } }
+
     /// `KEY=JSON` for `ai_usage_service.py configure --set`.
     public var assignment: String {
         switch self {
