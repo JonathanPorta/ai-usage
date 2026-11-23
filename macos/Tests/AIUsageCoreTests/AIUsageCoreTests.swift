@@ -452,6 +452,27 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(NotificationPlanner.alerts(for: report, now: now, preferences: prefs, delivered: []).count, 1)
     }
 
+    func testABuiltInAndAnAddedAccountFailIndependently() throws {
+        var report = try fixture().adding(instance: "claude-az", copying: "claude", name: "Claude (work)")
+        let signIn = { (id: String) in CollectionState.Failure(provider: id, source: report.provider(id)!.sources[0].id,
+                                                               kind: "quota", at: nil, message: "", auth: true) }
+        report.collection.failures = [signIn("claude"), signIn("claude-az")]
+        let prefs = NotificationPreferences(limits: false, failures: true)
+        let alerts = NotificationPlanner.alerts(for: report, now: report.generatedAt, preferences: prefs, delivered: [])
+        XCTAssertEqual(alerts.map(\.title).sorted(), ["Claude (work) needs you to sign in", "Claude Code needs you to sign in"])
+        XCTAssertEqual(Set(alerts.map(\.key)).count, 2)
+        let delivered = Set(alerts.map(\.key))
+        // The added account recovers; the built-in still fails.
+        report.collection.failures = [signIn("claude")]
+        report.set("claude-az") { p in p.sources[0].status = .ok }
+        report.set("claude") { p in p.sources[0].status = .auth }
+        let rearmed = NotificationPlanner.rearmed(for: report, delivered: delivered)
+        XCTAssertEqual(rearmed, [NotificationPlanner.failureKey(signIn("claude-az"))])
+        XCTAssertTrue(NotificationPlanner.alerts(for: report, now: report.generatedAt, preferences: prefs,
+                                                 delivered: delivered.subtracting(rearmed)).isEmpty,
+                      "the built-in's standing failure doesn't repeat")
+    }
+
     func testDeliveredFailureKeysAreForgottenWhenTheyCanNeverMatchAgain() throws {
         var report = try fixture()
         let legacy = "failure|grok|billing|2026-09-29T16:17:00Z"

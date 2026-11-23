@@ -38,7 +38,12 @@ public final class NotificationScheduler {
     private let center: NotificationCenterClient
     private let store: DeliveredAlertStore
     /// Keys reserved by a report that has not finished submitting them.
-    public private(set) var inFlight: Set<String> = []
+    public var inFlight: Set<String> { Set(claims.keys) }
+    /// Each reservation's token: a recovery (`recover`) drops the reservation, so a
+    /// submission or prompt that completes afterwards can neither submit nor persist it,
+    /// nor release a newer reservation of the same key.
+    private var claims: [String: Int] = [:]
+    private var nextClaim = 0
     private var authorizing: Task<Bool, Never>?
 
     public init(center: NotificationCenterClient, store: DeliveredAlertStore) {
@@ -47,26 +52,42 @@ public final class NotificationScheduler {
     }
 
     public func schedule(_ alerts: [PlannedAlert]) async {
-        var claimed: [PlannedAlert] = []
-        for alert in alerts where !store.deliveredKeys.contains(alert.key) && !inFlight.contains(alert.key) {
-            inFlight.insert(alert.key)
-            claimed.append(alert)
+        var claimed: [(alert: PlannedAlert, token: Int)] = []
+        for alert in alerts where !store.deliveredKeys.contains(alert.key) && claims[alert.key] == nil {
+            nextClaim += 1
+            claims[alert.key] = nextClaim
+            claimed.append((alert, nextClaim))
         }
         guard !claimed.isEmpty else { return }
         guard await isAuthorized() else {
-            claimed.forEach { inFlight.remove($0.key) }
+            claimed.forEach { release($0.alert.key, $0.token) }
             return
         }
-        for alert in claimed {
-            defer { inFlight.remove(alert.key) }
-            guard !store.deliveredKeys.contains(alert.key) else { continue }
+        for (alert, token) in claimed {
+            defer { release(alert.key, token) }
+            // Recovered while waiting: this occurrence is over; never submit it now.
+            guard claims[alert.key] == token, !store.deliveredKeys.contains(alert.key) else { continue }
             do {
                 try await center.add(alert)
-                store.markDelivered(alert.key)
+                // Recovered during the submission: shown, but a later occurrence must notify.
+                if claims[alert.key] == token { store.markDelivered(alert.key) }
             } catch {
                 // Not persisted: the next report that still warrants it retries.
             }
         }
+    }
+
+    /// Applies a report's recoveries (NotificationPlanner.rearmed) to delivered keys and to
+    /// pending reservations alike, so the next occurrence of a recovered failure notifies.
+    public func recover(_ report: Report) {
+        let keys = NotificationPlanner.rearmed(for: report, delivered: store.deliveredKeys.union(claims.keys))
+        guard !keys.isEmpty else { return }
+        store.forget(keys.intersection(store.deliveredKeys))
+        for key in keys { claims[key] = nil }
+    }
+
+    private func release(_ key: String, _ token: Int) {
+        if claims[key] == token { claims[key] = nil }
     }
 
     private func isAuthorized() async -> Bool {

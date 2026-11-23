@@ -154,7 +154,8 @@ struct SettingsView: View {
                     } else {
                         SwitchRow(isOn: Binding(
                             get: { provider.enabled },
-                            set: { value in Task { await store.applySettings([.enabling(provider, value)]) } }
+                            set: { value in Task { await store.applySettings([DetailPresentation.trackingChange(
+                                provider, on: value, supportsPolicy: false)]) } }
                         ), title: provider.name,
                            subtitle: subtitle(provider, report: report))
                         .disabled(store.isActing)

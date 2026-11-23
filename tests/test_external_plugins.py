@@ -28,6 +28,8 @@ from unittest import mock
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "ai_usage_service.py"
 REPORT = REPO / "ai_usage_report.py"
+SERVICE_VERSION = next(line.split('"')[1] for line in SCRIPT.read_text(encoding="utf-8").splitlines()
+                       if line.startswith("VERSION = "))
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
@@ -713,7 +715,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(sorted(request), ["collected_at", "collector_version", "include_history", "protocol",
                                            "provider", "settings", "state"])
         self.assertEqual((request["protocol"], request["collector_version"], request["provider"]),
-                         (1, "2.4.0", "example"))
+                         (1, SERVICE_VERSION, "example"))
         self.assertEqual(request["settings"], {"record": str(self.box.records / "example.jsonl"), "region": "eu",
                                                "timeout_seconds": 10})
         self.assertEqual(request["state"], {})

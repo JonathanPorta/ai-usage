@@ -24,8 +24,7 @@ enum NotificationCenterBridge {
     }
 
     static func handle(_ report: Report, now: Date) {
-        let rearmed = NotificationPlanner.rearmed(for: report, delivered: store.deliveredKeys)
-        if !rearmed.isEmpty { store.forget(rearmed) }
+        scheduler.recover(report)
         let alerts = NotificationPlanner.alerts(for: report, now: now, preferences: preferences, delivered: store.deliveredKeys)
         guard !alerts.isEmpty else { return }
         // Both switches default to on, so permission is asked for the first time

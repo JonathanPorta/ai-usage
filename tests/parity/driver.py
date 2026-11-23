@@ -575,7 +575,7 @@ def golden_path(name: str) -> Path:
 # Phases 2 to 4 (tasks/phase-2/prd-provider-instances.md, tasks/phase-3/prd-private-plugins.md,
 # tasks/phase-4/prd-all-view.md) change the output on purpose, in exactly these places and nothing else. expected() applies
 # them to the unchanged golden files; the observed output is never normalized for them.
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 INTENTIONAL_CHANGES = {
     "report.collector.version": f"the collector version, {VERSION}",
     "report.collector.installed_version": f"{VERSION} when the golden file has one (the installed collector is this tree)",

@@ -98,14 +98,18 @@ final class FrictionFixesTests: XCTestCase {
         let subject = AppStore(environment: environment(), reporter: SpyReporter([.success(try fixture())]),
                                collector: SpyCollector(), service: SpyService(), config: config)
         let price = ConfigChange.monthlySubscription("claude", 20)
+        var queued: Task<AIUsageCore.AppStore.ActionState?, Never>?
         config.duringFirst = {
             XCTAssertTrue(subject.isActing)
-            let result = await subject.applySettings([price])
-            XCTAssertNil(result, "queued, not run, while another write is in progress")
+            // As a view does: the click starts a task, which queues and awaits its own write.
+            queued = Task { await subject.applySettings([price]) }
+            await yieldMany()
         }
         await subject.applySettings([.pollIntervalSeconds(1800)])
         XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)], [price]])
         XCTAssertEqual(subject.action, .done("Settings saved"))
+        let result = await queued?.value
+        XCTAssertEqual(result, .done("Settings saved"), "a queued write returns its own eventual outcome")
     }
 
     func testNewerEditDuringTheRefreshWinsOverAnOlderQueuedOne() async throws {
@@ -115,12 +119,18 @@ final class FrictionFixesTests: XCTestCase {
                                collector: SpyCollector(), service: SpyService(), config: config)
         let older = ConfigChange.monthlySubscription("claude", 20)
         let newer = ConfigChange.monthlySubscription("claude", 30)
-        config.duringFirst = { _ = await subject.applySettings([older]) }
+        var waits: [Task<AIUsageCore.AppStore.ActionState?, Never>] = []
+        config.duringFirst = { waits.append(Task { await subject.applySettings([older]) }); await yieldMany() }
         reporter.during = {
             XCTAssertFalse(subject.isActing, "the outcome is already published during the refresh")
-            _ = await subject.applySettings([newer])
+            waits.append(Task { await subject.applySettings([newer]) })
+            await yieldMany()
         }
         await subject.applySettings([.pollIntervalSeconds(1800)])
+        for wait in waits {
+            let outcome = await wait.value
+            XCTAssertEqual(outcome, .done("Settings saved"), "the replaced edit reports the write that replaced it")
+        }
         XCTAssertEqual(config.applied, [[.pollIntervalSeconds(1800)], [newer]])
         XCTAssertEqual(config.applied.last?.last, newer, "the latest edit is the stored value")
     }
@@ -198,8 +208,8 @@ final class FrictionFixesTests: XCTestCase {
         let store = AppStore(environment: environment(), reporter: SpyReporter([.success(try fixture())]),
                              collector: SpyCollector(), config: config)
         store.actionDoneDisplay = .milliseconds(50)
-        await store.applySettings([.pollIntervalSeconds(1800)])
-        XCTAssertEqual(store.action, .done("Settings saved"))
+        let saved = await store.applySettings([.pollIntervalSeconds(1800)])
+        XCTAssertEqual(saved, .done("Settings saved"))
         await store.actionDismissal?.value
         XCTAssertEqual(store.action, .idle, "a routine result doesn't linger on later screens")
 
@@ -228,6 +238,42 @@ final class FrictionFixesTests: XCTestCase {
         store.screenChanged()
         XCTAssertEqual(store.action, .failed("again"))
     }
+    // MARK: Queued save outcome (History "Turn on tracking", detail switch)
+
+    func testAQueuedSaveThatFailsReportsItsOwnFailure() async throws {
+        let config = FailingSecondConfig()
+        let reporter = HookReporter(try fixture())
+        let subject = AppStore(environment: environment(), reporter: reporter,
+                               collector: SpyCollector(), service: SpyService(), config: config)
+        let codex = try XCTUnwrap(subject.report?.provider("codex") ?? fixture().provider("codex"))
+        let change = DetailPresentation.trackingChange(codex, on: true, supportsPolicy: true)
+        var click: Task<AIUsageCore.AppStore.ActionState?, Never>?
+        reporter.during = {
+            // The earlier write published its outcome and is still refreshing: the button is enabled.
+            XCTAssertFalse(subject.isActing)
+            click = Task { await subject.applySettings([change]) }
+            await yieldMany()
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        let outcome = await click?.value
+        XCTAssertEqual(outcome, .failed("refused"), "the clicked write's own failure reaches the notice")
+        XCTAssertEqual(config.calls, 2)
+    }
+
+    func testADroppedQueuedEditReturnsNil() async throws {
+        let config = ReentrantConfig()
+        let subject = try await pricedStore(config)
+        var waiting: Task<AIUsageCore.AppStore.ActionState?, Never>?
+        config.duringFirst = {
+            waiting = Task { await subject.applySettings([.monthlySubscription("claude", 30)]) }
+            await yieldMany()
+            XCTAssertNil(subject.savePrices(["claude": "20"]), "back to the reported price drops the edit")
+        }
+        await subject.applySettings([.pollIntervalSeconds(1800)])
+        let outcome = await waiting?.value
+        XCTAssertNil(outcome, "never written: no outcome, and the caller is not left waiting")
+    }
+
     // MARK: History "Tracking is off"
 
     func testAutoNotDetectedIsNotTrackingOff() throws {
@@ -245,6 +291,9 @@ final class FrictionFixesTests: XCTestCase {
     }
 }
 
+@MainActor
+func yieldMany() async { for _ in 0..<50 { await Task.yield() } }
+
 final class HookReporter: ReportFetching, @unchecked Sendable {
     let report: Report
     var during: (@MainActor () async -> Void)?
@@ -261,5 +310,13 @@ final class ReentrantConfig: ConfigWriting, @unchecked Sendable {
     func apply(_ changes: [ConfigChange]) async throws {
         applied.append(changes)
         if let hook = duringFirst { duringFirst = nil; await hook() }
+    }
+}
+
+final class FailingSecondConfig: ConfigWriting, @unchecked Sendable {
+    var calls = 0
+    func apply(_ changes: [ConfigChange]) async throws {
+        calls += 1
+        if calls == 2 { throw ClientError.processFailed("refused") }
     }
 }

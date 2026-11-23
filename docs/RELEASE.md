@@ -24,7 +24,7 @@ updated: 2026-10-20
 
 - The app requires report schema `ai-usage/report/v1`. It refuses unknown major versions and shows a "report format not supported" state.
 - The app bundles its own copy of the reporting module. It needs only the collector's data files and the LaunchAgent plist, not a particular collector version, as long as the CSV header is unchanged.
-- Features that need the installed collector are gated on its `VERSION`, read from the script the plist names: pause and progress need 2.2.0, and added accounts (Settings › "Add Claude account…") need 2.3.0. The collector's own `instance add` enforces the same check.
+- Features that need the installed collector are gated on its `VERSION`, read from the script the plist names: pause and progress need 2.2.0, added accounts (Settings › "Add Claude account…") need 2.3.0, local plugins need 2.4.0, and the Auto/On/Off tracking policy with detection needs 2.5.0 (an older collector gets a plain On/Off switch; turning it on keeps a saved Auto). The collector's own `instance add` enforces the same check.
 
 ## Release checklist (local)
 

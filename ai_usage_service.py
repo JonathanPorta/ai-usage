@@ -84,7 +84,7 @@ from ai_usage_plugins.support import (  # noqa: E402  (re-exported: tests and fi
 )
 
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 PRODUCTION_SERVICE_LABEL = "codes.porta.ai-usage"
 TEST_SERVICE_LABEL_PREFIX = f"{PRODUCTION_SERVICE_LABEL}.test."
 
@@ -246,6 +246,9 @@ INSTANCE_KEYS = ("id", "plugin", "label", "settings")
 INSTANCES_MIN_VERSION = (2, 3, 0)
 # External plugins (phase 3) are collected by 2.4.0 and newer.
 EXTERNAL_PLUGINS_MIN_VERSION = (2, 4, 0)
+# The Auto/On/Off tracking policy and detection records (issue #8) are honoured by 2.5.0
+# and newer; 2.4.0 reads only `enabled` and collects every provider not disabled.
+TRACKING_POLICY_MIN_VERSION = (2, 5, 0)
 
 
 class Account:

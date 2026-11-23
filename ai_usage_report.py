@@ -912,6 +912,7 @@ def build_report(
     service = dict(service or {"state": "unknown", "pid": None, "detail": "service probe skipped"})
     service.setdefault("disabled", None)
     supports_pause = installed_version is not None and installed_version >= PAUSE_MIN_VERSION
+    supports_tracking = installed_version is not None and installed_version >= collector.TRACKING_POLICY_MIN_VERSION
     capabilities = {
         # Read from the installed collector's VERSION; older collectors ignore
         # poll_paused and have no `once --progress`.
@@ -925,10 +926,9 @@ def build_report(
         "external_plugins": installed_version is not None
         and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION,
         # Providers always carry tracking, tracking_effective, detection and last_activity_at;
-        # this says the installed collector honours Auto/On/Off and records detection. Set
-        # below from its state file: a collector that predates the policy (same VERSION
-        # 2.4.0) writes no tracking records, so its Auto collects as On, detection unknown.
-        "tracking_policy": False,
+        # this says the installed collector (2.5.0 and newer) honours Auto/On/Off and records
+        # detection. An older one reads only `enabled`: its Auto collects as On.
+        "tracking_policy": supports_tracking,
     }
     pause_requested = config.get("poll_paused") is True
 
@@ -969,10 +969,10 @@ def build_report(
     except (OSError, ValueError):
         collector_state = {}
     recorded_tracking = collector_state.get(collector.TRACKING_STATE_KEY)
-    has_records = isinstance(recorded_tracking, dict)
-    capabilities["tracking_policy"] = has_records and installed_version is not None \
-        and installed_version >= collector.EXTERNAL_PLUGINS_MIN_VERSION
-    recorded_tracking = recorded_tracking if isinstance(recorded_tracking, dict) else {}
+    # An older installed collector never reads these: records a newer one left behind
+    # (after a rollback) describe nothing it does.
+    has_records = supports_tracking and isinstance(recorded_tracking, dict)
+    recorded_tracking = recorded_tracking if has_records else {}
     account_by_id = {account.id: account for account in collector.accounts(config, discovery)}
     billed = {row.provider for row in scan.billing}
     tracking: dict[str, dict[str, Any]] = {}

@@ -355,7 +355,9 @@ public final class AppStore {
         }
     }
 
-    /// Returns how the save ended; nil when it did not run (nothing to save, or another action was running).
+    /// Returns how the save ended. Changes queued behind another action return the outcome
+    /// of the write that eventually stores them (or of a newer edit of the same setting that
+    /// replaced them); nil only when nothing was saved (no changes, or the edit was dropped).
     @discardableResult
     public func applySettings(_ changes: [ConfigChange]) async -> ActionState? {
         guard !changes.isEmpty else { return nil }
@@ -363,9 +365,32 @@ public final class AppStore {
         // committed on blur, leaving Settings or closing the panel is never dropped.
         // A settings write is busy until its probe and refresh end too, so settings
         // writes stay in order; queued edits keep only the latest per setting.
-        guard !isActing, !isWritingSettings else { queue(changes); return nil }
+        guard !isActing, !isWritingSettings else {
+            queue(changes)
+            return await queuedOutcome(changes)
+        }
         beginSettingsWrite(changes)
-        return await runSettingsWrite(changes)
+        if let outcome = await runSettingsWrite(changes) { return outcome }
+        // Another action started first: they were queued; wait for their write.
+        return await queuedOutcome(changes)
+    }
+
+    /// Callers waiting for queued changes, by setting key.
+    @ObservationIgnored private var settingsWaiters: [(keys: Set<String>, resume: CheckedContinuation<ActionState?, Never>)] = []
+
+    private func queuedOutcome(_ changes: [ConfigChange]) async -> ActionState? {
+        let keys = Set(changes.map { String($0.settingKey) })
+        // Already written meanwhile (nothing of these left in the queue): nothing to wait for.
+        guard queuedSettings.contains(where: { keys.contains(String($0.settingKey)) }) else { return nil }
+        return await withCheckedContinuation { settingsWaiters.append((keys, $0)) }
+    }
+
+    /// Resumes waiters with no queued change left (their edit was dropped).
+    private func releaseDroppedWaiters() {
+        let queued = Set(queuedSettings.map { String($0.settingKey) })
+        let dropped = settingsWaiters.filter { $0.keys.isDisjoint(with: queued) }
+        settingsWaiters.removeAll { $0.keys.isDisjoint(with: queued) }
+        dropped.forEach { $0.resume.resume(returning: nil) }
     }
 
     private var isSettingsBusy: Bool { isActing || isWritingSettings }
@@ -408,6 +433,7 @@ public final class AppStore {
             if isSettingsBusy, change == reported, inFlight == nil {
                 // Back to what is stored and nothing else is being written: drop the edit.
                 queuedSettings.removeAll { $0.settingKey == key }
+                releaseDroppedWaiters()
                 continue
             }
             writes.append(change)
@@ -436,7 +462,16 @@ public final class AppStore {
         guard !queuedSettings.isEmpty, !isActing, !isWritingSettings else { return }
         let changes = queuedSettings
         queuedSettings = []
-        await applySettings(changes)
+        // The callers waiting on these are answered by this write's outcome.
+        let keys = Set(changes.map { String($0.settingKey) })
+        let bound = settingsWaiters.filter { !$0.keys.isDisjoint(with: keys) }
+        settingsWaiters.removeAll { !$0.keys.isDisjoint(with: keys) }
+        beginSettingsWrite(changes)
+        if let outcome = await runSettingsWrite(changes) {
+            bound.forEach { $0.resume.resume(returning: outcome) }
+        } else {
+            settingsWaiters += bound  // re-queued behind another action: still waiting
+        }
     }
 
     /// Adds an account through the collector.

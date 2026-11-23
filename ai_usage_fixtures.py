@@ -436,13 +436,6 @@ def write_sandbox(root: Path, now: float, *, interval: int = 3600, second_accoun
         config["providers"][LOCAL_PLUGIN] = {"enabled": True}
     config_path = root / "config.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    # A current collector records tracking state; one that predates the policy writes
-    # none, and the report then says it has no tracking policy. Every account here has
-    # an explicit choice, so an empty record changes nothing else.
-    state_path = collector.state_path_for(collector.load_config(config_path))
-    state = collector.load_state(state_path) if state_path.exists() else {}
-    state.setdefault(collector.TRACKING_STATE_KEY, {})
-    collector.save_state(state_path, state)
     fixture_rows(now, second_account, local_plugin, scenario).write(data / "usage.csv")
     last_check = max(collector_check_times(data / "usage.csv"))
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_check))

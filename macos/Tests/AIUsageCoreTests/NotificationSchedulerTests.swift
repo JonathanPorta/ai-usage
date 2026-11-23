@@ -75,6 +75,90 @@ private func settle(until condition: () -> Bool) async {
 final class NotificationSchedulerTests: XCTestCase {
     private let limit = PlannedAlert(key: "limit|codex|weekly|2026-10-07", title: "Codex weekly limit reached", body: "Resets Tue 21:28.")
 
+    // MARK: Recovery while an alert is pending
+
+    private func failingAndRecovered() throws -> (failing: Report, recovered: Report) {
+        let failing = try fixture()
+        var recovered = failing
+        recovered.collection.failures = []
+        recovered.set("grok") { p in p.sources[1].status = .ok }
+        return (failing, recovered)
+    }
+
+    private func plan(_ report: Report, _ store: MemoryDeliveredStore) -> [PlannedAlert] {
+        NotificationPlanner.alerts(for: report, now: report.generatedAt,
+                                   preferences: .init(limits: false, failures: true), delivered: store.deliveredKeys)
+    }
+
+    func testRecoveryWhilePromptIsHeldLetsTheNextOccurrenceNotifyOnce() async throws {
+        let (failing, recovered) = try failingAndRecovered()
+        let center = FakeNotificationCenter()
+        let store = MemoryDeliveredStore()
+        let scheduler = NotificationScheduler(center: center, store: store)
+        center.holdAuthorization = true
+        let key = try XCTUnwrap(plan(failing, store).first).key
+        let first = Task { await scheduler.schedule(self.plan(failing, store)) }
+        await settle(until: { center.pendingAuthorizations > 0 })
+        scheduler.recover(recovered)
+        XCTAssertFalse(scheduler.inFlight.contains(key), "recovery drops the pending reservation")
+        let recurrence = plan(failing, store)
+        XCTAssertEqual(recurrence.map(\.key), [key])
+        let second = Task { await scheduler.schedule(recurrence) }
+        await settle(until: { false })
+        center.answerPrompt(grant: true)
+        await first.value
+        await second.value
+        XCTAssertEqual(center.submitted, [key], "the stale occurrence is never submitted; the new one once")
+        XCTAssertEqual(store.writes, [key])
+        // Standing again: no repeat.
+        scheduler.recover(failing)
+        XCTAssertTrue(plan(failing, store).isEmpty)
+    }
+
+    func testRecoveryDuringASubmissionDoesNotMarkTheNextOccurrenceDelivered() async throws {
+        let (failing, recovered) = try failingAndRecovered()
+        let center = FakeNotificationCenter()
+        center.status = .authorized
+        center.holdSubmissions = true
+        let store = MemoryDeliveredStore()
+        let scheduler = NotificationScheduler(center: center, store: store)
+        let key = try XCTUnwrap(plan(failing, store).first).key
+        let first = Task { await scheduler.schedule(self.plan(failing, store)) }
+        await settle(until: { center.pendingSubmissions > 0 })
+        scheduler.recover(recovered)
+        center.completeSubmissions()
+        await first.value
+        XCTAssertTrue(store.writes.isEmpty, "a completion from before the recovery persists nothing")
+        // The failure comes back: it notifies, exactly once.
+        let second = Task { await scheduler.schedule(self.plan(failing, store)) }
+        await settle(until: { center.pendingSubmissions > 0 })
+        let overlapping = Task { await scheduler.schedule(self.plan(failing, store)) }
+        await settle(until: { false })
+        center.completeSubmissions()
+        await second.value
+        await overlapping.value
+        XCTAssertEqual(center.submitted, [key, key], "the earlier occurrence, then the new one once")
+        XCTAssertEqual(store.writes, [key])
+        XCTAssertTrue(plan(failing, store).isEmpty)
+    }
+
+    // Recovery after delivery forgets the key; a recovery during a later in-flight
+    // occurrence of a different key leaves it alone.
+    func testRecoveryLeavesOtherPendingAlertsAlone() async throws {
+        let (_, recovered) = try failingAndRecovered()
+        let center = FakeNotificationCenter()
+        center.holdAuthorization = true
+        let store = MemoryDeliveredStore()
+        let scheduler = NotificationScheduler(center: center, store: store)
+        let task = Task { await scheduler.schedule([self.limit]) }
+        await settle(until: { center.pendingAuthorizations > 0 })
+        scheduler.recover(recovered)
+        XCTAssertEqual(scheduler.inFlight, [limit.key])
+        center.answerPrompt(grant: true)
+        await task.value
+        XCTAssertEqual(store.writes, [limit.key])
+    }
+
     func testOverlappingReportsWhileAuthorizationIsPendingSubmitOnce() async {
         let center = FakeNotificationCenter()
         let store = MemoryDeliveredStore()

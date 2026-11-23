@@ -411,26 +411,63 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(provider(newer, "claude")["tracking_effective"], "pending")
         self.assertIs(provider(newer, "claude")["enabled"], False)
 
-    def test_tracking_policy_capability_follows_the_collectors_records(self) -> None:
-        # A collector that predates the policy (also VERSION 2.4.0) writes no tracking
-        # records: its Auto collects as On and detection is never known, so the app must
-        # not offer Auto/On/Off or say "Detection unknown" on every row.
-        self.box.set("claude", tracking="auto")
-        older = self.box.build({"history_date": "2026-09-29"})
-        self.assertIs(older["collector"]["capabilities"]["tracking_policy"], False)
-        self.assertEqual(provider(older, "claude")["tracking_effective"], "active")
-        empty = self.box.build({"history_date": "2026-09-29", "tracking": {}})
-        self.assertIs(empty["collector"]["capabilities"]["tracking_policy"], True,
-                      "a collector that records tracking, even with no accounts yet")
-        newer = self.box.build(self.record(claude={"effective": "active", "installed": True}))
-        self.assertIs(newer["collector"]["capabilities"]["tracking_policy"], True)
+    def build_for(self, version: Optional[tuple[int, int, int]], state: Optional[dict[str, Any]]) -> dict[str, Any]:
         config = self.box.config()
-        for version in (None, (2, 3, 0)):
-            built = report.build_report(config, config_path=self.box.config_path, now=NOW,
-                                        service={"state": "running", "pid": 1, "disabled": False, "detail": ""},
-                                        installed_version=version)
-            self.assertIs(built["collector"]["capabilities"]["tracking_policy"], False,
-                          f"records left by a newer collector don't count for {version}")
+        path = collector.state_path_for(config)
+        if path.exists():
+            path.unlink()
+        if state is not None:
+            collector.save_state(path, state)
+        if not self.box.csv.exists():
+            self.box.write_csv([])
+        return report.build_report(config, config_path=self.box.config_path, now=NOW,
+                                   service={"state": "running", "pid": 1, "disabled": False, "detail": ""},
+                                   installed_version=version)
+
+    def test_tracking_policy_capability_is_the_installed_collectors_version(self) -> None:
+        # Pre-policy collectors also said 2.4.0 before 2.5.0 existed; records never decide.
+        self.box.set("claude", tracking="auto")
+        self.box.set("codex", tracking="off")
+        left_behind = self.record(claude={"effective": "inactive", "installed": False, "last_observed": "inactive"})
+        for version in (None, (2, 3, 0), (2, 4, 0)):
+            for state in (None, {"history_date": "2026-09-29"}, left_behind):
+                with self.subTest(version=version, records=state is not None and "tracking" in state):
+                    built = self.build_for(version, state)
+                    self.assertIs(built["collector"]["capabilities"]["tracking_policy"], False)
+                    claude = provider(built, "claude")
+                    self.assertEqual(claude["tracking"], "auto", "the saved choice is reported as is")
+                    self.assertEqual(claude["tracking_effective"], "active", "an older collector collects Auto")
+                    self.assertIs(claude["enabled"], True)
+                    self.assertIsNone(claude["detection"]["installed"], "left-behind records are not read")
+                    self.assertEqual(provider(built, "codex")["tracking_effective"], "inactive")
+                    self.assertNotIn("tracking is Auto", claude["setup_note"] or "",
+                                     "never says Auto left a CLI uncollected for an older collector")
+        current = tuple(int(p) for p in collector.VERSION.split("."))
+        self.assertGreaterEqual(current, collector.TRACKING_POLICY_MIN_VERSION)
+        for state in (None, {"history_date": "2026-09-29"}, left_behind):
+            with self.subTest(version=current, records=state is not None and "tracking" in state):
+                built = self.build_for(current, state)
+                self.assertIs(built["collector"]["capabilities"]["tracking_policy"], True,
+                              "supported with or without records (a collector that hasn't run yet)")
+        self.assertEqual(provider(self.build_for(current, left_behind), "claude")["tracking_effective"], "inactive")
+        self.assertEqual(provider(self.build_for(current, {"history_date": "2026-09-29"}), "claude")
+                         ["tracking_effective"], "active", "no records at all: collected as before")
+
+    def test_legacy_switch_writes_keep_a_saved_auto_for_an_older_collector(self) -> None:
+        # What the app's switch writes when tracking_policy is false (DetailPresentation.trackingChange).
+        self.box.set("claude", tracking="auto")
+        path = self.box.config_path
+        def saved() -> dict[str, Any]:
+            return json.loads(path.read_text(encoding="utf-8"))["providers"]["claude"]
+        collector.configure(path, ['providers.claude.tracking="auto"'])  # switch On over a saved Auto
+        self.assertEqual(saved()["tracking"], "auto")
+        self.assertNotIn("enabled", saved(), "2.4.0 treats a missing `enabled` as on: collected")
+        built = self.build_for((2, 4, 0), None)
+        self.assertIs(provider(built, "claude")["enabled"], True)
+        self.assertEqual(provider(built, "claude")["tracking"], "auto")
+        collector.configure(path, ['providers.claude.tracking="off"'])  # switch Off
+        self.assertEqual(saved()["tracking"], "off")
+        self.assertIs(saved()["enabled"], False, "2.4.0 reads `enabled`: not collected")
 
     def test_policy_changed_since_the_record_uses_the_last_observation(self) -> None:
         self.box.set("claude", tracking="auto")
