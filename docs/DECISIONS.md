@@ -147,7 +147,7 @@ routine choice made within the approved scope; change it freely with a new entry
   - The daemon keeps running, and an in-flight check finishes. Later scheduled checks are skipped.
   - `once` (Collect now) and event-driven collection (the Antigravity status line) are unaffected.
 - **Resume:** clears `poll_paused`. The next check comes one configured interval after the daemon notices the change.
-- **Quitting the app** changes nothing about the collector or its schedule. The app's open-at-login (SMAppService) is a separate preference.
+- **Quitting the app** changes nothing about the collector or its schedule. The app's open-at-login (SMAppService) is a separate preference. The login item is keyed by bundle identifier, and any copy of the app that reads `SMAppService.mainApp.status` re-points it at itself, so offscreen and sandbox runs never call SMAppService and the app is installed to `~/Applications/AI Usage.app` with `make app-install`.
 
 ## 2026-10-05 — How pause reaches a running daemon (engineering)
 **Choice:**

@@ -266,8 +266,15 @@ the collector.
 make app-build          # macos/build/AI Usage.app (ad-hoc signed, local use)
 make app-run            # launch against the installed collector
 make app-run-sandbox    # launch against an isolated synthetic sandbox
+make app-install        # copy the build to ~/Applications/AI Usage.app and relaunch it
 make report             # print the JSON report for ~/.ai-usage (read-only)
 ```
+
+`make app-install` copies the built bundle to `~/Applications/AI Usage.app` (override with
+`APP_INSTALL_DEST`), keeps one `.previous` copy for rollback, and stops only a running copy at that
+destination. "Open at login" should point at that installed copy: running a development build with
+`make app-run` and opening its Settings moves the login item to that build; reopening Settings in the
+installed app moves it back.
 
 Design and specs:
 
