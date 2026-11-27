@@ -18,7 +18,7 @@ TRUST_STORE ?= release-trusted-keys.json
 CANDIDATE_ARCHIVE = ai-usage_$(APP_VERSION)_arm64.app.tar.gz
 
 .PHONY: help test check spec-check design-check design-build design-build-check \
-	report report-sandbox sandbox fixture fixture-check app-build app-test app-run app-run-sandbox app-snapshot app-snapshot-check app-snapshot-live launchd-integration-check \
+	report report-sandbox sandbox fixture fixture-check app-build app-install app-test app-run app-run-sandbox app-snapshot app-snapshot-check app-snapshot-live launchd-integration-check \
 	sync-scripts verify-scripts version-check release-plan-check release-build release-assemble \
 	release-sign release-validate release release-check publish
 
@@ -38,6 +38,7 @@ help: ## List supported commands
 		'make fixture-check       Fail when the committed app fixture is out of date' \
 		'make app-test            Swift unit tests (store, decoding, presentation)' \
 		'make app-build           Build macos/build/AI Usage.app (ad-hoc signed)' \
+		'make app-install         Build and install to ~/Applications (APP_INSTALL_DEST overrides)' \
 		'make app-run             Build and launch against the installed collector' \
 		'make app-run-sandbox     Build and launch against the isolated synthetic sandbox' \
 		'make app-snapshot        Render fixture screens (light/dark, 420 pt, short) to SNAPSHOT_DIR' \
@@ -57,7 +58,7 @@ check: ## Compile supported Python sources and run tests
 	$(PYTHON) -m py_compile ai_usage_service.py ai_usage_report.py ai_usage_fixtures.py \
 		test_ai_usage_service.py test_ai_usage_report.py macos/scripts/generate_design_tokens.py \
 		scripts/launchd_integration_check.py tests/parity/driver.py tests/parity/child.py tests/parity/test_parity.py \
-		tests/test_plugin_architecture.py tests/test_install_lifecycle.py tests/test_external_plugins.py \
+		tests/test_plugin_architecture.py tests/test_install_lifecycle.py tests/test_external_plugins.py tests/test_install_app.py \
 		scripts/check_app_bundle.py \
 		ai_usage_plugins/*.py
 	$(MAKE) test
@@ -98,6 +99,9 @@ app-test: ## Swift unit tests for the macOS app core, plus an isolated sandbox e
 app-build: ## Assemble and ad-hoc sign macos/build/AI Usage.app, then check its bundled collector
 	bash macos/scripts/build_app.sh
 	$(PYTHON) scripts/check_app_bundle.py "$(APP)"
+
+app-install: app-build ## Install the built app to ~/Applications/AI Usage.app (keeps one .previous copy)
+	bash macos/scripts/install_app.sh "$(APP)"
 
 app-run: app-build ## Launch the app against the installed collector (reads ~/.ai-usage)
 	-@pkill -x AIUsage 2>/dev/null; true

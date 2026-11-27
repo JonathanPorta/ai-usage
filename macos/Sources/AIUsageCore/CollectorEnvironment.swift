@@ -95,3 +95,17 @@ public struct CollectorEnvironment: Equatable, Sendable {
         )
     }
 }
+
+/// How this run may treat the menu app's login item. Reading
+/// SMAppService.mainApp.status re-points the login item at the running copy, so
+/// offscreen renders and sandbox runs (AI_USAGE_SERVICE=skip, the same signal that
+/// keeps them off the real launchd domain) must never touch it.
+public enum LoginItemPolicy {
+    public enum Mode: Equatable { case managed, offscreenFixture, unavailable }
+
+    public static func mode(arguments: [String], environment: [String: String]) -> Mode {
+        if arguments.contains("--snapshot") || arguments.contains("--measure") { return .offscreenFixture }
+        if environment["AI_USAGE_SERVICE"] == "skip" { return .unavailable }
+        return .managed
+    }
+}

@@ -335,10 +335,21 @@ struct SettingsView: View {
 
 /// The menu app's own login item (SMAppService), separate from the collector's LaunchAgent.
 enum LoginItem {
-    static var status: SMAppService.Status { SMAppService.mainApp.status }
+    static let mode = LoginItemPolicy.mode(arguments: CommandLine.arguments,
+                                           environment: ProcessInfo.processInfo.environment)
+
+    static var status: SMAppService.Status {
+        switch mode {
+        case .managed: return SMAppService.mainApp.status
+        // A fixed value keeps renders machine-independent and matches the accepted reference images.
+        case .offscreenFixture: return .enabled
+        case .unavailable: return .notRegistered
+        }
+    }
 
     /// Returns an error message, or nil on success.
     static func set(_ enabled: Bool) -> String? {
+        guard mode == .managed else { return "Open at login is only available in the installed app." }
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             return nil
