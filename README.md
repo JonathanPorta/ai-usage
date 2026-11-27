@@ -272,9 +272,10 @@ make report             # print the JSON report for ~/.ai-usage (read-only)
 
 `make app-install` copies the built bundle to `~/Applications/AI Usage.app` (override with
 `APP_INSTALL_DEST`), keeps one `.previous` copy for rollback, and stops only a running copy at that
-destination. "Open at login" should point at that installed copy: running a development build with
-`make app-run` and opening its Settings moves the login item to that build; reopening Settings in the
-installed app moves it back.
+destination. It stages and verifies the new copy before touching the installed one, and refuses to
+launch while another copy is running unless that copy is named with `APP_INSTALL_PREVIOUS=<bundle path>`.
+Only a copy installed in `/Applications` or `~/Applications` manages "Open at login"; development and
+test copies never touch it.
 
 Design and specs:
 

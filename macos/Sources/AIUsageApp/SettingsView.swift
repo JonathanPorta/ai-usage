@@ -311,6 +311,7 @@ struct SettingsView: View {
                     loginStatus = LoginItem.status
                 }
             ), title: "Open AI Usage at login")
+            .disabled(LoginItem.mode == .unavailable)
             if loginStatus == .requiresApproval {
                 Text("Approve AI Usage in System Settings › General › Login Items.").font(.auCaption)
                     .foregroundStyle(T.Color.warning.color)
@@ -336,7 +337,9 @@ struct SettingsView: View {
 /// The menu app's own login item (SMAppService), separate from the collector's LaunchAgent.
 enum LoginItem {
     static let mode = LoginItemPolicy.mode(arguments: CommandLine.arguments,
-                                           environment: ProcessInfo.processInfo.environment)
+                                           environment: ProcessInfo.processInfo.environment,
+                                           bundlePath: Bundle.main.bundlePath,
+                                           homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path)
 
     static var status: SMAppService.Status {
         switch mode {
@@ -349,7 +352,7 @@ enum LoginItem {
 
     /// Returns an error message, or nil on success.
     static func set(_ enabled: Bool) -> String? {
-        guard mode == .managed else { return "Open at login is only available in the installed app." }
+        guard mode == .managed else { return "Open at login is available only when AI Usage is installed in Applications." }
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             return nil

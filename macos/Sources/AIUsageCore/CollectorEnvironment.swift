@@ -103,9 +103,18 @@ public struct CollectorEnvironment: Equatable, Sendable {
 public enum LoginItemPolicy {
     public enum Mode: Equatable { case managed, offscreenFixture, unavailable }
 
-    public static func mode(arguments: [String], environment: [String: String]) -> Mode {
+    /// Only a copy installed directly in /Applications or ~/Applications is managed;
+    /// development and test copies never touch the login item.
+    public static func mode(arguments: [String], environment: [String: String],
+                            bundlePath: String, homeDirectory: String) -> Mode {
         if arguments.contains("--snapshot") || arguments.contains("--measure") { return .offscreenFixture }
         if environment["AI_USAGE_SERVICE"] == "skip" { return .unavailable }
-        return .managed
+        func resolved(_ path: String) -> String {
+            URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let parent = resolved(URL(fileURLWithPath: bundlePath).deletingLastPathComponent().path)
+        let installed = [resolved("/Applications"),
+                         resolved(URL(fileURLWithPath: homeDirectory).appendingPathComponent("Applications").path)]
+        return installed.contains(parent) ? .managed : .unavailable
     }
 }
