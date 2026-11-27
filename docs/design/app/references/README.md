@@ -143,7 +143,7 @@ crowds the range selector in Antigravity's quota view
 (`history-quota-*.png`). Accepted as is; tracked as deferred polish, not a new
 design round.
 
-## Full-row disclosures (pending owner acceptance, 2026-11-22)
+## Full-row disclosures (accepted by the owner, 2026-11-22)
 
 Every disclosure (Monitoring "Details", "Inactive", "Technical details"; "Chart key";
 "Sources and diagnostics"; History "About these numbers") now uses the shared
@@ -152,7 +152,7 @@ app. 98 images (49 views × light/dark: Monitoring, detail, History and their th
 variants) were re-rendered with `make app-snapshot` and replace the previous baselines;
 `SHA256SUMS` regenerated. Overview and Settings renders are unchanged.
 
-## Settings without "Detection unknown" (pending owner acceptance, 2026-11-22)
+## Settings without "Detection unknown" (accepted by the owner, 2026-11-22)
 
 Settings no longer writes "Detection unknown" under a provider when the collector has
 recorded nothing about detection; the row shows only what is known ("Installed", "Not
@@ -162,7 +162,7 @@ that line and their rows move up.
 They were re-rendered with `make app-snapshot` and replace the previous baselines;
 `SHA256SUMS` updated for those 18 files. No other render changed.
 
-## Collector 2.5.0 in Settings (pending owner acceptance, 2026-11-22)
+## Collector 2.5.0 in Settings (accepted by the owner, 2026-11-22)
 
 The collector's `VERSION` became 2.5.0 (the version that identifies the tracking policy),
 so the fixtures report 2.5.0 and Settings' "This app" line reads "Collector installed:

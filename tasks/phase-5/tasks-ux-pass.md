@@ -208,7 +208,7 @@
     agent-observed.
   - Installed (2026-11-22 16:10 MST): the owner approved installing; a build of 48cda57 runs as the menu-bar app
     from a pinned clone. The collector is unchanged, so tracking "Auto" behaves as "On" until the collector is
-    updated. No release is published.
+    updated. No release is published. Superseded 2026-11-22/24: the app was reinstalled from main 3eddfa8 (21:13 MST) and the collector updated to 2.5.0 (2026-11-24); see the session state.
   - Not exercised by anyone on record: tracking back On via the UI, the invalid-theme notice, light mode, the
     in-progress header state, scrolled detail. Slices 2.0, 3.0 and 4.0 stay `[~]` because their acceptance depends
     on those items (busy feedback, scrolled reset chip, invalid-theme and light-mode behavior); 1.0 stays unchecked
